@@ -1,12 +1,11 @@
-local TEAM_NAME      = "Marines"  -- Marines / Pirates
-local TARGET_RACE    = "Human"     -- Human/Mink/Fishman/Skypiea
-local key = ""  -- nhập key
-local CHECK_INTERVAL = 3
+local TEAM_NAME = getgenv().TEAM_NAME
+local TARGET_RACE = getgenv().TARGET_RACE
+local key = getgenv().KEY
+local CHECK_INTERVAL = getgenv().CHECK_INTERVAL
 
-
-local FRAG_ROLL_RACE = 10000
-local FRAG_PULL = 50000
-local ENABLE_ROLL_RACE = false
+local FRAG_ROLL_RACE = getgenv().FRAG_ROLL_RACE
+local FRAG_PULL = getgenv().FRAG_PULL
+local ENABLE_ROLL_RACE = getgenv().ENABLE_ROLL_RACE
 
 local function SCRIPT_A(race, key)
 	getgenv().Config = {
