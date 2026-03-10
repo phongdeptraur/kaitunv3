@@ -1,11 +1,14 @@
-local TEAM_NAME      = "Marines"  -- Marines / Pirates
-local TARGET_RACE    = "Human"     -- Human/Mink/Fishman/Skypiea
-local CHECK_INTERVAL = 3
-local Banana_key     = "ccecfc5613f53c21005e7350"
+local Config = getgenv().Config
+assert(Config, "Config not found. Please run the loader.")
 
-local FRAG_ROLL_RACE = 10000
-local FRAG_PULL = 50000
-local ENABLE_ROLL_RACE = false
+local TEAM_NAME      = Config.TEAM_NAME
+local TARGET_RACE    = Config.TARGET_RACE
+local CHECK_INTERVAL = Config.CHECK_INTERVAL
+local Banana_key     = Config.Banana_key
+
+local FRAG_ROLL_RACE = Config.FRAG_ROLL_RACE
+local FRAG_PULL      = Config.FRAG_PULL
+local ENABLE_ROLL_RACE = Config.ENABLE_ROLL_RACE
 
 local function SCRIPT_A(race, key)
 	getgenv().Config = {
