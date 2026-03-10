@@ -1,6 +1,6 @@
 local TEAM_NAME      = "Marines"  -- Marines / Pirates
 local TARGET_RACE    = "Human"     -- Human/Mink/Fishman/Skypiea
-
+local key = ""  -- nhập key
 local CHECK_INTERVAL = 3
 
 
@@ -350,7 +350,7 @@ local function SCRIPT_A(race, key)
 	["Select Team"] = "Pirate"
 }
 repeat wait() until game:IsLoaded() and game.Players.LocalPlayer 
-getgenv().Key = "db3535e2c1bc507b8b94a5cd" 
+getgenv().Key = key
 loadstring(game:HttpGet("https://raw.githubusercontent.com/obiiyeuem/vthangsitink/main/BananaHub.lua"))()
 end
 
@@ -643,7 +643,7 @@ task.spawn(function()
 	["Hop Server Find Boss"] = false
 }
 repeat wait() until game:IsLoaded() and game.Players.LocalPlayer 
-getgenv().Key = "" 
+getgenv().Key = key
 loadstring(game:HttpGet("https://raw.githubusercontent.com/obiiyeuem/vthangsitink/main/BananaHub.lua"))()
     end)
 
@@ -1168,7 +1168,7 @@ else
     warn("[PLACE] Valid PlaceId =", currentPlaceId, "-> skip Script A")
 end
 wait(10)
-getgenv().Key = ""
+getgenv().Key = key
 loadstring(game:HttpGet("https://raw.githubusercontent.com/obiiyeuem/vthangsitink/main/BananaHub.lua"))() 
 
 end
