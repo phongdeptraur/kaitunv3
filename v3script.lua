@@ -1,11 +1,13 @@
-local TEAM_NAME = getgenv().TEAM_NAME
-local TARGET_RACE = getgenv().TARGET_RACE
-local key = getgenv().KEY
-local CHECK_INTERVAL = getgenv().CHECK_INTERVAL
+local cfg = getgenv().CONFIG
 
-local FRAG_ROLL_RACE = getgenv().FRAG_ROLL_RACE
-local FRAG_PULL = getgenv().FRAG_PULL
-local ENABLE_ROLL_RACE = getgenv().ENABLE_ROLL_RACE
+local TEAM_NAME = cfg.TEAM_NAME
+local TARGET_RACE = cfg.TARGET_RACE
+local key = cfg.Key
+local CHECK_INTERVAL = cfg.CHECK_INTERVAL
+
+local FRAG_ROLL_RACE = cfg.FRAG_ROLL_RACE
+local FRAG_PULL = cfg.FRAG_PULL
+local ENABLE_ROLL_RACE = cfg.ENABLE_ROLL_RACE
 
 local function SCRIPT_A(race, key)
 	getgenv().Config = {
