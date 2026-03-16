@@ -1,9 +1,9 @@
-local TEAM_NAME = "Pirates"
-local CHECK_INTERVAL   = 2
-local FRAG_GET_CYBORG  = 13000
-local FRAG_LOW_FARM    = 1000   
-local KICK_INTERVAL = 1800 -- 30mins
-local Banana_Key = "dad7cdb7ee0a2d792f51336b"
+local TEAM_NAME       = getgenv().TEAM_NAME
+local CHECK_INTERVAL  = getgenv().CHECK_INTERVAL
+local FRAG_GET_CYBORG = getgenv().FRAG_GET_CYBORG
+local FRAG_LOW_FARM   = getgenv().FRAG_LOW_FARM
+local KICK_INTERVAL   = getgenv().KICK_INTERVAL
+local Banana_Key      = getgenv().Banana_Key
 
 
 local LAST_KICK_TIME = tick()
