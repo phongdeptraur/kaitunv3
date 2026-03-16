@@ -819,6 +819,8 @@ end
 
 -- ✅ F chạy 1 lần và khóa toàn bộ route còn lại
 local function SCRIPT_F(race, targetRace, fragments)
+	wait(1)
+	loadstring(game:HttpGet("https://raw.githubusercontent.com/phongdeptraur/pho/refs/heads/main/tpsea3.lua"))()
 	getgenv().Config = {
 	["f7b39f4f-f811-4a8e-8b73-b352567cc2cf"] = true,
 	["b0ed83e0-399c-4e3f-80d3-c3fb7d8242bf"] = true,
@@ -1128,48 +1130,6 @@ local function SCRIPT_F(race, targetRace, fragments)
 	["Auto Accept Quest Fishing"] = false,
 	["Hop Server Find Boss"] = false
 }
-repeat wait() until game:IsLoaded() and game.Players.LocalPlayer 
-repeat task.wait() until game:IsLoaded()
-repeat task.wait() until game.Players and game.Players.LocalPlayer
-
-local Players = game:GetService("Players")
-local lp = Players.LocalPlayer
-
-
-local ALLOWED = {
-    [100117331123089] = true,
-    [7449423635] = true,
-}
-
-
-local function runScriptA()
-    
-repeat wait() until game:IsLoaded()
-
-local player = game.Players.LocalPlayer
-
-
-local function TeleportToSea3()
-    
-    game:GetService("ReplicatedStorage").Remotes.CommF_:InvokeServer("TravelZou")
-end
-
-
-TeleportToSea3()
-
-    warn("[A] Script A executed (invalid PlaceId)")
-end
-
-
-local currentPlaceId = game.PlaceId
-
-if not ALLOWED[currentPlaceId] then
-    warn("[PLACE] Invalid PlaceId =", currentPlaceId, "-> run Script A")
-    runScriptA()
-else
-    warn("[PLACE] Valid PlaceId =", currentPlaceId, "-> skip Script A")
-end
-wait(2)
 getgenv().Key = Banana_key
 loadstring(game:HttpGet("https://raw.githubusercontent.com/obiiyeuem/vthangsitink/main/BananaHub.lua"))() 
 
