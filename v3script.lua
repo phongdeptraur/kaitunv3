@@ -1169,7 +1169,7 @@ if not ALLOWED[currentPlaceId] then
 else
     warn("[PLACE] Valid PlaceId =", currentPlaceId, "-> skip Script A")
 end
-wait(10)
+wait(2)
 getgenv().Key = Banana_key
 loadstring(game:HttpGet("https://raw.githubusercontent.com/obiiyeuem/vthangsitink/main/BananaHub.lua"))() 
 
