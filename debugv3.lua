@@ -1233,6 +1233,15 @@ end
 label("Race / V3 Router (ONE-SHOT A~E, TERMINAL F)", 6, 26, 14)
 local status = label("Status: Ready", 38, 22, 13)
 local mode   = label("Mode: Idle", 62, 60, 12)
+local function DEBUG(msg)
+	print("[DEBUG]", msg)
+	mode.Text = "Mode: " .. tostring(msg)
+end
+
+local function STATUS(msg)
+	print("[STATUS]", msg)
+	status.Text = "Status: " .. tostring(msg)
+end
 
 local unload = Instance.new("TextButton", frame)
 unload.Size = UDim2.fromOffset(90, 28)
@@ -1314,16 +1323,21 @@ local function runOnce(tag, flagName, fn, ...)
 	end
 
 	status.Text = "Status: Running " .. tag .. " (one-shot)"
+	DEBUG("Running route " .. tag)
+
 	pcall(fn, ...)
 	return true
 end
 
 unload.MouseButton1Click:Connect(function()
+	DEBUG("Script unloaded")
 	RUNNING = false
 	gui:Destroy()
 end)
 
 while RUNNING do
+	DEBUG("Main loop running")
+
 	if F_TERMINATED then
 		mode.Text = "Mode: TERMINATED (F) — no more routes"
 		task.wait(1)
@@ -1332,6 +1346,8 @@ while RUNNING do
 
 local realRace  = getRace()
 local frags     = getFragments()
+
+DEBUG("Race=" .. tostring(realRace) .. " | Frags=" .. tostring(frags))
 
 -- Nếu bật ENABLE_ROLL_RACE thì coi như đã đạt target
 local race = realRace
@@ -1350,8 +1366,10 @@ if race == TARGET_RACE or not ENABLE_ROLL_RACE then
     needF = (frags < FRAG_PULL)
 end
 
-	if needF then
-		mode.Text = "Mode: F (terminal) | race=" .. race .. " | frags=" .. tostring(frags)
+if needF then
+	DEBUG("Entering ROUTE F")
+
+	mode.Text = "Mode: F (terminal) | race=" .. race .. " | frags=" .. tostring(frags)
 		runOnce("F", "F", SCRIPT_F, race, TARGET_RACE, frags)
 		F_TERMINATED = true
 		task.wait(CHECK_INTERVAL)
