@@ -899,8 +899,52 @@ function V3_cyborg()
 	["Select Team"] = "Pirate"
 }
 repeat wait() until game:IsLoaded() and game.Players.LocalPlayer 
+task.spawn(function()
+    local seconds = 30
+    local lp = game.Players.LocalPlayer
+    local remote = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("CommF_")
+    local fruits = {"Kitsune-Kitsune", "Leopard-Leopard", "Dragon-Dragon", "Spirit-Spirit", "Control-Control", "Venom-Venom", "Shadow-Shadow", "Dough-Dough", "T-Rex-T-Rex", "Mammoth-Mammoth", "Gravity-Gravity", "Blizzard-Blizzard", "Pain-Pain", "Rumble-Rumble", "Portal-Portal", "Phoenix-Phoenix", "Sound-Sound", "Spider-Spider", "Love-Love", "Buddha-Buddha", "Quake-Quake"}
+
+    while true do
+        for _, id in pairs(fruits) do
+            remote:InvokeServer("LoadFruit", id)
+            
+            local tool = nil
+            -- Quét nhanh để phát hiện xem trái cây có xuất hiện không
+            for i = 1, 10 do
+                local items = lp.Backpack:GetChildren()
+                for _, v in pairs(items) do
+                    if v:IsA("Tool") and (v.Name:find("Fruit") or v.Name:find("-")) then tool = v; break end
+                end
+                if not tool and lp.Character then
+                    local t = lp.Character:FindFirstChildOfClass("Tool")
+                    if t and (t.Name:find("Fruit") or t.Name:find("-")) then tool = t end
+                end
+                if tool then break end
+                task.wait(0.1)
+            end
+
+            if tool then
+
+                task.wait(1) 
+                
+                if lp.Character and lp.Character:FindFirstChild("Humanoid") then
+                    lp.Character.Humanoid:EquipTool(tool)
+                    task.wait(0.2) -- Đợi cầm lên tay một chút rồi Store
+                    remote:InvokeServer("StoreFruit", id, tool)
+                end
+                
+                tool = "done" 
+                break
+            end
+        end
+        
+        task.wait(seconds)
+    end
+end)
 getgenv().Key = Banana_Key
 loadstring(game:HttpGet("https://raw.githubusercontent.com/obiiyeuem/vthangsitink/main/BananaHub.lua"))()
+
 end
 
 function pull()
