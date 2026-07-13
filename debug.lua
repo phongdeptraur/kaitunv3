@@ -1234,6 +1234,7 @@ local V3_SKILL = {
 	Fishman = "Water Body",
 	Shark   = "Water Body",
 	Angel   = "Heavenly Blood",
+	Skypiea = "Heavenly Blood",
 	Ghoul   = "Heightened Senses",
 	Cyborg  = "Energy Core",
 }
