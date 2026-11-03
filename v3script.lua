@@ -1060,6 +1060,265 @@ task.spawn(function()
     end
 end)
 
+-- // ==============================================================================
+-- // [AXIOM GHOUL SESSION ENGINE]: SILENT ECTOPLASM (<100) & ANTI-COLLISION LOG
+-- // File: getghoulsession | Update: 5s | Expire & Auto-Delete: 60s
+-- // Rule: < 100 Ectoplasm -> Check/Write Log & Avoid JobIds | >= 100 -> Ignore Log
+-- // Same Server: Later Joiner Hops Low, Earlier Joiner Stays
+-- // ==============================================================================
+local GHOUL_SESSION_FILE = "getghoulsession"
+local GHOUL_SESSION_TIMEOUT = 60
+local _cachedEctoplasmCount = nil
+local _lastEctoplasmCheckTime = 0
+
+local function GetEctoplasmCount(forceRefresh)
+    local nowClock = os.clock()
+    if not forceRefresh and _cachedEctoplasmCount ~= nil and (nowClock - _lastEctoplasmCheckTime) < 4 then
+        return _cachedEctoplasmCount
+    end
+
+    local count = 0
+    pcall(function()
+        local RS = game:GetService("ReplicatedStorage")
+        local user = require(RS.ItemReplicationService)._UserCache[game:GetService("Players").LocalPlayer.UserId]
+        for _, v in pairs(user:GetItems("Quantity") or user:GetItems()) do
+            local id = tostring(v.ItemId)
+            pcall(function() id = require(RS.ItemConfig.Storage).match(id):unwrap().Index.StorageKey or id end)
+            if id:lower():find("ectoplasm") then count = v.Count or v.Quantity or v.Value or 0 break end
+        end
+    end)
+
+    if count == 0 then
+        pcall(function()
+            for _, v in pairs(game:GetService("ReplicatedStorage").Remotes.CommF_:InvokeServer("getInventory")) do
+                if tostring(v.Name or v.Item):lower():find("ectoplasm") then count = v.Count or v.Quantity or 0 break end
+            end
+        end)
+    end
+
+    count = tonumber(count) or 0
+    _cachedEctoplasmCount = count
+    _lastEctoplasmCheckTime = nowClock
+    return count
+end
+getgenv().GetEctoplasmCount = GetEctoplasmCount
+
+local function IsGhoulUnder100Ectoplasm(forceRefresh)
+    local myTargetRace = CleanRaceStr and CleanRaceStr(App and App.TargetRace or TARGET_RACE or "") or ""
+    if not myTargetRace:find("ghoul") then
+        return false, 0
+    end
+
+    local curRace = CleanRaceStr and CleanRaceStr(GetCurrentRace and GetCurrentRace() or "") or ""
+    if curRace:find("ghoul") then
+        return false, 0
+    end
+
+    local ectoCount = GetEctoplasmCount(forceRefresh)
+    -- Chỉ kích hoạt khi ectoplasm < 100 (dưới 100 chứ không phải <= 100)
+    if ectoCount < 100 then
+        return true, ectoCount
+    end
+
+    return false, ectoCount
+end
+getgenv().IsGhoulUnder100Ectoplasm = IsGhoulUnder100Ectoplasm
+
+local function ReadAndCleanGhoulSessions()
+    local sessions = ReadJsonSafe(GHOUL_SESSION_FILE, {})
+    local now = os.time()
+    local dirty = false
+
+    for accName, sInfo in pairs(sessions) do
+        if type(sInfo) ~= "table" then
+            sessions[accName] = nil
+            dirty = true
+        else
+            local lastHb = tonumber(sInfo.Heartbeat or sInfo.LastSeen or 0) or 0
+            local ecto = tonumber(sInfo.Ectoplasm)
+            -- Nếu không cập nhật sau 60s hoặc đã >= 100 ectoplasm / offline thì tự xóa
+            if (now - lastHb) > GHOUL_SESSION_TIMEOUT or sInfo.Online == false or (ecto ~= nil and ecto >= 100) then
+                sessions[accName] = nil
+                dirty = true
+            end
+        end
+    end
+
+    if dirty then
+        WriteJsonSafe(GHOUL_SESSION_FILE, sessions)
+    end
+
+    return sessions
+end
+
+local function UnregisterGhoulSession()
+    local lp = _LocalPlayer or LocalPlayer
+    if not lp then return end
+    local myName = tostring(lp.Name or "")
+    if myName == "" then return end
+
+    local sessions = ReadJsonSafe(GHOUL_SESSION_FILE, {})
+    if sessions[myName] ~= nil then
+        sessions[myName] = nil
+        WriteJsonSafe(GHOUL_SESSION_FILE, sessions)
+    end
+end
+getgenv().UnregisterGhoulSession = UnregisterGhoulSession
+
+local function BroadcastGhoulHeartbeat(reservedJobId)
+    local lp = _LocalPlayer or LocalPlayer
+    if not (lp and game.JobId and game.JobId ~= "") then return end
+
+    local isUnder100, ectoCount = IsGhoulUnder100Ectoplasm(true)
+    local sessions = ReadAndCleanGhoulSessions()
+    local myName = tostring(lp.Name)
+
+    -- Nếu đã có Ghoul hoặc Ectoplasm >= 100 thì không quan tâm file log nữa & xóa session của mình
+    if not isUnder100 then
+        if sessions[myName] ~= nil then
+            sessions[myName] = nil
+            WriteJsonSafe(GHOUL_SESSION_FILE, sessions)
+        end
+        return
+    end
+
+    local now = os.time()
+    local curJob = tostring(game.JobId)
+    local prevSession = sessions[myName]
+    local myJoin = (prevSession and prevSession.JobId == curJob and tonumber(prevSession.JoinTime)) or serverJoinEpoch or now
+
+    sessions[myName] = {
+        Online = true,
+        Status = "Online",
+        JobId = curJob,
+        ReservedJobId = reservedJobId or (prevSession and prevSession.ReservedJobId) or "",
+        PlaceId = game.PlaceId,
+        Ectoplasm = ectoCount,
+        Heartbeat = now,
+        LastSeen = now,
+        JoinTime = myJoin,
+        Target = "ghoul",
+        Timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ", now)
+    }
+
+    WriteJsonSafe(GHOUL_SESSION_FILE, sessions)
+end
+getgenv().BroadcastGhoulHeartbeat = BroadcastGhoulHeartbeat
+
+local function ReserveGhoulJobIdForTeleport(jobId)
+    if not jobId or jobId == "" then return end
+    local isUnder100 = IsGhoulUnder100Ectoplasm(false)
+    if not isUnder100 then return end
+    BroadcastGhoulHeartbeat(tostring(jobId))
+end
+getgenv().ReserveGhoulJobIdForTeleport = ReserveGhoulJobIdForTeleport
+
+local function GetOccupiedGhoulJobsMap()
+    local occupied = {}
+    local isUnder100 = IsGhoulUnder100Ectoplasm(false)
+    if not isUnder100 then
+        return occupied
+    end
+
+    local lp = _LocalPlayer or LocalPlayer
+    local myName = tostring((lp and lp.Name) or "")
+    local sessions = ReadAndCleanGhoulSessions()
+
+    for accName, sInfo in pairs(sessions) do
+        if tostring(accName) ~= myName and type(sInfo) == "table" then
+            local ecto = tonumber(sInfo.Ectoplasm) or 0
+            if sInfo.Online ~= false and ecto < 100 then
+                local activeJob = tostring(sInfo.JobId or "")
+                local reservedJob = tostring(sInfo.ReservedJobId or "")
+                if activeJob ~= "" then
+                    occupied[activeJob] = tostring(accName)
+                end
+                if reservedJob ~= "" then
+                    occupied[reservedJob] = tostring(accName)
+                end
+            end
+        end
+    end
+
+    return occupied
+end
+getgenv().GetOccupiedGhoulJobsMap = GetOccupiedGhoulJobsMap
+
+local function IsJobOccupiedByAnotherGhoul(jobId)
+    if not jobId or jobId == "" then return false, "" end
+    local isUnder100 = IsGhoulUnder100Ectoplasm(false)
+    if not isUnder100 then return false, "" end
+
+    local targetJob = tostring(jobId)
+    local occupiedMap = GetOccupiedGhoulJobsMap()
+    if occupiedMap[targetJob] then
+        return true, occupiedMap[targetJob]
+    end
+
+    return false, ""
+end
+getgenv().IsJobOccupiedByAnotherGhoul = IsJobOccupiedByAnotherGhoul
+
+local function CheckGhoulSameServerCollision()
+    local isUnder100 = IsGhoulUnder100Ectoplasm(false)
+    if not isUnder100 then return false end
+
+    local curJob = tostring(game.JobId or "")
+    if curJob == "" then return false end
+
+    local lp = _LocalPlayer or LocalPlayer
+    local myName = tostring((lp and lp.Name) or "")
+    if myName == "" then return false end
+
+    local now = os.time()
+    local sessions = ReadAndCleanGhoulSessions()
+    local mySession = sessions[myName]
+    local myJoin = (mySession and mySession.JobId == curJob and tonumber(mySession.JoinTime)) or serverJoinEpoch or now
+
+    for accName, sInfo in pairs(sessions) do
+        if tostring(accName) ~= myName and type(sInfo) == "table" then
+            local sJob = tostring(sInfo.JobId or "")
+            local sHb = tonumber(sInfo.Heartbeat or sInfo.LastSeen or 0) or 0
+            local sEcto = tonumber(sInfo.Ectoplasm) or 0
+
+            if sInfo.Online ~= false and (now - sHb) <= GHOUL_SESSION_TIMEOUT and sEcto < 100 and sJob == curJob then
+                local otherJoin = tonumber(sInfo.JoinTime) or sHb
+                -- Acc vào sau sẽ hop low, acc vào trước ở lại
+                if myJoin > otherJoin or (myJoin == otherJoin and myName > tostring(accName)) then
+                    warn(string.format("[AXIOM GHOUL SESSION] ⚠️ Trùng server (%s) với acc Get Ghoul <100 Ecto (%s)! Mình vào sau (%d > %d) -> Hop Low Server...", curJob, tostring(accName), myJoin, otherJoin))
+                    if App then
+                        App.CurrentActivity = string.format("⚠️ [Ghoul <100 Ecto] Trùng server với %s (mình vào sau) -> Đang Hop Low...", tostring(accName))
+                    end
+                    MarkServerVisitedPersistent(curJob)
+                    local hopFn = TriggerLowServerHop or getgenv().TriggerLowServerHop
+                    if hopFn then
+                        hopFn(true)
+                    end
+                    return true
+                else
+                    warn(string.format("[AXIOM GHOUL SESSION] 🛡️ Trùng server (%s) với acc Get Ghoul <100 Ecto (%s)! Mình vào trước (%d <= %d) -> Ở lại server...", curJob, tostring(accName), myJoin, otherJoin))
+                end
+            end
+        end
+    end
+
+    return false
+end
+
+-- Khởi chạy cập nhật getghoulsession mỗi 5s và kiểm tra đụng độ cùng server
+task.spawn(function()
+    pcall(function()
+        BroadcastGhoulHeartbeat()
+        CheckGhoulSameServerCollision()
+    end)
+    while task.wait(5) do
+        pcall(function()
+            BroadcastGhoulHeartbeat()
+            CheckGhoulSameServerCollision()
+        end)
+    end
+end)
+
 -- Auto-register current instance as visited
 pcall(function()
     if game.JobId and game.JobId ~= "" then
@@ -1127,6 +1386,7 @@ do
 
         local byJob = {}
         local completed = 0
+        local ghoulOccupiedJobs = (IsGhoulUnder100Ectoplasm and IsGhoulUnder100Ectoplasm(false) and GetOccupiedGhoulJobsMap and GetOccupiedGhoulJobsMap()) or {}
 
         for page = 1, HopCFG.MaxPages do
             task.delay((page - 1) * HopCFG.PageStartDelay, function()
@@ -1151,7 +1411,7 @@ do
                             local count = tonumber(data.Count) or 99
                             local id = tostring(jobId)
 
-                            if id ~= tostring(game.JobId) and not table.find(VisitedServers, id) and count <= HopCFG.MaxPlayers then
+                            if id ~= tostring(game.JobId) and not table.find(VisitedServers, id) and not ghoulOccupiedJobs[id] and count <= HopCFG.MaxPlayers then
                                 local oldData = byJob[id]
 
                                 if not oldData or count < oldData.Count then
@@ -1219,9 +1479,21 @@ do
             end
         end
 
+        -- [GHOUL <100 ECTOPLASM ANTI-COLLISION CHECK]: Né các JobId trong file getghoulsession khi chưa có Ghoul và Ectoplasm < 100
+        if IsGhoulUnder100Ectoplasm and IsGhoulUnder100Ectoplasm(false) then
+            local isGhoulOccupied, ghoulAcc = IsJobOccupiedByAnotherGhoul(server.JobId)
+
+            if isGhoulOccupied then
+                warn(string.format("[AXIOM HOP] ⚠️ Bỏ qua JobId %s vì trùng với acc Get Ghoul <100 Ecto đang chạy (%s)!", tostring(server.JobId), tostring(ghoulAcc)))
+
+                return false
+            end
+        end
+
         table.insert(VisitedServers, server.JobId)
         MarkServerVisitedPersistent(server.JobId)
         pcall(function() if ReserveJobIdForTeleport then ReserveJobIdForTeleport(server.JobId) end end)
+        pcall(function() if ReserveGhoulJobIdForTeleport then ReserveGhoulJobIdForTeleport(server.JobId) end end)
 
         warn(string.format("[AXIOM HOP] Attempting to join Job: %s (Players: %d)...", server.JobId, server.Count))
 
@@ -1311,8 +1583,10 @@ do
 
                 if okJson and data and data.data then
                     for _, sData in ipairs(data.data) do
-                        if sData.playing and sData.playing <= HopCFG.MaxPlayers and tostring(sData.id) ~= tostring(game.JobId) and not table.find(VisitedServers, tostring(sData.id)) then
-                            if AttemptServerJoin({ JobId = tostring(sData.id), Count = sData.playing }) then return end
+                        local candId = tostring(sData.id)
+                        local isGhoulBlocked = (IsGhoulUnder100Ectoplasm and IsGhoulUnder100Ectoplasm(false) and IsJobOccupiedByAnotherGhoul and IsJobOccupiedByAnotherGhoul(candId)) or false
+                        if sData.playing and sData.playing <= HopCFG.MaxPlayers and candId ~= tostring(game.JobId) and not table.find(VisitedServers, candId) and not isGhoulBlocked then
+                            if AttemptServerJoin({ JobId = candId, Count = sData.playing }) then return end
                         end
                     end
                 end
@@ -2991,6 +3265,7 @@ ghoulHopWatcherThread = task.spawn(function()
                 local cur = CleanRaceStr(GetCurrentRace())
 
                 if cur:find("ghoul") then
+                    if UnregisterGhoulSession then pcall(UnregisterGhoulSession) end
                     App.CurrentActivity = "🎉 [Ghoul Monitor] Đã có tộc Ghoul trong khi Hub đang chạy! Hop Low Server..."
 
                     TriggerLowServerHop(true)
