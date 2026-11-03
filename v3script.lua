@@ -10,9 +10,16 @@ local function CanTeleportToSea2ForUprace()
     local _data = (LocalPlayer or _LocalPlayer) and (LocalPlayer or _LocalPlayer):FindFirstChild("Data")
     local _curFrag = (_data and _data:FindFirstChild("Fragments") and _data.Fragments.Value) or 0
     local _curBeli = (_data and _data:FindFirstChild("Beli") and _data.Beli.Value) or 0
-    -- Yêu cầu Uprace V2/V3: Phải đủ cả Frag >= 13k VÀ Beli >= 2.5m mới được qua Sea 2
-    -- Nếu thiếu Beli (< 2.5m) HOẶC thiếu Frag (< 13k) -> return false để sang/ở lại Sea 3 cày Cake Queen/Prince
-    if _curFrag < 13000 or _curBeli < 2500000 then
+    -- [AXIOM UPDATE]: Nếu đã có Race Target và chưa xong V3 -> Không về Sea 3 farm Cake Queen khi thiếu Beli
+    -- Cho phép qua/ở lại Sea 2 nhặt Chest (đủ 30 chest hop low như Cyborg) đến khi đủ Beli (2.5M cho V2+V3, 2M cho V3)
+    if type(getgenv().IsTargetRace) == "function" and getgenv().IsTargetRace() then
+        local _doneV3 = (type(getgenv().CheckCyborgV3) == "function" and getgenv().CheckCyborgV3()) or false
+        if not _doneV3 then
+            return true, _curFrag, _curBeli
+        end
+    end
+    local _reqBeli = (type(getgenv().GetRequiredBeliForV3Target) == "function" and getgenv().GetRequiredBeliForV3Target()) or 2500000
+    if _curFrag < 13000 or _curBeli < _reqBeli then
         return false, _curFrag, _curBeli
     end
     return true, _curFrag, _curBeli
@@ -554,6 +561,11 @@ local function IsEligibleForCoop(): boolean
         return (needHelp == true)
     end
 
+    -- Nếu đã có V2 nhưng chưa đủ 2M Beli để mua V3 -> Nhặt Chest cày đủ 2M Beli trước khi bật Coop
+    if GetBeli and GetBeli() < 2000000 then
+        return false
+    end
+
     return true
 end
 
@@ -622,6 +634,7 @@ local function IsTargetRace(): boolean
 
     return cur == target
 end
+getgenv().IsTargetRace = IsTargetRace
 
 local function RerollRace()
 
@@ -1941,7 +1954,7 @@ end
 
 local noclipConn = RunService.Stepped:Connect(function()
 
-    if State.AutoLaw then
+    if State.AutoLaw or (App and App.IsFarmingBeliChest) then
         BypassCollisions()
     end
 end)
@@ -2543,6 +2556,8 @@ CheckRaceV2 = function(): boolean
 
     return (App.HasV2Confirmed == true)
 end
+getgenv().CheckRaceV2 = CheckRaceV2
+getgenv().CheckCyborgV3 = CheckCyborgV3
 
 -- // [AXIOM RACE V2/V3 PRE-LOAD ENGINE]: CHỐT CHẶN TẢI TRẠNG THÁI V2 TRƯỚC KHI CHẠY HUB
 -- // Ngăn chặn tuyệt đối việc kích hoạt Hub trước khi nạp xong dữ liệu V2 từ máy chủ
@@ -3471,6 +3486,12 @@ local function saveRealKidHopConfig(destination)
 end
 
 local function LaunchRealKidHopCakeQueen()
+    if IsTargetRace and IsTargetRace() and not (CheckCyborgV3 and CheckCyborgV3()) then
+        if NeedsChestBeliForV3Target and NeedsChestBeliForV3Target() then
+            ExecuteUpraceBeliChestFarm()
+            return false
+        end
+    end
     local desiredHub = "RealKid Hop"
     local desiredConfig = "CakePrince"
 
@@ -3525,7 +3546,260 @@ local function LaunchRealKidHopCakeQueen()
     return false
 end
 
+-- // =============================================================================
+-- // [AXIOM V3 TARGET BELI CHEST HARVESTER]: 2.5M (V2+V3) / 2M (V3) | 30 CHEST HOP LOW
+-- // =============================================================================
+local MAX_V3_CHESTS_BEFORE_HOP = 30
+App._UpraceChestCount = App._UpraceChestCount or 0
+App._UpraceVisitedChests = App._UpraceVisitedChests or {}
+
+local function GetRequiredBeliForV3Target(): number
+    local hasV2 = (App and App.HasV2Confirmed) or (CheckRaceV2 and CheckRaceV2())
+    if hasV2 then
+        return 2000000 -- Đã có V2: cần 2M Beli để lên V3
+    else
+        return 2500000 -- Chưa có V2: cần 2.5M Beli cho cả V2 (500k) và V3 (2M)
+    end
+end
+getgenv().GetRequiredBeliForV3Target = GetRequiredBeliForV3Target
+
+local function NeedsChestBeliForV3Target(): (boolean, number, number)
+    if not (IsTargetRace and IsTargetRace()) then
+        return false, 0, GetBeli()
+    end
+    if (App and App.HasV3Confirmed) or (CheckCyborgV3 and CheckCyborgV3()) then
+        return false, 0, GetBeli()
+    end
+    local reqBeli = GetRequiredBeliForV3Target()
+    local curBeli = GetBeli()
+    if curBeli < reqBeli then
+        return true, reqBeli, curBeli
+    end
+    return false, reqBeli, curBeli
+end
+getgenv().NeedsChestBeliForV3Target = NeedsChestBeliForV3Target
+
+local function GetNearestUnopenedChest()
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil, 0 end
+    local myPos = hrp.Position
+    local candidates = {}
+
+    local tagged = {}
+    pcall(function()
+        tagged = CollectionService:GetTagged("_ChestTagged")
+    end)
+
+    for _, chest in ipairs(tagged) do
+        if chest and chest.Parent and not chest:GetAttribute("IsDisabled") and not App._UpraceVisitedChests[chest] then
+            local okPivot, pivot = pcall(function() return chest:GetPivot() end)
+            if okPivot and pivot then
+                table.insert(candidates, {
+                    Instance = chest,
+                    CFrame = pivot,
+                    Position = pivot.Position,
+                    Dist = (pivot.Position - myPos).Magnitude
+                })
+            end
+        end
+    end
+
+    if #candidates == 0 then
+        local containers = { workspace:FindFirstChild("Chests"), workspace:FindFirstChild("Map") }
+        for _, folder in ipairs(containers) do
+            if folder then
+                for _, obj in ipairs(folder:GetDescendants()) do
+                    if obj:IsA("BasePart") and obj.Parent and obj.Name:find("Chest") and not obj:GetAttribute("IsDisabled") and obj.Transparency < 1 and not App._UpraceVisitedChests[obj] then
+                        table.insert(candidates, {
+                            Instance = obj,
+                            CFrame = obj.CFrame,
+                            Position = obj.Position,
+                            Dist = (obj.Position - myPos).Magnitude
+                        })
+                    end
+                end
+            end
+        end
+    end
+
+    table.sort(candidates, function(a, b)
+        return a.Dist < b.Dist
+    end)
+
+    return candidates[1], #candidates
+end
+
+local function ExecuteUpraceBeliChestFarm()
+    if App._UpraceChestLoopBusy then return true end
+    App._UpraceChestLoopBusy = true
+
+    local ok, err = pcall(function()
+        -- Đảm bảo ở Sea 2 để check chính xác Alchemist V2 (2.5M vs 2M) và nhặt Chest + Up V3 ngay khi đủ tiền
+        if not IsSea2() then
+            App.IsFarmingBeliChest = false
+            TravelToSea2("Đã có Race Target nhưng thiếu Beli -> Qua Sea 2 nhặt Chest cày Beli Up V3")
+            return
+        end
+
+        if BroadcastV3Heartbeat then pcall(BroadcastV3Heartbeat) end
+        if CheckSameServerCollision and CheckSameServerCollision() then return end
+
+        local needBeli, reqBeli, curBeli = NeedsChestBeliForV3Target()
+        if not needBeli then
+            App.IsFarmingBeliChest = false
+            return
+        end
+
+        -- Nếu trước đó đã bật RealKid Hub trong server này (ví dụ vừa up xong V2 rồi hụt Beli < 2M), hop sang server mới để nhặt Chest sạch sẽ
+        if App.HubLaunched then
+            App.CurrentActivity = string.format("🔄 [Chest Beli V3] Thiếu Beli (%d/%d) sau khi chạy Hub -> Hop Low Server để nhặt Chest...", curBeli, reqBeli)
+            if TriggerLowServerHop then
+                TriggerLowServerHop(true)
+            end
+            task.wait(3)
+            return
+        end
+
+        App.IsFarmingBeliChest = true
+
+        while App.Running do
+            if BroadcastV3Heartbeat then pcall(BroadcastV3Heartbeat) end
+            if CheckSameServerCollision and CheckSameServerCollision() then break end
+
+            local stillNeed, targetBeli, nowBeli = NeedsChestBeliForV3Target()
+            if not stillNeed then
+                if State and State.ActiveTween then
+                    pcall(function() State.ActiveTween:Cancel() end)
+                    State.ActiveTween = nil
+                end
+                App.IsFarmingBeliChest = false
+                App.CurrentActivity = string.format("✅ [Chest Beli V3] Đã đủ tiền (%d/%d Beli)! Chuyển sang Up V3 Race Target...", nowBeli, targetBeli)
+                break
+            end
+
+            -- Đủ 30 Chest trong server -> Hop Low Server như Cyborg
+            if (App._UpraceChestCount or 0) >= MAX_V3_CHESTS_BEFORE_HOP then
+                if State and State.ActiveTween then
+                    pcall(function() State.ActiveTween:Cancel() end)
+                    State.ActiveTween = nil
+                end
+                App.IsFarmingBeliChest = false
+                App.CurrentActivity = string.format("📦 [Chest Beli V3] Đã nhặt đủ %d/%d Chest (Beli: %d/%d) -> Hop Low Server như Cyborg...",
+                    App._UpraceChestCount, MAX_V3_CHESTS_BEFORE_HOP, nowBeli, targetBeli)
+                if TriggerLowServerHop then
+                    TriggerLowServerHop(true)
+                end
+                task.wait(4)
+                break
+            end
+
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if not (char and hrp and hum and hum.Health > 0) then
+                task.wait(0.2)
+                continue
+            end
+
+            local targetChest, remainingCount = GetNearestUnopenedChest()
+            if not targetChest then
+                if State and State.ActiveTween then
+                    pcall(function() State.ActiveTween:Cancel() end)
+                    State.ActiveTween = nil
+                end
+                App.IsFarmingBeliChest = false
+                App.CurrentActivity = string.format("📦 [Chest Beli V3] Hết Chest trong server (%d/30 Chest | Beli: %d/%d) -> Hop Low Server...",
+                    App._UpraceChestCount or 0, nowBeli, targetBeli)
+                if TriggerLowServerHop then
+                    TriggerLowServerHop(true)
+                end
+                task.wait(4)
+                break
+            end
+
+            local hasV2Tag = ((App and App.HasV2Confirmed) or (CheckRaceV2 and CheckRaceV2())) and "Mốc V3: 2M" or "Mốc V2+V3: 2.5M"
+            App.CurrentActivity = string.format("💰 [Nhặt Chest V3] Chest %d/%d (Còn %d) | Beli: %d / %d (%s)",
+                (App._UpraceChestCount or 0) + 1, MAX_V3_CHESTS_BEFORE_HOP, remainingCount, nowBeli, targetBeli, hasV2Tag)
+
+            local chestInst = targetChest.Instance
+            local chestCF = targetChest.CFrame
+            local startWait = os.clock()
+            local beliBefore = GetBeli()
+
+            while App.Running and chestInst and chestInst.Parent and not chestInst:GetAttribute("IsDisabled") and (os.clock() - startWait < 18) do
+                if GetBeli() >= GetRequiredBeliForV3Target() then
+                    break
+                end
+
+                char = LocalPlayer.Character
+                hrp = char and char:FindFirstChild("HumanoidRootPart")
+                hum = char and char:FindFirstChildOfClass("Humanoid")
+                if not (char and hrp and hum and hum.Health > 0) then
+                    break
+                end
+
+                BypassCollisions()
+                DynamicTween(chestCF)
+
+                local dist = (hrp.Position - chestCF.Position).Magnitude
+                if dist <= 6 then
+                    if firetouchinterest then
+                        pcall(function()
+                            if chestInst:IsA("BasePart") then
+                                firetouchinterest(hrp, chestInst, 0)
+                                task.wait(0.05)
+                                firetouchinterest(hrp, chestInst, 1)
+                            else
+                                for _, p in ipairs(chestInst:GetDescendants()) do
+                                    if p:IsA("BasePart") then
+                                        firetouchinterest(hrp, p, 0)
+                                        firetouchinterest(hrp, p, 1)
+                                    end
+                                end
+                            end
+                        end)
+                    end
+                    task.wait(0.15)
+                    if chestInst:GetAttribute("IsDisabled") or not chestInst.Parent or GetBeli() > beliBefore then
+                        break
+                    end
+                    if dist <= 3.5 and (os.clock() - startWait > 1.2) then
+                        break
+                    end
+                end
+
+                task.wait(0.05)
+            end
+
+            App._UpraceVisitedChests[chestInst] = true
+            App._UpraceChestCount = (App._UpraceChestCount or 0) + 1
+            task.wait(0.05)
+        end
+    end)
+
+    if not ok then
+        warn("[AXIOM CHEST BELI V3] Error: " .. tostring(err))
+    end
+    App._UpraceChestLoopBusy = false
+    return true
+end
+getgenv().ExecuteUpraceBeliChestFarm = ExecuteUpraceBeliChestFarm
+
 local function ProcessFragmentFarmCakeQueen()
+    -- [AXIOM UPDATE]: Nếu đã có Race Target và chưa V3 nhưng thiếu Beli (2.5M cho V2+V3, 2M cho V3):
+    -- Thay vì farm Cake Queen thì đi nhặt Chest (đủ 30 chest hop low như Cyborg) liên tục đến khi đủ tiền rồi đi up V3!
+    if IsTargetRace and IsTargetRace() and not (CheckCyborgV3 and CheckCyborgV3()) then
+        local needBeli = NeedsChestBeliForV3Target()
+        if needBeli then
+            ExecuteUpraceBeliChestFarm()
+            return
+        elseif ProcessRealKidSea2 then
+            ProcessRealKidSea2()
+            return
+        end
+    end
+
     if not IsSea3() then
         TravelToSea3("Cần farm Frag tại Sea 3 (Cake Queen / Cake Prince)")
         return
@@ -3942,6 +4216,16 @@ local function ProcessRealKidSea2()
     local isCyborgTarget = (targetKey == "cyborg")
     local isGhoulOrSkyTarget = (targetKey:find("ghoul") or targetKey:find("sky") or targetKey:find("angel")) ~= nil
 
+    -- [AXIOM UPDATE]: Nếu đã có Race Target và chưa hoàn tất V3 nhưng thiếu Beli (2.5M cho V2+V3, 2M cho V3):
+    -- Đi nhặt Chest (đủ 30 chest thì hop low như Cyborg) liên tục đến khi đủ tiền rồi mới đi up V3 Race Target!
+    if IsTargetRace() and not CheckCyborgV3() then
+        local needBeli = NeedsChestBeliForV3Target()
+        if needBeli then
+            ExecuteUpraceBeliChestFarm()
+            return
+        end
+    end
+
     -- 1. NHÁNH GHOUL / SKYPIEA: CHỈ UPGRADE TỚI V2 BẰNG REALKID
     if isGhoulOrSkyTarget then
         if not CheckRaceV2() then
@@ -3954,10 +4238,14 @@ local function ProcessRealKidSea2()
             return
         else
             -- ĐÃ ĐẠT V2: DỪNG REALKID NGAY LẬP TỨC -> HOP SERVER VÀ CHẠY COOP V3 (TUYỆT ĐỐI KHÔNG BẬT REALKID)
-            if App.HubLaunched and App.ActiveHub == "RealKid" then
+            if App.HubLaunched and (App.ActiveHub == "RealKid" or App.ActiveHub == "RealKid Hub" or App.ActiveHub == "RealKid Main") then
                 App.CurrentActivity = "🎉 [V2 Confirmed] Đã xong V2! Hop Server để khởi động Co-op V3 (Tắt RealKid)..."
                 TriggerLowServerHop(true)
                 task.wait(3)
+                return
+            end
+            if not CheckCyborgV3() and NeedsChestBeliForV3Target() then
+                ExecuteUpraceBeliChestFarm()
                 return
             end
             -- Co-op V3 thread sẽ tự động điều phối UpRace / HelpRace
@@ -6224,6 +6512,10 @@ end
 
 -- Main Co-op V3 Step (Executed in Sea 2 when V2 is done and V3 is needed/helping)
 ExecuteCoopV3Tick = function()
+    if IsTargetRace and IsTargetRace() and not (CheckCyborgV3 and CheckCyborgV3()) and NeedsChestBeliForV3Target and NeedsChestBeliForV3Target() then
+        ExecuteUpraceBeliChestFarm()
+        return
+    end
     EvaluateCoopRoles()
 
     local myGroup = NormalizeCoopRaceGroup(App.TargetRace or TARGET_RACE or GetCurrentRace())
