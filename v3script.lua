@@ -11,15 +11,19 @@ local function CanTeleportToSea2ForUprace()
     local _data = (LocalPlayer or _LocalPlayer) and (LocalPlayer or _LocalPlayer):FindFirstChild("Data")
     local _curFrag = (_data and _data:FindFirstChild("Fragments") and _data.Fragments.Value) or 0
     local _curBeli = (_data and _data:FindFirstChild("Beli") and _data.Beli.Value) or 0
-    -- [AXIOM UPDATE]: Nếu đã có Race Target và chưa xong V3 -> Không về Sea 3 farm Cake Queen khi thiếu Beli
-    -- Cho phép qua/ở lại Sea 2 nhặt Chest (đủ 30 chest hop low như Cyborg) đến khi đủ Beli (2.5M cho V2+V3, 2M cho V3)
+    local _reqBeli = (type(getgenv().GetRequiredBeliForV3Target) == "function" and getgenv().GetRequiredBeliForV3Target()) or 2500000
+    -- [AXIOM UPDATE]: Nếu đã có Race Target và chưa xong V3:
+    -- + Thiếu Beli (< _reqBeli) -> return false để bắt buộc ở lại / sang Sea 3 nhặt Chest (không nhặt ở Sea 2)
+    -- + Đủ Beli (>= _reqBeli) -> return true để qua Sea 2 up V2/V3 ngay
     if type(getgenv().IsTargetRace) == "function" and getgenv().IsTargetRace() then
         local _doneV3 = (type(getgenv().CheckCyborgV3) == "function" and getgenv().CheckCyborgV3()) or false
         if not _doneV3 then
+            if _curBeli < _reqBeli then
+                return false, _curFrag, _curBeli
+            end
             return true, _curFrag, _curBeli
         end
     end
-    local _reqBeli = (type(getgenv().GetRequiredBeliForV3Target) == "function" and getgenv().GetRequiredBeliForV3Target()) or 2500000
     if _curFrag < 13000 or _curBeli < _reqBeli then
         return false, _curFrag, _curBeli
     end
@@ -458,6 +462,145 @@ local ExecuteCoopV3Tick
 local COOP_SACRIFICE_POS = Vector3.new(-389.69, 40.99, 31.59)
 local COOP_SESSION_FILE  = "Axiom_Coop_Sessions.json"
 local COOP_HEARTBEAT_TTL = 120
+
+-- // [AXIOM PRETTY JSON FORMATTER CHO SESSION LOG COOP & CHEST V3]
+-- // Tự động xuống dòng sau mỗi trường data và cách dòng giữa các account
+local SESSION_FIELD_ORDER = {
+    "Name", "Account", "Role", "CoopSTT", "CoopEnable",
+    "Race", "TargetRace", "HasV2", "HasV3",
+    "Sea", "JobId", "ReservedJobId", "PlayerCount",
+    "TargetPeer", "AssignedHelper", "HelperPeer",
+    "Beli", "ReqBeli", "ChestCount", "Ectoplasm", "PlaceId",
+    "Online", "Status", "Task",
+    "JoinTime", "Heartbeat", "LastSeen", "UpdatedAt", "Timestamp"
+}
+local SESSION_FIELD_RANK = {}
+for idx, k in ipairs(SESSION_FIELD_ORDER) do
+    SESSION_FIELD_RANK[k] = idx
+end
+
+local function EscapeJsonStr(s)
+    s = tostring(s or "")
+    s = s:gsub("\", "\\"):gsub('"', '\"'):gsub("
+", "\n"):gsub("
+", "\r"):gsub("	", "\t")
+    return '"' .. s .. '"'
+end
+
+local function EncodeJsonPrimitive(v)
+    local t = type(v)
+    if t == "string" then
+        return EscapeJsonStr(v)
+    elseif t == "number" then
+        if v ~= v or v == math.huge or v == -math.huge then return "0" end
+        return tostring(v)
+    elseif t == "boolean" then
+        return v and "true" or "false"
+    elseif t == "table" then
+        local ok, enc = pcall(function() return HttpService:JSONEncode(v) end)
+        return ok and enc or "{}"
+    end
+    return "null"
+end
+
+local function FormatPrettySessionJson(dataTable)
+    if type(dataTable) ~= "table" then
+        return "{}"
+    end
+
+    local accNames = {}
+    for k in pairs(dataTable) do
+        table.insert(accNames, tostring(k))
+    end
+    table.sort(accNames)
+
+    if #accNames == 0 then
+        return "{\n}"
+    end
+
+    local blocks = {}
+    for _, accName in ipairs(accNames) do
+        local entry = dataTable[accName]
+        if type(entry) == "table" then
+            local keys = {}
+            for k in pairs(entry) do
+                table.insert(keys, tostring(k))
+            end
+            table.sort(keys, function(a, b)
+                local ra = SESSION_FIELD_RANK[a] or 999
+                local rb = SESSION_FIELD_RANK[b] or 999
+                if ra ~= rb then return ra < rb end
+                return a < b
+            end)
+
+            local lines = {}
+            for _, k in ipairs(keys) do
+                local val = entry[k]
+                table.insert(lines, string.format('        %s: %s', EscapeJsonStr(k), EncodeJsonPrimitive(val)))
+            end
+
+            local accBlock = string.format('    %s: {\n%s\n    }', EscapeJsonStr(accName), table.concat(lines, ",\n"))
+            table.insert(blocks, accBlock)
+        else
+            table.insert(blocks, string.format('    %s: %s', EscapeJsonStr(accName), EncodeJsonPrimitive(entry)))
+        end
+    end
+
+    return "{\n" .. table.concat(blocks, ",\n\n") .. "\n}"
+end
+getgenv().FormatPrettySessionJson = FormatPrettySessionJson
+
+-- Hook writefile để mọi thao tác ghi COOP_SESSION_FILE hoặc chestv3session đều tự động xuống dòng đẹp mắt
+if typeof(writefile) == "function" and not getgenv()._AxiomPrettyWritefileHooked then
+    getgenv()._AxiomPrettyWritefileHooked = true
+    local _rawWritefile = writefile
+    local function _prettyWritefileWrapper(path, content)
+        local pStr = tostring(path or "")
+        if (pStr == COOP_SESSION_FILE or pStr:find("Axiom_Coop_Sessions") or pStr == "chestv3session") and type(content) == "string" then
+            local okDec, decoded = pcall(function() return HttpService:JSONDecode(content) end)
+            if okDec and type(decoded) == "table" then
+                local okFmt, pretty = pcall(FormatPrettySessionJson, decoded)
+                if okFmt and type(pretty) == "string" and #pretty > 0 then
+                    content = pretty
+                end
+            end
+        end
+        return _rawWritefile(path, content)
+    end
+    writefile = _prettyWritefileWrapper
+    pcall(function() getgenv().writefile = _prettyWritefileWrapper end)
+end
+
+-- // [AXIOM PVP ENABLER ENGINE]: Bật PvP mỗi 5s khi đang trong tiến trình PvP / Coop
+local function ForceEnablePvpRemote()
+    pcall(function()
+        local args = {
+            "EnablePvp"
+        }
+        game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("CommF_"):InvokeServer(unpack(args))
+    end)
+end
+getgenv().ForceEnablePvpRemote = ForceEnablePvpRemote
+
+task.spawn(function()
+    while task.wait(5) do
+        pcall(function()
+            if not (App and App.Running) then return end
+            if not (IsSea2 and IsSea2()) then return end
+
+            local isCoopOrPvp = false
+            if App.CoopEnable == true or App.CoopRole == "uprace" or App.CoopRole == "helprace" or App.IsPvpActive == true then
+                isCoopOrPvp = true
+            elseif IsEligibleForCoop and IsEligibleForCoop() then
+                isCoopOrPvp = true
+            end
+
+            if isCoopOrPvp then
+                ForceEnablePvpRemote()
+            end
+        end)
+    end
+end)
 
 local function NormalizeCoopRaceGroup(rStr)
     local s = CleanRaceStr(rStr or "")
@@ -1401,6 +1544,7 @@ do
         local byJob = {}
         local completed = 0
         local ghoulOccupiedJobs = (IsGhoulUnder100Ectoplasm and IsGhoulUnder100Ectoplasm(false) and GetOccupiedGhoulJobsMap and GetOccupiedGhoulJobsMap()) or {}
+        local chestV3OccupiedJobs = (IsActiveInChestV3Session and IsActiveInChestV3Session() and GetOccupiedChestV3JobsMap and GetOccupiedChestV3JobsMap()) or {}
 
         for page = 1, HopCFG.MaxPages do
             task.delay((page - 1) * HopCFG.PageStartDelay, function()
@@ -1425,7 +1569,7 @@ do
                             local count = tonumber(data.Count) or 99
                             local id = tostring(jobId)
 
-                            if id ~= tostring(game.JobId) and not table.find(VisitedServers, id) and not ghoulOccupiedJobs[id] and count <= HopCFG.MaxPlayers then
+                            if id ~= tostring(game.JobId) and not table.find(VisitedServers, id) and not ghoulOccupiedJobs[id] and not chestV3OccupiedJobs[id] and count <= HopCFG.MaxPlayers then
                                 local oldData = byJob[id]
 
                                 if not oldData or count < oldData.Count then
@@ -1504,10 +1648,22 @@ do
             end
         end
 
+        -- [CHEST V3 SESSION ANTI-COLLISION CHECK]: Né các JobId trong file chestv3session khi đang nhặt Chest V3 ở Sea 3
+        if IsActiveInChestV3Session and IsActiveInChestV3Session() and IsJobOccupiedByAnotherChestV3 then
+            local isChestOccupied, chestAcc = IsJobOccupiedByAnotherChestV3(server.JobId)
+
+            if isChestOccupied then
+                warn(string.format("[AXIOM HOP] ⚠️ Bỏ qua JobId %s vì trùng với acc đang nhặt Chest V3 (%s)!", tostring(server.JobId), tostring(chestAcc)))
+
+                return false
+            end
+        end
+
         table.insert(VisitedServers, server.JobId)
         MarkServerVisitedPersistent(server.JobId)
         pcall(function() if ReserveJobIdForTeleport then ReserveJobIdForTeleport(server.JobId) end end)
         pcall(function() if ReserveGhoulJobIdForTeleport then ReserveGhoulJobIdForTeleport(server.JobId) end end)
+        pcall(function() if ReserveChestV3JobIdForTeleport then ReserveChestV3JobIdForTeleport(server.JobId) end end)
 
         warn(string.format("[AXIOM HOP] Attempting to join Job: %s (Players: %d)...", server.JobId, server.Count))
 
@@ -1599,7 +1755,8 @@ do
                     for _, sData in ipairs(data.data) do
                         local candId = tostring(sData.id)
                         local isGhoulBlocked = (IsGhoulUnder100Ectoplasm and IsGhoulUnder100Ectoplasm(false) and IsJobOccupiedByAnotherGhoul and IsJobOccupiedByAnotherGhoul(candId)) or false
-                        if sData.playing and sData.playing <= HopCFG.MaxPlayers and candId ~= tostring(game.JobId) and not table.find(VisitedServers, candId) and not isGhoulBlocked then
+                        local isChestV3Blocked = (IsActiveInChestV3Session and IsActiveInChestV3Session() and IsJobOccupiedByAnotherChestV3 and IsJobOccupiedByAnotherChestV3(candId)) or false
+                        if sData.playing and sData.playing <= HopCFG.MaxPlayers and candId ~= tostring(game.JobId) and not table.find(VisitedServers, candId) and not isGhoulBlocked and not isChestV3Blocked then
                             if AttemptServerJoin({ JobId = candId, Count = sData.playing }) then return end
                         end
                     end
@@ -3548,15 +3705,44 @@ local function LaunchRealKidHopCakeQueen()
 end
 
 -- // =============================================================================
--- // [AXIOM V3 TARGET BELI CHEST HARVESTER]: 2.5M (V2+V3) / 2M (V3) | 30 CHEST HOP LOW
+-- // [AXIOM V3 TARGET BELI CHEST HARVESTER (SEA 3 ONLY)] & [CHEST V3 SESSION 5s/60s]
 -- // =============================================================================
 local MAX_V3_CHESTS_BEFORE_HOP = 30
 App._UpraceChestCount = App._UpraceChestCount or 0
 App._UpraceVisitedChests = App._UpraceVisitedChests or {}
 
+-- Cache lưu trạng thái đã lên V2 liên thông giữa Sea 2 <-> Sea 3
+local V2_STATE_CACHE_FILE = "Axiom_V2_State_Cache.json"
+local function GetV2CacheKey()
+    local myName = tostring((LocalPlayer and LocalPlayer.Name) or "")
+    local curRace = (GetCurrentRace and CleanRaceStr and CleanRaceStr(GetCurrentRace())) or "unknown"
+    return myName .. "_" .. curRace
+end
+
+local function SaveConfirmedV2Cache()
+    pcall(function()
+        local data = ReadJsonSafe(V2_STATE_CACHE_FILE, {})
+        local key = GetV2CacheKey()
+        if not data[key] then
+            data[key] = true
+            WriteJsonSafe(V2_STATE_CACHE_FILE, data)
+        end
+    end)
+end
+
+local function IsConfirmedV2InCache()
+    local data = ReadJsonSafe(V2_STATE_CACHE_FILE, {})
+    return data[GetV2CacheKey()] == true
+end
+
 local function GetRequiredBeliForV3Target(): number
-    local hasV2 = (App and App.HasV2Confirmed) or (CheckRaceV2 and CheckRaceV2())
+    if (App and App.HasV3Confirmed) or (CheckCyborgV3 and CheckCyborgV3()) then
+        return 0
+    end
+    local hasV2 = (App and App.HasV2Confirmed) or (CheckRaceV2 and CheckRaceV2()) or IsConfirmedV2InCache()
     if hasV2 then
+        if App then App.HasV2Confirmed = true end
+        SaveConfirmedV2Cache()
         return 2000000 -- Đã có V2: cần 2M Beli để lên V3
     else
         return 2500000 -- Chưa có V2: cần 2.5M Beli cho cả V2 (500k) và V3 (2M)
@@ -3579,6 +3765,234 @@ local function NeedsChestBeliForV3Target(): (boolean, number, number)
     return false, reqBeli, curBeli
 end
 getgenv().NeedsChestBeliForV3Target = NeedsChestBeliForV3Target
+
+-- // [AXIOM CHEST V3 SESSION ENGINE]: FILE "chestv3session" | UPDATE 5S | EXPIRE 60S
+local CHEST_V3_SESSION_FILE = "chestv3session"
+local CHEST_V3_SESSION_TIMEOUT = 60
+
+local function IsActiveInChestV3Session()
+    local needBeli, reqBeli, curBeli = NeedsChestBeliForV3Target()
+    return needBeli == true, curBeli, reqBeli
+end
+getgenv().IsActiveInChestV3Session = IsActiveInChestV3Session
+
+local function ReadAndCleanChestV3Sessions()
+    local sessions = ReadJsonSafe(CHEST_V3_SESSION_FILE, {})
+    local now = os.time()
+    local dirty = false
+
+    for accName, sInfo in pairs(sessions) do
+        if type(sInfo) ~= "table" then
+            sessions[accName] = nil
+            dirty = true
+        else
+            local lastHb = tonumber(sInfo.Heartbeat or sInfo.LastSeen or 0) or 0
+            local curB = tonumber(sInfo.Beli) or 0
+            local reqB = tonumber(sInfo.ReqBeli) or 2500000
+            if (now - lastHb) > CHEST_V3_SESSION_TIMEOUT or sInfo.Online == false or (reqB > 0 and curB >= reqB) then
+                sessions[accName] = nil
+                dirty = true
+            end
+        end
+    end
+
+    if dirty then
+        WriteJsonSafe(CHEST_V3_SESSION_FILE, sessions)
+    end
+
+    return sessions
+end
+
+local function UnregisterChestV3Session()
+    local lp = _LocalPlayer or LocalPlayer
+    if not lp then return end
+    local myName = tostring(lp.Name or "")
+    if myName == "" then return end
+
+    local sessions = ReadJsonSafe(CHEST_V3_SESSION_FILE, {})
+    if sessions[myName] ~= nil then
+        sessions[myName] = nil
+        WriteJsonSafe(CHEST_V3_SESSION_FILE, sessions)
+    end
+end
+getgenv().UnregisterChestV3Session = UnregisterChestV3Session
+
+local function BroadcastChestV3Heartbeat(reservedJobId)
+    local lp = _LocalPlayer or LocalPlayer
+    if not (lp and game.JobId and game.JobId ~= "") then return end
+
+    local isActive, curBeli, reqBeli = IsActiveInChestV3Session()
+    local sessions = ReadAndCleanChestV3Sessions()
+    local myName = tostring(lp.Name)
+
+    if not isActive then
+        if sessions[myName] ~= nil then
+            sessions[myName] = nil
+            WriteJsonSafe(CHEST_V3_SESSION_FILE, sessions)
+        end
+        return
+    end
+
+    local now = os.time()
+    local curJob = tostring(game.JobId)
+    local prevSession = sessions[myName]
+    local myJoin = (prevSession and prevSession.JobId == curJob and tonumber(prevSession.JoinTime)) or serverJoinEpoch or now
+
+    sessions[myName] = {
+        Name = myName,
+        Online = true,
+        Status = "FarmingChestV3_Sea3",
+        JobId = curJob,
+        ReservedJobId = reservedJobId or (prevSession and prevSession.ReservedJobId ~= curJob and prevSession.ReservedJobId) or "",
+        PlaceId = game.PlaceId,
+        Sea = (GetCurrentSea and GetCurrentSea()) or "Sea 3 (Zou)",
+        Beli = tonumber(curBeli) or 0,
+        ReqBeli = tonumber(reqBeli) or 2500000,
+        ChestCount = tonumber(App and App._UpraceChestCount) or 0,
+        Heartbeat = now,
+        LastSeen = now,
+        JoinTime = myJoin,
+        TargetRace = tostring(App and App.TargetRace or TARGET_RACE or ""),
+        Timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ", now)
+    }
+
+    WriteJsonSafe(CHEST_V3_SESSION_FILE, sessions)
+end
+getgenv().BroadcastChestV3Heartbeat = BroadcastChestV3Heartbeat
+
+local function ReserveChestV3JobIdForTeleport(jobId)
+    if not jobId or jobId == "" then return end
+    if not IsActiveInChestV3Session() then return end
+    BroadcastChestV3Heartbeat(tostring(jobId))
+end
+getgenv().ReserveChestV3JobIdForTeleport = ReserveChestV3JobIdForTeleport
+
+local function GetOccupiedChestV3JobsMap()
+    local occupied = {}
+    if not IsActiveInChestV3Session() then
+        return occupied
+    end
+
+    local lp = _LocalPlayer or LocalPlayer
+    local myName = tostring((lp and lp.Name) or "")
+    local sessions = ReadAndCleanChestV3Sessions()
+
+    for accName, sInfo in pairs(sessions) do
+        if tostring(accName) ~= myName and type(sInfo) == "table" and sInfo.Online ~= false then
+            local activeJob = tostring(sInfo.JobId or "")
+            local reservedJob = tostring(sInfo.ReservedJobId or "")
+            if activeJob ~= "" then
+                occupied[activeJob] = tostring(accName)
+            end
+            if reservedJob ~= "" then
+                occupied[reservedJob] = tostring(accName)
+            end
+        end
+    end
+
+    return occupied
+end
+getgenv().GetOccupiedChestV3JobsMap = GetOccupiedChestV3JobsMap
+
+local function IsJobOccupiedByAnotherChestV3(jobId)
+    if not jobId or jobId == "" then return false, "" end
+    if not IsActiveInChestV3Session() then return false, "" end
+
+    local targetJob = tostring(jobId)
+    local occupiedMap = GetOccupiedChestV3JobsMap()
+    if occupiedMap[targetJob] then
+        return true, occupiedMap[targetJob]
+    end
+    return false, ""
+end
+getgenv().IsJobOccupiedByAnotherChestV3 = IsJobOccupiedByAnotherChestV3
+
+local function CheckChestV3SameServerCollision()
+    if not (IsSea3 and IsSea3()) then return false end
+    if not IsActiveInChestV3Session() then return false end
+
+    local curJob = tostring(game.JobId or "")
+    if curJob == "" then return false end
+
+    local lp = _LocalPlayer or LocalPlayer
+    local myName = tostring((lp and lp.Name) or "")
+    if myName == "" then return false end
+
+    local now = os.time()
+    local sessions = ReadAndCleanChestV3Sessions()
+    local mySession = sessions[myName]
+    local myJoin = (mySession and mySession.JobId == curJob and tonumber(mySession.JoinTime)) or serverJoinEpoch or now
+
+    for accName, sInfo in pairs(sessions) do
+        if tostring(accName) ~= myName and type(sInfo) == "table" then
+            local sJob = tostring(sInfo.JobId or "")
+            local sHb = tonumber(sInfo.Heartbeat or sInfo.LastSeen or 0) or 0
+
+            if sInfo.Online ~= false and (now - sHb) <= CHEST_V3_SESSION_TIMEOUT and sJob == curJob then
+                local otherJoin = tonumber(sInfo.JoinTime) or sHb
+                -- Acc vào sau sẽ hop low, acc vào trước ở lại
+                if myJoin > otherJoin or (myJoin == otherJoin and myName > tostring(accName)) then
+                    warn(string.format("[AXIOM CHEST V3 SESSION] ⚠️ Trùng server Sea 3 (%s) với acc nhặt Chest V3 (%s)! Mình vào sau (%d > %d) -> Hop Low Server...", curJob, tostring(accName), myJoin, otherJoin))
+                    if App then
+                        App.CurrentActivity = string.format("⚠️ [Chest V3 Sea 3] Trùng server với %s (mình vào sau) -> Đang Hop Low...", tostring(accName))
+                    end
+                    MarkServerVisitedPersistent(curJob)
+                    local hopFn = TriggerLowServerHop or getgenv().TriggerLowServerHop
+                    if hopFn then
+                        hopFn(true)
+                    end
+                    return true
+                else
+                    warn(string.format("[AXIOM CHEST V3 SESSION] 🛡️ Trùng server Sea 3 (%s) với acc nhặt Chest V3 (%s)! Mình vào trước (%d <= %d) -> Ở lại server...", curJob, tostring(accName), myJoin, otherJoin))
+                end
+            end
+        end
+    end
+
+    return false
+end
+getgenv().CheckChestV3SameServerCollision = CheckChestV3SameServerCollision
+
+-- // [AUTO JUMP MỖI 5S KHI NHẶT CHEST]
+local function TriggerChestAutoJump()
+    pcall(function()
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Health > 0 then
+            hum.Jump = true
+            pcall(function() hum:ChangeState(Enum.HumanoidStateType.Jumping) end)
+        end
+    end)
+    pcall(function()
+        local vim = cloneref and cloneref(game:GetService("VirtualInputManager")) or game:GetService("VirtualInputManager")
+        if vim then
+            vim:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+            task.delay(0.05, function()
+                pcall(function() vim:SendKeyEvent(false, Enum.KeyCode.Space, false, game) end)
+            end)
+        end
+    end)
+end
+
+-- Luồng nền 5s/60s cho chestv3session & Auto Jump mỗi 5s khi nhặt Chest
+task.spawn(function()
+    pcall(function()
+        BroadcastChestV3Heartbeat()
+        CheckChestV3SameServerCollision()
+    end)
+    while task.wait(5) do
+        pcall(function()
+            if App and App.HasV2Confirmed then
+                SaveConfirmedV2Cache()
+            end
+            BroadcastChestV3Heartbeat()
+            CheckChestV3SameServerCollision()
+            if App and App.IsFarmingBeliChest then
+                TriggerChestAutoJump()
+            end
+        end)
+    end
+end)
 
 local function GetNearestUnopenedChest()
     local char = LocalPlayer.Character
@@ -3636,25 +4050,36 @@ local function ExecuteUpraceBeliChestFarm()
     App._UpraceChestLoopBusy = true
 
     local ok, err = pcall(function()
-        -- Đảm bảo ở Sea 2 để check chính xác Alchemist V2 (2.5M vs 2M) và nhặt Chest + Up V3 ngay khi đủ tiền
-        if not IsSea2() then
-            App.IsFarmingBeliChest = false
-            TravelToSea2("Đã có Race Target nhưng thiếu Beli -> Qua Sea 2 nhặt Chest cày Beli Up V3")
-            return
-        end
-
-        if BroadcastV3Heartbeat then pcall(BroadcastV3Heartbeat) end
-        if CheckSameServerCollision and CheckSameServerCollision() then return end
-
         local needBeli, reqBeli, curBeli = NeedsChestBeliForV3Target()
         if not needBeli then
             App.IsFarmingBeliChest = false
+            UnregisterChestV3Session()
+            if not IsSea2() then
+                TravelToSea2("Đã đủ Beli -> Qua Sea 2 Up V3 Race Target")
+            end
             return
         end
 
-        -- Nếu trước đó đã bật RealKid Hub trong server này (ví dụ vừa up xong V2 rồi hụt Beli < 2M), hop sang server mới để nhặt Chest sạch sẽ
+        -- [BẮT BUỘC NHẶT CHEST CHO V3 TẠI SEA 3 - TUYỆT ĐỐI KHÔNG NHẶT Ở SEA 2]
+        if not IsSea3() then
+            if IsSea2() and CheckRaceV2 and CheckRaceV2() then
+                SaveConfirmedV2Cache()
+            end
+            App.IsFarmingBeliChest = false
+            BroadcastChestV3Heartbeat()
+            TravelToSea3("Thiếu Beli Up V3 -> Bắt buộc qua Sea 3 nhặt Chest (Không nhặt ở Sea 2)")
+            return
+        end
+
+        BroadcastChestV3Heartbeat()
+        if CheckChestV3SameServerCollision() then
+            App.IsFarmingBeliChest = false
+            return
+        end
+
+        -- Nếu trước đó đã bật RealKid Hub trong server này, hop sang server mới để nhặt Chest sạch sẽ
         if App.HubLaunched then
-            App.CurrentActivity = string.format("🔄 [Chest Beli V3] Thiếu Beli (%d/%d) sau khi chạy Hub -> Hop Low Server để nhặt Chest...", curBeli, reqBeli)
+            App.CurrentActivity = string.format("🔄 [Chest Beli V3 Sea 3] Thiếu Beli (%d/%d) sau khi chạy Hub -> Hop Low Server để nhặt Chest...", curBeli, reqBeli)
             if TriggerLowServerHop then
                 TriggerLowServerHop(true)
             end
@@ -3663,10 +4088,31 @@ local function ExecuteUpraceBeliChestFarm()
         end
 
         App.IsFarmingBeliChest = true
+        local lastChestJumpAt = os.clock()
+        local lastChestHbAt = os.clock()
+        TriggerChestAutoJump()
 
         while App.Running do
-            if BroadcastV3Heartbeat then pcall(BroadcastV3Heartbeat) end
-            if CheckSameServerCollision and CheckSameServerCollision() then break end
+            if not IsSea3() then
+                App.IsFarmingBeliChest = false
+                TravelToSea3("Quay lại Sea 3 nhặt Chest cày Beli Up V3")
+                break
+            end
+
+            if (os.clock() - lastChestHbAt) >= 5 then
+                lastChestHbAt = os.clock()
+                BroadcastChestV3Heartbeat()
+            end
+
+            if (os.clock() - lastChestJumpAt) >= 5 then
+                lastChestJumpAt = os.clock()
+                TriggerChestAutoJump()
+            end
+
+            if CheckChestV3SameServerCollision() then
+                App.IsFarmingBeliChest = false
+                break
+            end
 
             local stillNeed, targetBeli, nowBeli = NeedsChestBeliForV3Target()
             if not stillNeed then
@@ -3675,19 +4121,23 @@ local function ExecuteUpraceBeliChestFarm()
                     State.ActiveTween = nil
                 end
                 App.IsFarmingBeliChest = false
-                App.CurrentActivity = string.format("✅ [Chest Beli V3] Đã đủ tiền (%d/%d Beli)! Chuyển sang Up V3 Race Target...", nowBeli, targetBeli)
+                UnregisterChestV3Session()
+                App.CurrentActivity = string.format("✅ [Chest Beli V3 Sea 3] Đã đủ tiền (%d/%d Beli)! Về Sea 2 Up V3 Race Target...", nowBeli, targetBeli)
+                TravelToSea2("Đã nhặt Chest đủ Beli tại Sea 3 -> Qua Sea 2 Up V3 Race Target")
                 break
             end
 
-            -- Đủ 30 Chest trong server -> Hop Low Server như Cyborg
+            -- Đủ 30 Chest trong server Sea 3 -> Hop Low Server như Cyborg (có né chestv3session)
             if (App._UpraceChestCount or 0) >= MAX_V3_CHESTS_BEFORE_HOP then
                 if State and State.ActiveTween then
                     pcall(function() State.ActiveTween:Cancel() end)
                     State.ActiveTween = nil
                 end
                 App.IsFarmingBeliChest = false
-                App.CurrentActivity = string.format("📦 [Chest Beli V3] Đã nhặt đủ %d/%d Chest (Beli: %d/%d) -> Hop Low Server như Cyborg...",
-                    App._UpraceChestCount, MAX_V3_CHESTS_BEFORE_HOP, nowBeli, targetBeli)
+                App._UpraceChestCount = 0
+                BroadcastChestV3Heartbeat()
+                App.CurrentActivity = string.format("📦 [Chest Beli V3 Sea 3] Đã nhặt đủ %d/%d Chest (Beli: %d/%d) -> Hop Low Server...",
+                    MAX_V3_CHESTS_BEFORE_HOP, MAX_V3_CHESTS_BEFORE_HOP, nowBeli, targetBeli)
                 if TriggerLowServerHop then
                     TriggerLowServerHop(true)
                 end
@@ -3710,7 +4160,8 @@ local function ExecuteUpraceBeliChestFarm()
                     State.ActiveTween = nil
                 end
                 App.IsFarmingBeliChest = false
-                App.CurrentActivity = string.format("📦 [Chest Beli V3] Hết Chest trong server (%d/30 Chest | Beli: %d/%d) -> Hop Low Server...",
+                BroadcastChestV3Heartbeat()
+                App.CurrentActivity = string.format("📦 [Chest Beli V3 Sea 3] Hết Chest trong server (%d/30 Chest | Beli: %d/%d) -> Hop Low Server...",
                     App._UpraceChestCount or 0, nowBeli, targetBeli)
                 if TriggerLowServerHop then
                     TriggerLowServerHop(true)
@@ -3719,8 +4170,8 @@ local function ExecuteUpraceBeliChestFarm()
                 break
             end
 
-            local hasV2Tag = ((App and App.HasV2Confirmed) or (CheckRaceV2 and CheckRaceV2())) and "Mốc V3: 2M" or "Mốc V2+V3: 2.5M"
-            App.CurrentActivity = string.format("💰 [Nhặt Chest V3] Chest %d/%d (Còn %d) | Beli: %d / %d (%s)",
+            local hasV2Tag = ((App and App.HasV2Confirmed) or (CheckRaceV2 and CheckRaceV2()) or IsConfirmedV2InCache()) and "Mốc V3: 2M" or "Mốc V2+V3: 2.5M"
+            App.CurrentActivity = string.format("💰 [Nhặt Chest V3 Sea 3] Chest %d/%d (Còn %d) | Beli: %d / %d (%s)",
                 (App._UpraceChestCount or 0) + 1, MAX_V3_CHESTS_BEFORE_HOP, remainingCount, nowBeli, targetBeli, hasV2Tag)
 
             local chestInst = targetChest.Instance
@@ -3731,6 +4182,11 @@ local function ExecuteUpraceBeliChestFarm()
             while App.Running and chestInst and chestInst.Parent and not chestInst:GetAttribute("IsDisabled") and (os.clock() - startWait < 18) do
                 if GetBeli() >= GetRequiredBeliForV3Target() then
                     break
+                end
+
+                if (os.clock() - lastChestJumpAt) >= 5 then
+                    lastChestJumpAt = os.clock()
+                    TriggerChestAutoJump()
                 end
 
                 char = LocalPlayer.Character
@@ -4204,6 +4660,19 @@ task.spawn(function()
 end)
 
 local function ProcessRealKidSea2()
+    -- [AXIOM UPDATE]: Nếu đã có Race Target và chưa hoàn tất V3 nhưng thiếu Beli (2.5M cho V2+V3, 2M cho V3):
+    -- Bắt buộc sang/ở lại Sea 3 nhặt Chest (không nhặt ở Sea 2) đến khi đủ tiền mới về Sea 2 up V3!
+    if IsTargetRace() and not CheckCyborgV3() then
+        if IsSea2() and CheckRaceV2 and CheckRaceV2() then
+            SaveConfirmedV2Cache()
+        end
+        local needBeli = NeedsChestBeliForV3Target()
+        if needBeli then
+            ExecuteUpraceBeliChestFarm()
+            return
+        end
+    end
+
     if not IsSea2() then
         TravelToSea2("Cần làm V2/V3 Race tại Sea 2")
         return
@@ -4216,16 +4685,6 @@ local function ProcessRealKidSea2()
     local curKey = CleanRaceStr(GetCurrentRace())
     local isCyborgTarget = (targetKey == "cyborg")
     local isGhoulOrSkyTarget = (targetKey:find("ghoul") or targetKey:find("sky") or targetKey:find("angel")) ~= nil
-
-    -- [AXIOM UPDATE]: Nếu đã có Race Target và chưa hoàn tất V3 nhưng thiếu Beli (2.5M cho V2+V3, 2M cho V3):
-    -- Đi nhặt Chest (đủ 30 chest thì hop low như Cyborg) liên tục đến khi đủ tiền rồi mới đi up V3 Race Target!
-    if IsTargetRace() and not CheckCyborgV3() then
-        local needBeli = NeedsChestBeliForV3Target()
-        if needBeli then
-            ExecuteUpraceBeliChestFarm()
-            return
-        end
-    end
 
     -- 1. NHÁNH GHOUL / SKYPIEA: CHỈ UPGRADE TỚI V2 BẰNG REALKID
     if isGhoulOrSkyTarget then
@@ -6513,6 +6972,10 @@ end
 
 -- Main Co-op V3 Step (Executed in Sea 2 when V2 is done and V3 is needed/helping)
 ExecuteCoopV3Tick = function()
+    if os.clock() - (App._lastCoopPvpEnableTick or 0) >= 5 then
+        App._lastCoopPvpEnableTick = os.clock()
+        if ForceEnablePvpRemote then pcall(ForceEnablePvpRemote) end
+    end
     if IsTargetRace and IsTargetRace() and not (CheckCyborgV3 and CheckCyborgV3()) and NeedsChestBeliForV3Target and NeedsChestBeliForV3Target() then
         ExecuteUpraceBeliChestFarm()
         return
