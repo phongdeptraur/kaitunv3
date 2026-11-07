@@ -4039,7 +4039,6 @@ local function EnsureFishmanV2V3Ready(): boolean
         if not alreadyTriedThisStage then
             App._IsPreparingFishmanGear = true
             local okPrep, errPrep = pcall(function()
-                App.CurrentActivity = "🥋 [Fishman Prep] Chưa có Sharkman Karate -> Đang tween đến Sharkman Teacher (-2598.96, 238.88, -10313.21)..."
                 local deadline = os.clock() + 180
                 while App.Running and IsSea2() and not HasSharkmanKarate() and os.clock() < deadline do
                     char = LocalPlayer.Character
@@ -4051,6 +4050,7 @@ local function EnsureFishmanV2V3Ready(): boolean
                     end
                     BypassCollisions()
                     local dist = (hrp.Position - SHARKMAN_TEACHER_POS).Magnitude
+                    App.CurrentActivity = string.format("🥋 [Fishman Prep] Đang tween tới Sharkman Teacher (cách %dm)...", math.floor(dist))
                     if dist <= 6 then
                         if State.ActiveTween then
                             pcall(function() State.ActiveTween:Cancel() end)
@@ -4094,7 +4094,9 @@ getgenv().EnsureFishmanV2V3Ready = EnsureFishmanV2V3Ready
 -- // Ngăn chặn tuyệt đối việc kích hoạt Hub trước khi nạp xong dữ liệu V2 từ máy chủ
 local function EnsureRaceV2Loaded()
 
-    App.CurrentActivity = "Sẵn sàng điều phối tác vụ"
+    if not (App._IsPreparingFishmanGear or (IsFishmanTargetRace and IsFishmanTargetRace() and not HasSharkmanKarate())) then
+        App.CurrentActivity = "Sẵn sàng điều phối tác vụ"
+    end
 
     -- Phase 1: Thẩm vấn V3 trước (Nếu đã V3 thì chắc chắn 100% đã có V2)
     for _ = 1, 15 do
@@ -4133,6 +4135,10 @@ local function EnsureRaceV2Loaded()
 
                     if IsFishmanTargetRace() and not App.HasV3Confirmed then
                         pcall(EnsureFishmanV2V3Ready)
+                        if not HasSharkmanKarate() then
+                            App.InitialV2Checked = false
+                            return false
+                        end
                     end
 
                     App.InitialV2Checked = true
@@ -4148,6 +4154,10 @@ local function EnsureRaceV2Loaded()
     -- Phase 3: Fallback an toàn mở khóa hệ thống
     if IsFishmanTargetRace() and not App.HasV3Confirmed then
         pcall(EnsureFishmanV2V3Ready)
+        if not HasSharkmanKarate() then
+            App.InitialV2Checked = false
+            return false
+        end
     end
     App.InitialV2Checked = true
     App.CurrentActivity = "✅ [Hệ thống] Đã nạp xong trạng thái Race! Bắt đầu điều phối..."
