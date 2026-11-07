@@ -30,6 +30,8 @@ local function CanTeleportToSea2ForUprace()
     return true, _curFrag, _curBeli
 end
 
+local ExecuteChangeAccount
+do
 -- Hash chuẩn xác của Profile THUE2, SP_GEAR và THUE
 local DEFAULT_FROM_FOLDER = "0782f566d2c22369def0046e987e35403cdd29ee1054ff69b09092e4ba75dd3d"
 local DEFAULT_TO_FOLDER   = "4cc982f47cb8a8d5a1eb047a9f8a6f62fcc9f0c86634e2c2f94986413a0bb9e9"
@@ -55,33 +57,26 @@ local FOLDER_CONFIG_PRESETS = {
 }
 getgenv().FOLDER_CONFIG_PRESETS = FOLDER_CONFIG_PRESETS
 
--- Danh sách tài khoản cơ sở chỉ định folder (SP_GEAR & THUE)
+-- Danh sách tài khoản cơ sở chỉ định folder (THUE)
 local BASE_THUE2_ACCOUNTS = {
-    -- 3 Ghoul -> SP_GEAR
-    ["XxScarlettCodexX2020"] = "SP_GEAR",
-    ["OliviaGlitchStormyYT"] = "SP_GEAR",
-    ["xfnwjbcla"] = "SP_GEAR",
-    -- 20 Ghoul -> THUE
-    ["ChaosPrismNinja27"] = "THUE",
-    ["CarterSlime200867"] = "THUE",
-    ["ChillPrimal201611"] = "THUE",
-    ["Chl0eEch0201829"] = "THUE",
-    ["Circuit_OM3GA200551"] = "THUE",
-    ["CircuitF0xRaven2002"] = "THUE",
-    ["ChaseVoidMiner2014"] = "THUE",
-    ["ClawZap201263"] = "THUE",
-    ["Chloe_Hyper11"] = "THUE",
-    ["Craz3_Phant0mRunn3r4"] = "THUE",
-    ["ChrisDavis8rlc"] = "THUE",
-    ["ChillRavenEcho53"] = "THUE",
-    ["CrystalMaxCraft40"] = "THUE",
-    ["CyberNinja200838"] = "THUE",
-    ["DaltonEspinoza099"] = "THUE",
-    ["Dani3lMysticIc32014"] = "THUE",
-    ["DanielDaviseold"] = "THUE",
-    ["Dalal_Sparkly1156"] = "THUE",
-    ["DavidDavisdsia"] = "THUE",
-    ["DavidMiller3i38"] = "THUE",
+    -- 8 Fishman -> THUE
+    ["L3g3nd_Inf3rno58"] = "THUE",
+    ["JamesGolden201560"] = "THUE",
+    ["LeviBear71"] = "THUE",
+    ["CyberFusi0n_YT"] = "THUE",
+    ["Ezra_BL0CK2018"] = "THUE",
+    ["HeroSonicBeast38"] = "THUE",
+    ["Ne0nMagic98"] = "THUE",
+    ["Addison_Thunder20147"] = "THUE",
+    -- 8 Skypiea -> THUE
+    ["Inferno_Rift2013YT"] = "THUE",
+    ["XxBlazeWraithxX57"] = "THUE",
+    ["STARRY_N30n2006"] = "THUE",
+    ["Ech0BlizzardKing2022"] = "THUE",
+    ["SEBASTIAN_Prism23"] = "THUE",
+    ["Will0wClawPh0enix"] = "THUE",
+    ["UltraWraithPix3l99"] = "THUE",
+    ["XxZoomWraithFir3xX20"] = "THUE",
 }
 
 local function ResolveAccountFolder(accName)
@@ -137,7 +132,7 @@ local function GetActiveFolderConfig()
     end
 end
 
-local function ExecuteChangeAccount(reason)
+ExecuteChangeAccount = function(reason)
     if App and App.IsChangingAccount then return end
     if App then App.IsChangingAccount = true end
 
@@ -206,6 +201,7 @@ local function ExecuteChangeAccount(reason)
     end
 end
 getgenv().ExecuteChangeAccount = ExecuteChangeAccount
+end
 
 -- // AXIOM KERNEL: FULLY AUTONOMOUS KAITUN MULTI-HUB CONTROLLER [PATCHED V3 DETECTOR]
 -- // Engines: RealKid Hub (Patched V3, Lever & Race V4 Engine)
@@ -232,87 +228,66 @@ repeat task.wait(0.05) until LocalPlayer and LocalPlayer:FindFirstChild("Data")
 
 -- // CẤU HÌNH TỔNG & KHÓA CỨNG TỘC THEO TỪNG TÀI KHOẢN (ACCOUNT RACE LOCK TABLE)
 local ACCOUNTS_POOL = {
-    -- 3 Ghoul (SP_GEAR)
-    "XxScarlettCodexX2020",
-    "OliviaGlitchStormyYT",
-    "xfnwjbcla",
-    -- 20 Ghoul (THUE)
-    "ChaosPrismNinja27",
-    "CarterSlime200867",
-    "ChillPrimal201611",
-    "Chl0eEch0201829",
-    "Circuit_OM3GA200551",
-    "CircuitF0xRaven2002",
-    "ChaseVoidMiner2014",
-    "ClawZap201263",
-    "Chloe_Hyper11",
-    "Craz3_Phant0mRunn3r4",
-    "ChrisDavis8rlc",
-    "ChillRavenEcho53",
-    "CrystalMaxCraft40",
-    "CyberNinja200838",
-    "DaltonEspinoza099",
-    "Dani3lMysticIc32014",
-    "DanielDaviseold",
-    "Dalal_Sparkly1156",
-    "DavidDavisdsia",
-    "DavidMiller3i38",
+    -- 8 Fishman (THUE)
+    "L3g3nd_Inf3rno58",
+    "JamesGolden201560",
+    "LeviBear71",
+    "CyberFusi0n_YT",
+    "Ezra_BL0CK2018",
+    "HeroSonicBeast38",
+    "Ne0nMagic98",
+    "Addison_Thunder20147",
+    -- 8 Skypiea (THUE)
+    "Inferno_Rift2013YT",
+    "XxBlazeWraithxX57",
+    "STARRY_N30n2006",
+    "Ech0BlizzardKing2022",
+    "SEBASTIAN_Prism23",
+    "Will0wClawPh0enix",
+    "UltraWraithPix3l99",
+    "XxZoomWraithFir3xX20",
 }
 
 local ACCOUNT_RACE_MAP = {
-    -- 3 Ghoul (SP_GEAR)
-    ["XxScarlettCodexX2020"]    = "ghoul",
-    ["OliviaGlitchStormyYT"]    = "ghoul",
-    ["xfnwjbcla"]               = "ghoul",
-    -- 20 Ghoul (THUE)
-    ["ChaosPrismNinja27"]       = "ghoul",
-    ["CarterSlime200867"]       = "ghoul",
-    ["ChillPrimal201611"]       = "ghoul",
-    ["Chl0eEch0201829"]         = "ghoul",
-    ["Circuit_OM3GA200551"]     = "ghoul",
-    ["CircuitF0xRaven2002"]     = "ghoul",
-    ["ChaseVoidMiner2014"]      = "ghoul",
-    ["ClawZap201263"]           = "ghoul",
-    ["Chloe_Hyper11"]           = "ghoul",
-    ["Craz3_Phant0mRunn3r4"]    = "ghoul",
-    ["ChrisDavis8rlc"]          = "ghoul",
-    ["ChillRavenEcho53"]        = "ghoul",
-    ["CrystalMaxCraft40"]       = "ghoul",
-    ["CyberNinja200838"]        = "ghoul",
-    ["DaltonEspinoza099"]       = "ghoul",
-    ["Dani3lMysticIc32014"]     = "ghoul",
-    ["DanielDaviseold"]         = "ghoul",
-    ["Dalal_Sparkly1156"]       = "ghoul",
-    ["DavidDavisdsia"]          = "ghoul",
-    ["DavidMiller3i38"]         = "ghoul",
+    -- 8 Fishman (THUE)
+    ["L3g3nd_Inf3rno58"]     = "fishman",
+    ["JamesGolden201560"]    = "fishman",
+    ["LeviBear71"]           = "fishman",
+    ["CyberFusi0n_YT"]       = "fishman",
+    ["Ezra_BL0CK2018"]       = "fishman",
+    ["HeroSonicBeast38"]     = "fishman",
+    ["Ne0nMagic98"]          = "fishman",
+    ["Addison_Thunder20147"] = "fishman",
+    -- 8 Skypiea (THUE)
+    ["Inferno_Rift2013YT"]   = "skypiea",
+    ["XxBlazeWraithxX57"]    = "skypiea",
+    ["STARRY_N30n2006"]      = "skypiea",
+    ["Ech0BlizzardKing2022"] = "skypiea",
+    ["SEBASTIAN_Prism23"]    = "skypiea",
+    ["Will0wClawPh0enix"]    = "skypiea",
+    ["UltraWraithPix3l99"]   = "skypiea",
+    ["XxZoomWraithFir3xX20"] = "skypiea",
 }
 
 local ACCOUNT_FOLDER_MAP = {
-    -- 3 Ghoul -> SP_GEAR
-    ["XxScarlettCodexX2020"]    = "SP_GEAR",
-    ["OliviaGlitchStormyYT"]    = "SP_GEAR",
-    ["xfnwjbcla"]               = "SP_GEAR",
-    -- 20 Ghoul -> THUE
-    ["ChaosPrismNinja27"]       = "THUE",
-    ["CarterSlime200867"]       = "THUE",
-    ["ChillPrimal201611"]       = "THUE",
-    ["Chl0eEch0201829"]         = "THUE",
-    ["Circuit_OM3GA200551"]     = "THUE",
-    ["CircuitF0xRaven2002"]     = "THUE",
-    ["ChaseVoidMiner2014"]      = "THUE",
-    ["ClawZap201263"]           = "THUE",
-    ["Chloe_Hyper11"]           = "THUE",
-    ["Craz3_Phant0mRunn3r4"]    = "THUE",
-    ["ChrisDavis8rlc"]          = "THUE",
-    ["ChillRavenEcho53"]        = "THUE",
-    ["CrystalMaxCraft40"]       = "THUE",
-    ["CyberNinja200838"]        = "THUE",
-    ["DaltonEspinoza099"]       = "THUE",
-    ["Dani3lMysticIc32014"]     = "THUE",
-    ["DanielDaviseold"]         = "THUE",
-    ["Dalal_Sparkly1156"]       = "THUE",
-    ["DavidDavisdsia"]          = "THUE",
-    ["DavidMiller3i38"]         = "THUE",
+    -- 8 Fishman -> THUE
+    ["L3g3nd_Inf3rno58"]     = "THUE",
+    ["JamesGolden201560"]    = "THUE",
+    ["LeviBear71"]           = "THUE",
+    ["CyberFusi0n_YT"]       = "THUE",
+    ["Ezra_BL0CK2018"]       = "THUE",
+    ["HeroSonicBeast38"]     = "THUE",
+    ["Ne0nMagic98"]          = "THUE",
+    ["Addison_Thunder20147"] = "THUE",
+    -- 8 Skypiea -> THUE
+    ["Inferno_Rift2013YT"]   = "THUE",
+    ["XxBlazeWraithxX57"]    = "THUE",
+    ["STARRY_N30n2006"]      = "THUE",
+    ["Ech0BlizzardKing2022"] = "THUE",
+    ["SEBASTIAN_Prism23"]    = "THUE",
+    ["Will0wClawPh0enix"]    = "THUE",
+    ["UltraWraithPix3l99"]   = "THUE",
+    ["XxZoomWraithFir3xX20"] = "THUE",
 }
 
 local FOLDER_CONFIG_PRESETS = {
@@ -465,6 +440,7 @@ local COOP_HEARTBEAT_TTL = 120
 
 -- // [AXIOM PRETTY JSON FORMATTER CHO SESSION LOG COOP & CHEST V3]
 -- // Tự động xuống dòng sau mỗi trường data và cách dòng giữa các account
+do
 local SESSION_FIELD_ORDER = {
     "Name", "Account", "Role", "CoopSTT", "CoopEnable",
     "Race", "TargetRace", "HasV2", "HasV3",
@@ -481,10 +457,14 @@ end
 
 local function EscapeJsonStr(s)
     s = tostring(s or "")
-    s = s:gsub("\", "\\"):gsub('"', '\"'):gsub("
-", "\n"):gsub("
-", "\r"):gsub("	", "\t")
-    return '"' .. s .. '"'
+    local bs = string.char(92)
+    local dq = string.char(34)
+    s = s:gsub(bs, bs .. bs)
+    s = s:gsub(dq, bs .. dq)
+    s = s:gsub(string.char(10), bs .. "n")
+    s = s:gsub(string.char(13), bs .. "r")
+    s = s:gsub(string.char(9), bs .. "t")
+    return dq .. s .. dq
 end
 
 local function EncodeJsonPrimitive(v)
@@ -551,11 +531,17 @@ end
 getgenv().FormatPrettySessionJson = FormatPrettySessionJson
 
 -- Hook writefile để mọi thao tác ghi COOP_SESSION_FILE hoặc chestv3session đều tự động xuống dòng đẹp mắt
+-- Đồng thời chặn các hàm Co-op cũ ghi đè làm loạn LockedHelper / helpraceX
 if typeof(writefile) == "function" and not getgenv()._AxiomPrettyWritefileHooked then
     getgenv()._AxiomPrettyWritefileHooked = true
     local _rawWritefile = writefile
     local function _prettyWritefileWrapper(path, content)
         local pStr = tostring(path or "")
+        if pStr == COOP_SESSION_FILE or pStr:find("Axiom_Coop_Sessions") then
+            if not getgenv()._AxiomAllowCoopSessionWrite then
+                return
+            end
+        end
         if (pStr == COOP_SESSION_FILE or pStr:find("Axiom_Coop_Sessions") or pStr == "chestv3session") and type(content) == "string" then
             local okDec, decoded = pcall(function() return HttpService:JSONDecode(content) end)
             if okDec and type(decoded) == "table" then
@@ -586,7 +572,7 @@ task.spawn(function()
     while task.wait(5) do
         pcall(function()
             if not (App and App.Running) then return end
-            if not (IsSea2 and IsSea2()) then return end
+            if not (game.PlaceId == 4442272183 or game.PlaceId == 79091703265657) then return end
 
             local isCoopOrPvp = false
             if App.CoopEnable == true or App.CoopRole == "uprace" or App.CoopRole == "helprace" or App.IsPvpActive == true then
@@ -601,116 +587,1225 @@ task.spawn(function()
         end)
     end
 end)
-
-local function NormalizeCoopRaceGroup(rStr)
-    local s = CleanRaceStr(rStr or "")
-    if s:find("sky") or s:find("angel") then return "skypiea" end
-    if s:find("ghoul") then return "ghoul" end
-    return s
 end
 
-local function IsCoopSupportedRace(rStr)
-    local g = NormalizeCoopRaceGroup(rStr)
-    return (g == "skypiea" or g == "ghoul")
-end
-
-PurgeMyCoopSession = function()
-    if App then
-        App.CoopRole = "none"
-        App.CoopEnable = false
-        App.CoopSTT = nil
-        App.CurrentHelperPeer = nil
-        App.AssignedHelperName = nil
-        App.CoopTargetPeer = nil
-        App.HasV3Confirmed = true
+local NormalizeCoopRaceGroup, IsCoopSupportedRace, HasAnyUpRaceInSessions, HasPeerNeedingHelp, IsEligibleForCoop
+do
+    -- // [AXIOM COOP SCOPE FIX]
+    -- // Cac ham ben duoi duoc khai bao `local` SAU khoi nay nen truoc day bi resolve thanh nil (Tick loi ngam, ket "Sẵn sàng điều phối tác vụ").
+    -- // Shim tra cuu qua getgenv() tai thoi diem GOI HAM nen luon lay duoc ham that.
+    local function _CoopReg(name)
+        local f = getgenv()[name]
+        if type(f) == "function" then return f end
+        return nil
     end
 
-    pcall(function()
-        local myName = tostring(LocalPlayer.Name)
-        local myGroup = NormalizeCoopRaceGroup(App and App.TargetRace or TARGET_RACE or GetCurrentRace())
+    local IsSea2 = function()
+        return game.PlaceId == 4442272183 or game.PlaceId == 79091703265657
+    end
+
+    local function GetCurrentSea()
+        if game.PlaceId == 4442272183 or game.PlaceId == 79091703265657 then return "Sea 2 (Dressrosa)" end
+        if game.PlaceId == 7449423635 or game.PlaceId == 100117331123089 then return "Sea 3 (Zou)" end
+        if game.PlaceId == 2753915549 then return "Sea 1" end
+        return "Unknown (" .. tostring(game.PlaceId) .. ")"
+    end
+
+    local function TravelToSea2(reason)
+        local f = _CoopReg("AxiomTravelToSea2")
+        if f then return f(reason) end
+    end
+
+    -- EnsurePirates co throttle 15s de Tick/EnsureMarines khong bi chan lau neu doi team that bai
+    local function EnsurePirates()
+        if tostring(LocalPlayer.Team) == "Pirates" then return true end
+        if os.clock() - (App._lastEnsurePiratesAt or 0) < 15 then return false end
+        App._lastEnsurePiratesAt = os.clock()
+        local f = _CoopReg("AxiomEnsurePirates")
+        if f then return f() end
+        return false
+    end
+
+    local function DynamicTween(cf)
+        local f = _CoopReg("AxiomDynamicTween")
+        if f then return f(cf) end
+    end
+
+    local function EquipCombatTool()
+        local f = _CoopReg("AxiomEquipCombatTool")
+        if f then return f() end
+    end
+
+    local function EnsureFastAttackBuso()
+        local f = _CoopReg("AxiomEnsureFastAttackBuso")
+        if f then return f() end
+    end
+
+    local function ForceEnablePvpRemote()
+        local f = _CoopReg("ForceEnablePvpRemote")
+        if f then return f() end
+    end
+
+    local function TriggerLowServerHop(force)
+        local f = _CoopReg("TriggerLowServerHop")
+        if f then return f(force) end
+    end
+
+    local VirtualUser = cloneref(game:GetService("VirtualUser"))
+
+    -- Nhan / tra quest Wenlocktoad cho UpRace (theo dung flow cua coop reference: 0 -> "2", 2 -> "3", -2 = xong V3)
+    local function CoopWenlocktoadStep()
+        local commF = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
+        if not commF then return false end
+
+        local progress = nil
+        pcall(function() progress = commF:InvokeServer("Wenlocktoad", "1") end)
+        local p = tonumber(progress)
+
+        if p == -2 then
+            App.HasV3Confirmed = true
+            PurgeMyCoopSession()
+            return true
+        elseif p == 0 then
+            App.CurrentActivity = "📜 [Coop UpRace] Nhận nhiệm vụ V3 tại Wenlocktoad..."
+            pcall(function() commF:InvokeServer("Wenlocktoad", "2") end)
+        elseif p == 2 then
+            App.CurrentActivity = "🎉 [Coop UpRace] Đủ điều kiện! Đang trả quest V3 (Wenlocktoad 3)..."
+            pcall(function() commF:InvokeServer("Wenlocktoad", "3") end)
+            task.wait(0.5)
+            if CheckCyborgV3 and CheckCyborgV3() then
+                App.HasV3Confirmed = true
+                PurgeMyCoopSession()
+                return true
+            end
+        elseif p == 1 then
+            -- Phong truong hop ma trang thai bi dao: thu tra quest nhe moi 8s (khong anh huong neu chua du kill)
+            if os.clock() - (App._lastCoopTurnInProbe or 0) >= 8 then
+                App._lastCoopTurnInProbe = os.clock()
+                pcall(function() commF:InvokeServer("Wenlocktoad", "3") end)
+                task.wait(0.3)
+                if CheckCyborgV3 and CheckCyborgV3() then
+                    App.HasV3Confirmed = true
+                    PurgeMyCoopSession()
+                    return true
+                end
+            end
+        end
+        return false
+    end
+
+    local CLUSTER_MAX_SIZE = 12       -- Mỗi cụm tối đa 12 acc: 1 helpraceX + 11 uprace
+    local MAX_FOLLOWERS_PER_HELPER = 11
+    local ACTIVE_COOP_TTL = 75        -- Quá 75s không cập nhật coi như offline / xóa khỏi session
+    local HELPER_EMPTY_GRACE_SEC = 15 -- Thời gian chờ acc nhắm vào trước khi helprace tự đổi sang uprace
+
+    NormalizeCoopRaceGroup = function(rStr)
+        local s = CleanRaceStr(rStr or "")
+        if s:find("sky") or s:find("angel") then return "skypiea" end
+        if s:find("ghoul") then return "ghoul" end
+        return s
+    end
+
+    IsCoopSupportedRace = function(rStr)
+        local g = NormalizeCoopRaceGroup(rStr)
+        return (g == "skypiea" or g == "ghoul")
+    end
+
+    local function IsHelperRoleStr(roleStr)
+        local r = tostring(roleStr or ""):lower()
+        return r:find("^helprace") ~= nil
+    end
+
+    local function ParseHelperIndex(roleStr)
+        local r = tostring(roleStr or ""):lower()
+        local idx = tonumber(r:match("^helprace(%d+)$"))
+        return idx or 1
+    end
+
+    local function WriteCoopSessionsAuthorized(dataTable)
+        if not (writefile and HttpService) then return end
+        pcall(function()
+            getgenv()._AxiomAllowCoopSessionWrite = true
+            local formatted = (getgenv().FormatPrettySessionJson and getgenv().FormatPrettySessionJson(dataTable)) or HttpService:JSONEncode(dataTable)
+            writefile(COOP_SESSION_FILE, formatted)
+            getgenv()._AxiomAllowCoopSessionWrite = false
+        end)
+    end
+
+    local function ReadAndCleanCoopSessions()
+        local cleaned = {}
+        local dirty = false
         local now = os.time()
 
-        if isfile and writefile and readfile and HttpService and isfile(COOP_SESSION_FILE) then
-            local ok, data = pcall(function() return HttpService:JSONDecode(readfile(COOP_SESSION_FILE)) end)
-            if ok and type(data) == "table" then
-                data[myName] = {
-                    Name = myName,
-                    Role = "none",
-                    CoopEnable = false,
-                    TargetRace = myGroup,
-                    Race = NormalizeCoopRaceGroup(GetCurrentRace()),
-                    HasV2 = true,
-                    HasV3 = true,
-                    Sea = (GetCurrentSea and GetCurrentSea()) or "Unknown",
-                    JobId = tostring(game.JobId),
-                    PlayerCount = #Players:GetPlayers(),
-                    Heartbeat = now,
-                    UpdatedAt = now
-                }
-                writefile(COOP_SESSION_FILE, HttpService:JSONEncode(data))
+        if isfile and readfile and HttpService and isfile(COOP_SESSION_FILE) then
+            local ok, decoded = pcall(function() return HttpService:JSONDecode(readfile(COOP_SESSION_FILE)) end)
+            if ok and type(decoded) == "table" then
+                for accName, info in pairs(decoded) do
+                    if type(info) == "table" then
+                        local lastHb = tonumber(info.Heartbeat) or tonumber(info.UpdatedAt) or 0
+                        local isExpired = ((now - lastHb) > ACTIVE_COOP_TTL) or ((now - lastHb) < -30)
+                        -- [AXIOM BACK-HELP] Acc đang giữ vai trò helprace (kể cả đã V3 quay lại help) không bị tính là isDone
+                        local isDone = ((info.HasV3 == true and not IsHelperRoleStr(info.Role)) or info.CoopEnable == false or info.Role == "none")
+                        if not isExpired and not isDone then
+                            cleaned[tostring(accName)] = info
+                        else
+                            dirty = true
+                        end
+                    else
+                        dirty = true
+                    end
+                end
             end
         end
 
-        local cFolder = workspace:FindFirstChild("AxiomCoopPresence")
-        local myNode = cFolder and cFolder:FindFirstChild(myName)
-        if myNode then myNode:Destroy() end
-    end)
-end
+        if dirty then
+            WriteCoopSessionsAuthorized(cleaned)
+        end
+        return cleaned
+    end
 
-local function HasAnyUpRaceInSessions(): (boolean, string?, table?)
-    local myGroup = NormalizeCoopRaceGroup(App and App.TargetRace or TARGET_RACE or "")
-    if not IsCoopSupportedRace(myGroup) then return false, nil, nil end
+    PurgeMyCoopSession = function()
+        if App then
+            App.CoopRole = "none"
+            App.CoopRoleTag = "none"
+            App.CoopEnable = false
+            App.CoopSTT = nil
+            App.CurrentHelperPeer = nil
+            App.AssignedHelperName = nil
+            App.CoopTargetPeer = nil
+            App._LockedCoopRole = nil
+            App._LockedHelperIndex = nil
+            App._LockedHelperName = nil
+            App._LockedHelperRole = nil
+            App._SoloHuntOutside = false
+            App.HasV3Confirmed = true
+        end
 
-    local myName = tostring(LocalPlayer.Name)
-    local now = os.time()
+        pcall(function()
+            local myName = tostring(LocalPlayer.Name)
+            if isfile and readfile and HttpService and isfile(COOP_SESSION_FILE) then
+                local ok, data = pcall(function() return HttpService:JSONDecode(readfile(COOP_SESSION_FILE)) end)
+                if ok and type(data) == "table" and data[myName] ~= nil then
+                    data[myName] = nil
+                    WriteCoopSessionsAuthorized(data)
+                end
+            end
 
-    if isfile and readfile and HttpService and isfile(COOP_SESSION_FILE) then
-        local ok, data = pcall(function() return HttpService:JSONDecode(readfile(COOP_SESSION_FILE)) end)
-        if ok and type(data) == "table" then
-            for name, info in pairs(data) do
-                if name ~= myName and type(info) == "table" then
-                    local lastHb = tonumber(info.Heartbeat) or tonumber(info.UpdatedAt) or 0
-                    if (now - lastHb) <= COOP_HEARTBEAT_TTL then
-                        local peerGroup = NormalizeCoopRaceGroup(info.TargetRace or info.Race or "")
-                        if peerGroup == myGroup and info.HasV3 ~= true and info.CoopEnable == true then
-                            if info.Role == "uprace" or info.HasV2 == true then
-                                return true, name, info
+            local cFolder = workspace:FindFirstChild("AxiomCoopPresence")
+            local myNode = cFolder and cFolder:FindFirstChild(myName)
+            if myNode then myNode:Destroy() end
+        end)
+    end
+    getgenv().PurgeMyCoopSession = PurgeMyCoopSession
+
+    HasAnyUpRaceInSessions = function(): (boolean, string?, table?)
+        local myGroup = NormalizeCoopRaceGroup(App and App.TargetRace or TARGET_RACE or "")
+        if not IsCoopSupportedRace(myGroup) then return false, nil, nil end
+
+        local myName = tostring(LocalPlayer.Name)
+        local sessions = ReadAndCleanCoopSessions()
+        for name, info in pairs(sessions) do
+            if name ~= myName and type(info) == "table" then
+                local peerGroup = NormalizeCoopRaceGroup(info.TargetRace or info.Race or "")
+                if peerGroup == myGroup and info.HasV3 ~= true and info.CoopEnable == true then
+                    return true, name, info
+                end
+            end
+        end
+        return false, nil, nil
+    end
+
+    HasPeerNeedingHelp = function(): (boolean, string?, table?)
+        return HasAnyUpRaceInSessions()
+    end
+
+    IsEligibleForCoop = function(): boolean
+        local myGroup = NormalizeCoopRaceGroup(App and App.TargetRace or TARGET_RACE or "")
+        if not IsCoopSupportedRace(myGroup) then return false end
+
+        local curGroup = NormalizeCoopRaceGroup(GetCurrentRace and GetCurrentRace() or "")
+        if curGroup ~= myGroup then return false end
+
+        local hasV2 = (App and App.HasV2Confirmed) or (CheckRaceV2 and CheckRaceV2())
+        if not hasV2 then return false end
+
+        local hasV3 = (App and App.HasV3Confirmed) or (CheckCyborgV3 and CheckCyborgV3())
+        if hasV3 then
+            -- [AXIOM BACK-HELP] Acc đã V3 nhưng đang giữ vai trò Back-Help hoặc đang kiểm tra Back-Help thì vẫn hợp lệ
+            if App and (App._BackHelpTargetName or App._CheckingBackHelpEligibility) then
+                return true
+            end
+            PurgeMyCoopSession()
+            return false
+        end
+
+        -- Nếu đã có V2 nhưng chưa đủ 2M Beli để mua V3 -> Nhặt Chest ở Sea 3 cày đủ 2M Beli trước khi bật Coop
+        if GetBeli and GetBeli() < 2000000 then
+            return false
+        end
+
+        return true
+    end
+    getgenv().IsEligibleForCoop = IsEligibleForCoop
+
+    -- =========================================================================
+    -- [AXIOM 12-ACCOUNT CLUSTER ROLE & STICKY TARGET EVALUATOR]
+    -- + Mỗi 12 acc có 1 helpraceX (1..12 -> helprace1, 13..24 -> helprace2, 25..36 -> helprace3...)
+    -- + Mỗi uprace khóa cứng 1 helpraceX (LockedHelper) cho tới khi helpraceX đổi role / offline / bị xóa
+    -- + helpraceX chỉ đổi sang uprace khi hết acc nhắm vào hoặc không còn acc nào khác ngoài mình
+    -- =========================================================================
+    local function AxiomCoopClusterEval()
+        if not IsEligibleForCoop() then
+            if App and App.CoopEnable then
+                PurgeMyCoopSession()
+            end
+            return "none"
+        end
+
+        local myName = tostring(LocalPlayer.Name)
+        local myGroup = NormalizeCoopRaceGroup(App and App.TargetRace or TARGET_RACE or GetCurrentRace())
+        local curJob = tostring(game.JobId or "")
+        local now = os.time()
+
+        App._CoopFirstSeen = App._CoopFirstSeen or now
+        local allSessions = ReadAndCleanCoopSessions()
+        local prevMyEntry = allSessions[myName]
+        if prevMyEntry and tonumber(prevMyEntry.FirstSeen) then
+            App._CoopFirstSeen = math.min(App._CoopFirstSeen, tonumber(prevMyEntry.FirstSeen))
+        end
+
+        -- Khôi phục khóa cứng từ file nếu vừa hop server sang theo helpraceX
+        if not App._LockedCoopRole and not App._LockedHelperName and prevMyEntry then
+            if IsHelperRoleStr(prevMyEntry.Role) then
+                App._LockedCoopRole = tostring(prevMyEntry.Role):lower()
+                App._LockedHelperIndex = ParseHelperIndex(prevMyEntry.Role)
+                App._HelperLockStartTime = tonumber(prevMyEntry.HelperSince) or now
+            elseif type(prevMyEntry.LockedHelper) == "string" and prevMyEntry.LockedHelper ~= "" then
+                App._LockedHelperName = prevMyEntry.LockedHelper
+                App._LockedHelperRole = prevMyEntry.LockedHelperRole or "helprace1"
+            end
+        end
+
+        -- =====================================================================
+        -- [AXIOM BACK-HELP ENGINE CHO GHOUL & SKYPIEA]
+        -- Khi các acc đã uprace hết nhưng còn 1 acc còn lại bị buộc solo,
+        -- các acc còn lại là race ghoul/skypiea sẽ chọn mình là helprace để acc còn lại farm lên V3.
+        -- Khi đã chọn helprace cho acc sót lại thì KO ĐƯỢC PHÉP ĐỔI đến khi:
+        -- 1) Acc sót lại lên V3
+        -- 2) Acc sót lại offline (> ACTIVE_COOP_TTL)
+        -- 3) Không còn data acc đó trong file session
+        -- =====================================================================
+        local myHasV3 = (App and App.HasV3Confirmed) or (CheckCyborgV3 and CheckCyborgV3())
+        if myHasV3 and IsCoopSupportedRace(myGroup) then
+            -- 1. Nếu bản thân đã chọn làm helprace cho acc sót lại trước đó:
+            if App._BackHelpTargetName and App._BackHelpTargetName ~= "" then
+                local lockedTargetName = App._BackHelpTargetName
+                local targetEntry = allSessions[lockedTargetName]
+                local targetHb = targetEntry and (tonumber(targetEntry.Heartbeat) or tonumber(targetEntry.UpdatedAt) or 0) or 0
+                local targetExpired = (now - targetHb) > ACTIVE_COOP_TTL
+
+                local isDoneV3 = (targetEntry and targetEntry.HasV3 == true)
+                local isOffline = (not targetEntry) or targetExpired
+                local noData = (targetEntry == nil)
+
+                if isDoneV3 or isOffline or noData then
+                    -- Đã thỏa mãn 1 trong 3 điều kiện giải phóng:
+                    local reason = isDoneV3 and "đã lên V3" or (noData and "không còn data" or "đã offline")
+                    warn(string.format("[AXIOM BACK-HELP] ✅ Acc sót lại '%s' %s -> Giải phóng vai trò Back-Help!", lockedTargetName, reason))
+                    App._BackHelpTargetName = nil
+                    App._LockedCoopRole = nil
+                    App._LockedHelperIndex = nil
+                    App.CoopRole = "none"
+                    App.CoopRoleTag = "none"
+                    App.CoopEnable = false
+                    PurgeMyCoopSession()
+                    return "none"
+                else
+                    -- Chưa thỏa mãn điều kiện giải phóng: TUYỆT ĐỐI KHÔNG ĐƯỢC PHÉP ĐỔI!
+                    App.CoopRole = "helprace"
+                    App.CoopRoleTag = "helprace1"
+                    App.CoopEnable = true
+                    App.CoopSTT = 1
+                    App._LockedCoopRole = "helprace1"
+                    App._LockedHelperName = nil
+                    App._LockedHelperRole = nil
+                    App._SoloHuntOutside = false
+
+                    allSessions[myName] = {
+                        Name = myName,
+                        Role = "helprace1",
+                        HelperIndex = 1,
+                        LockedHelper = "",
+                        LockedHelperRole = "",
+                        TargetPeer = lockedTargetName,
+                        AssignedUpRace = lockedTargetName,
+                        CoopSTT = 1,
+                        CoopEnable = true,
+                        Race = NormalizeCoopRaceGroup(GetCurrentRace()),
+                        TargetRace = myGroup,
+                        HasV2 = true,
+                        HasV3 = true,
+                        Sea = (GetCurrentSea and GetCurrentSea()) or "Sea 2 (Dressrosa)",
+                        JobId = curJob,
+                        PlayerCount = #Players:GetPlayers(),
+                        FollowersCount = 1,
+                        FirstSeen = App._CoopFirstSeen,
+                        HelperSince = App._HelperLockStartTime or now,
+                        Heartbeat = now,
+                        UpdatedAt = now
+                    }
+                    WriteCoopSessionsAuthorized(allSessions)
+                    return "helprace"
+                end
+            end
+
+            -- 2. Chưa chọn Back-Help: Quét tìm acc sót lại cùng tộc đang bị buộc solo
+            local remainingSoloUpRace = nil
+            local nonV3Count = 0
+
+            for accName_chk, info_chk in pairs(allSessions) do
+                if type(info_chk) == "table" and accName_chk ~= myName and NormalizeCoopRaceGroup(info_chk.TargetRace or info_chk.Race or "") == myGroup then
+                    local chkHb = tonumber(info_chk.Heartbeat) or tonumber(info_chk.UpdatedAt) or 0
+                    if (now - chkHb) <= ACTIVE_COOP_TTL and info_chk.HasV3 ~= true and info_chk.CoopEnable ~= false then
+                        nonV3Count = nonV3Count + 1
+                        remainingSoloUpRace = accName_chk
+                    end
+                end
+            end
+
+            if nonV3Count == 1 and remainingSoloUpRace then
+                -- Kiểm tra xem đã có acc nào khác nhận làm helprace cho acc sót lại này chưa
+                local alreadyHasBackHelper = false
+                for accName_h, info_h in pairs(allSessions) do
+                    if accName_h ~= myName and type(info_h) == "table" and IsHelperRoleStr(info_h.Role) then
+                        local hHb = tonumber(info_h.Heartbeat) or tonumber(info_h.UpdatedAt) or 0
+                        if (now - hHb) <= ACTIVE_COOP_TTL and (info_h.TargetPeer == remainingSoloUpRace or info_h.AssignedUpRace == remainingSoloUpRace) then
+                            alreadyHasBackHelper = true
+                            break
+                        end
+                    end
+                end
+
+                if not alreadyHasBackHelper then
+                    -- Chọn bản thân làm helprace cho acc sót lại đó, khóa cứng không được phép đổi!
+                    warn(string.format("[AXIOM BACK-HELP] 🛡️ Phát hiện acc '%s' bị buộc solo -> Chọn mình làm helprace hỗ trợ lên V3!", remainingSoloUpRace))
+                    App._BackHelpTargetName = remainingSoloUpRace
+                    App._LockedCoopRole = "helprace1"
+                    App._LockedHelperIndex = 1
+                    App._HelperLockStartTime = now
+                    App._HelperLastHadFollower = now
+                    App.CoopRole = "helprace"
+                    App.CoopRoleTag = "helprace1"
+                    App.CoopEnable = true
+                    App.CoopSTT = 1
+                    App._SoloHuntOutside = false
+
+                    allSessions[myName] = {
+                        Name = myName,
+                        Role = "helprace1",
+                        HelperIndex = 1,
+                        LockedHelper = "",
+                        LockedHelperRole = "",
+                        TargetPeer = remainingSoloUpRace,
+                        AssignedUpRace = remainingSoloUpRace,
+                        CoopSTT = 1,
+                        CoopEnable = true,
+                        Race = NormalizeCoopRaceGroup(GetCurrentRace()),
+                        TargetRace = myGroup,
+                        HasV2 = true,
+                        HasV3 = true,
+                        Sea = (GetCurrentSea and GetCurrentSea()) or "Sea 2 (Dressrosa)",
+                        JobId = curJob,
+                        PlayerCount = #Players:GetPlayers(),
+                        FollowersCount = 1,
+                        FirstSeen = App._CoopFirstSeen,
+                        HelperSince = now,
+                        Heartbeat = now,
+                        UpdatedAt = now
+                    }
+                    WriteCoopSessionsAuthorized(allSessions)
+                    return "helprace"
+                end
+            end
+
+            -- Nếu không có acc sót lại cần giúp, trả về "none" để acc tiếp tục lộ trình
+            App.CoopRole = "none"
+            App.CoopEnable = false
+            return "none"
+        end
+
+        -- Lọc danh sách các acc cùng nhóm tộc đang active trong Coop (trừ bản thân)
+        local groupPeers = {}
+        local otherActiveCount = 0
+        for accName, info in pairs(allSessions) do
+            if type(info) == "table" and NormalizeCoopRaceGroup(info.TargetRace or info.Race or "") == myGroup then
+                if (info.HasV3 ~= true or IsHelperRoleStr(info.Role)) and info.CoopEnable ~= false and info.Role ~= "none" then
+                    groupPeers[accName] = info
+                    if accName ~= myName then
+                        otherActiveCount = otherActiveCount + 1
+                    end
+                end
+            end
+        end
+
+        -- Bảng thống kê các helpraceX hiện có và danh sách uprace đang nhắm vào từng helpraceX
+        local activeHelpers = {}   -- helperName -> { Index = k, Role = "helpraceK", Info = info, Followers = {name1, ...} }
+        for accName, info in pairs(groupPeers) do
+            if accName ~= myName and IsHelperRoleStr(info.Role) then
+                local hIdx = ParseHelperIndex(info.Role)
+                activeHelpers[accName] = {
+                    Name = accName,
+                    Index = hIdx,
+                    Role = "helprace" .. tostring(hIdx),
+                    Info = info,
+                    Followers = {}
+                }
+            end
+        end
+
+        -- Nếu bản thân đang giữ role helpraceX thì đưa vào bảng tính toán
+        if App._LockedCoopRole and IsHelperRoleStr(App._LockedCoopRole) then
+            local myIdx = App._LockedHelperIndex or ParseHelperIndex(App._LockedCoopRole)
+            activeHelpers[myName] = {
+                Name = myName,
+                Index = myIdx,
+                Role = "helprace" .. tostring(myIdx),
+                Info = prevMyEntry or { JobId = curJob, FirstSeen = App._CoopFirstSeen },
+                Followers = {}
+            }
+        end
+
+        -- Đếm số lượng uprace đang nhắm vào từng helpraceX
+        local unassignedPeers = {}
+        for accName, info in pairs(groupPeers) do
+            if accName ~= myName and not IsHelperRoleStr(info.Role) then
+                local lockedTarget = tostring(info.LockedHelper or "")
+                if lockedTarget ~= "" and activeHelpers[lockedTarget] then
+                    table.insert(activeHelpers[lockedTarget].Followers, accName)
+                else
+                    table.insert(unassignedPeers, accName)
+                end
+            end
+        end
+
+        -- Sắp xếp danh sách Followers của từng Helper (ưu tiên người đã ở cùng server và FirstSeen sớm hơn)
+        for hName, hData in pairs(activeHelpers) do
+            local hJob = tostring(hData.Info and hData.Info.JobId or "")
+            table.sort(hData.Followers, function(a, b)
+                local infoA = groupPeers[a] or {}
+                local infoB = groupPeers[b] or {}
+                local sameJobA = (hJob ~= "" and tostring(infoA.JobId or "") == hJob)
+                local sameJobB = (hJob ~= "" and tostring(infoB.JobId or "") == hJob)
+                if sameJobA ~= sameJobB then
+                    return sameJobA
+                end
+                local fsA = tonumber(infoA.FirstSeen) or 9999999999
+                local fsB = tonumber(infoB.FirstSeen) or 9999999999
+                if fsA ~= fsB then return fsA < fsB end
+                return a < b
+            end)
+        end
+
+        -- =====================================================================
+        -- NHÁNH 1: BẢN THÂN ĐANG LÀ HELPRACEX (helprace1, helprace2, ...)
+        -- =====================================================================
+        if App._LockedCoopRole and IsHelperRoleStr(App._LockedCoopRole) then
+            local myHData = activeHelpers[myName]
+            local myIdx = myHData.Index
+            local myFollowers = myHData.Followers
+            local myFollowerCount = #myFollowers
+
+            if myFollowerCount > 0 then
+                App._HelperLastHadFollower = now
+            end
+
+            -- Kiểm tra nếu có 1 acc khác trùng đúng mã helpraceX với mình trong khi mình chưa có follower nào
+            local duplicateYield = false
+            if myFollowerCount == 0 then
+                for hName, hData in pairs(activeHelpers) do
+                    if hName ~= myName and hData.Index == myIdx then
+                        local otherCount = #hData.Followers
+                        local otherFs = tonumber(hData.Info and hData.Info.FirstSeen) or 0
+                        if otherCount > 0 or otherFs < App._CoopFirstSeen or (otherFs == App._CoopFirstSeen and myName > hName) then
+                            duplicateYield = true
+                            break
+                        end
+                    end
+                end
+            end
+
+            local lockAge = now - (App._HelperLockStartTime or now)
+            local sinceLastFollower = now - (App._HelperLastHadFollower or App._HelperLockStartTime or now)
+
+            -- ĐIỀU KIỆN ĐỔI ROLE TỪ HELPRACEX -> UPRACE:
+            -- 1. Không còn bất kỳ acc nào khác ngoài mình (otherActiveCount == 0) sau thời gian chờ
+            -- 2. Hoặc đã hết sạch acc nhắm vào mình (myFollowerCount == 0) và không còn acc chờ ghép (unassigned == 0)
+            -- [AXIOM FIX] Đếm TỔNG SỐ acc uprace còn active trong TOÀN BỘ nhóm tộc
+            -- (ko chỉ followers của mình mà cả acc lock vào helper khác hoặc chưa lock)
+            local totalUpraceInGroup = 0
+            for accName_chk, info_chk in pairs(groupPeers) do
+                if accName_chk ~= myName and not IsHelperRoleStr(info_chk.Role) then
+                    totalUpraceInGroup = totalUpraceInGroup + 1
+                end
+            end
+
+            local shouldSwitchToUprace = false
+            if duplicateYield then
+                shouldSwitchToUprace = true
+            elseif otherActiveCount == 0 and lockAge >= HELPER_EMPTY_GRACE_SEC then
+                -- Không còn bất kỳ acc nào khác ngoài mình trong file coop
+                shouldSwitchToUprace = true
+            elseif totalUpraceInGroup == 0 and myFollowerCount == 0 and #unassignedPeers == 0 and lockAge >= HELPER_EMPTY_GRACE_SEC then
+                -- Không còn bất kỳ acc uprace nào trong toàn bộ nhóm tộc -> mới được hủy role
+                shouldSwitchToUprace = true
+            end
+
+            if not shouldSwitchToUprace then
+                -- Giữ nguyên role helpraceX
+                local roleTag = "helprace" .. tostring(myIdx)
+                App.CoopRole = "helprace"
+                App.CoopRoleTag = roleTag
+                App.CoopEnable = true
+                App.CoopSTT = (myIdx - 1) * CLUSTER_MAX_SIZE + 1
+                App._CoopMyFollowersCount = myFollowerCount
+                App._CoopMyFollowersList = myFollowers
+                App._LockedHelperName = nil
+                App._LockedHelperRole = nil
+                App._SoloHuntOutside = false
+
+                allSessions[myName] = {
+                    Name = myName,
+                    Role = roleTag,
+                    HelperIndex = myIdx,
+                    LockedHelper = "",
+                    LockedHelperRole = "",
+                    CoopSTT = App.CoopSTT,
+                    CoopEnable = true,
+                    Race = NormalizeCoopRaceGroup(GetCurrentRace()),
+                    TargetRace = myGroup,
+                    HasV2 = true,
+                    HasV3 = false,
+                    Sea = (GetCurrentSea and GetCurrentSea()) or "Sea 2 (Dressrosa)",
+                    JobId = curJob,
+                    PlayerCount = #Players:GetPlayers(),
+                    FollowersCount = myFollowerCount,
+                    FirstSeen = App._CoopFirstSeen,
+                    HelperSince = App._HelperLockStartTime or now,
+                    Heartbeat = now,
+                    UpdatedAt = now
+                }
+                WriteCoopSessionsAuthorized(allSessions)
+                return "helprace"
+            else
+                -- Giải phóng khóa helpraceX để chuyển sang uprace
+                App._LockedCoopRole = nil
+                App._LockedHelperIndex = nil
+                activeHelpers[myName] = nil
+                if otherActiveCount == 0 then
+                    App._SoloHuntOutside = true
+                end
+            end
+        end
+
+        -- =====================================================================
+        -- NHÁNH 2: BẢN THÂN LÀ UPRACE (KIỂM TRA KHÓA CỨNG HOẶC CHỌN HELPRACEX)
+        -- =====================================================================
+        -- 2.1. Kiểm tra nếu đã khóa cứng 1 helpraceX (App._LockedHelperName) thì giữ nguyên tuyệt đối!
+        if App._LockedHelperName and App._LockedHelperName ~= "" then
+            local targetH = activeHelpers[App._LockedHelperName]
+            if targetH then
+                -- Kiểm tra xem mình đã ở trong cùng server với helpraceX đó chưa
+                local inSameServer = (tostring(targetH.Info and targetH.Info.JobId or "") == curJob) or (Players:FindFirstChild(targetH.Name) ~= nil)
+                -- Tính vị trí của mình trong danh sách followers của targetH
+                local myRankInCluster = 1
+                for idx, fName in ipairs(targetH.Followers) do
+                    if fName == myName then
+                        myRankInCluster = idx
+                        break
+                    end
+                    myRankInCluster = idx + 1
+                end
+
+                -- Nếu đã ở trong cùng server HOẶC cụm chưa vượt quá 11 followers (12 acc) -> Giữ khóa cứng 100%!
+                if inSameServer or myRankInCluster <= MAX_FOLLOWERS_PER_HELPER then
+                    App.CoopRole = "uprace"
+                    App.CoopRoleTag = "uprace"
+                    App.CoopEnable = true
+                    App._LockedHelperRole = targetH.Role
+                    App._LockedHelperInfo = targetH.Info
+                    App.AssignedHelperName = targetH.Name
+                    App.CurrentHelperPeer = targetH.Name
+                    App._SoloHuntOutside = false
+                    App.CoopSTT = (targetH.Index - 1) * CLUSTER_MAX_SIZE + 1 + myRankInCluster
+
+                    allSessions[myName] = {
+                        Name = myName,
+                        Role = "uprace",
+                        LockedHelper = targetH.Name,
+                        LockedHelperRole = targetH.Role,
+                        CoopSTT = App.CoopSTT,
+                        CoopEnable = true,
+                        Race = NormalizeCoopRaceGroup(GetCurrentRace()),
+                        TargetRace = myGroup,
+                        HasV2 = true,
+                        HasV3 = false,
+                        Sea = (GetCurrentSea and GetCurrentSea()) or "Sea 2 (Dressrosa)",
+                        JobId = curJob,
+                        PlayerCount = #Players:GetPlayers(),
+                        FirstSeen = App._CoopFirstSeen,
+                        Heartbeat = now,
+                        UpdatedAt = now
+                    }
+                    WriteCoopSessionsAuthorized(allSessions)
+                    return "uprace"
+                else
+                    -- Cụm helprace cũ đã đầy 12 acc ngay lúc khởi tạo và mình chưa ở trong server đó -> nhả khóa để sang helprace mới
+                    App._LockedHelperName = nil
+                    App._LockedHelperRole = nil
+                end
+            else
+                -- helpraceX đã đổi role / offline / bị xóa khỏi session -> mở khóa để tìm helprace mới
+                App._LockedHelperName = nil
+                App._LockedHelperRole = nil
+            end
+        end
+
+        -- 2.2. Nếu chưa có helpraceX khóa cứng: Tìm 1 helpraceX đang active còn trống slot (< 11 followers = dưới 12 acc)
+        local candidateHelpers = {}
+        for _, hData in pairs(activeHelpers) do
+            if #hData.Followers < MAX_FOLLOWERS_PER_HELPER then
+                table.insert(candidateHelpers, hData)
+            end
+        end
+
+        table.sort(candidateHelpers, function(a, b)
+            local sameA = (tostring(a.Info and a.Info.JobId or "") == curJob) or (Players:FindFirstChild(a.Name) ~= nil)
+            local sameB = (tostring(b.Info and b.Info.JobId or "") == curJob) or (Players:FindFirstChild(b.Name) ~= nil)
+            if sameA ~= sameB then return sameA end
+            if a.Index ~= b.Index then return a.Index < b.Index end
+            return a.Name < b.Name
+        end)
+
+        if #candidateHelpers > 0 then
+            local chosenH = candidateHelpers[1]
+            App._LockedHelperName = chosenH.Name
+            App._LockedHelperRole = chosenH.Role
+            App._LockedHelperInfo = chosenH.Info
+            App.AssignedHelperName = chosenH.Name
+            App.CurrentHelperPeer = chosenH.Name
+            App.CoopRole = "uprace"
+            App.CoopRoleTag = "uprace"
+            App.CoopEnable = true
+            App._SoloHuntOutside = false
+            local mySlot = #chosenH.Followers + 1
+            App.CoopSTT = (chosenH.Index - 1) * CLUSTER_MAX_SIZE + 1 + mySlot
+
+            allSessions[myName] = {
+                Name = myName,
+                Role = "uprace",
+                LockedHelper = chosenH.Name,
+                LockedHelperRole = chosenH.Role,
+                CoopSTT = App.CoopSTT,
+                CoopEnable = true,
+                Race = NormalizeCoopRaceGroup(GetCurrentRace()),
+                TargetRace = myGroup,
+                HasV2 = true,
+                HasV3 = false,
+                Sea = (GetCurrentSea and GetCurrentSea()) or "Sea 2 (Dressrosa)",
+                JobId = curJob,
+                PlayerCount = #Players:GetPlayers(),
+                FirstSeen = App._CoopFirstSeen,
+                Heartbeat = now,
+                UpdatedAt = now
+            }
+            WriteCoopSessionsAuthorized(allSessions)
+            return "uprace"
+        end
+
+        -- 2.3. Không có helpraceX nào còn slot trống (hoặc chưa có helprace nào):
+        -- [AXIOM FIX] TUYỆT ĐỐI KHÔNG ĐỂ ACC NÀO SOLO UPRACE VỚI GHOUL / SKYPIEA!
+        local isGhoulOrSky = (myGroup == "ghoul" or myGroup == "skypiea")
+        if not isGhoulOrSky and otherActiveCount == 0 and (App._SoloHuntOutside or (now - App._CoopFirstSeen) >= HELPER_EMPTY_GRACE_SEC) then
+            App._SoloHuntOutside = true
+            App.CoopRole = "uprace"
+            App.CoopRoleTag = "uprace (Solo)"
+            App.CoopEnable = true
+            App._LockedHelperName = nil
+            App._LockedHelperRole = nil
+            App.CoopSTT = 1
+
+            allSessions[myName] = {
+                Name = myName,
+                Role = "uprace",
+                LockedHelper = "SOLO_OUTSIDE",
+                LockedHelperRole = "none",
+                CoopSTT = 1,
+                CoopEnable = true,
+                Race = NormalizeCoopRaceGroup(GetCurrentRace()),
+                TargetRace = myGroup,
+                HasV2 = true,
+                HasV3 = false,
+                Sea = (GetCurrentSea and GetCurrentSea()) or "Sea 2 (Dressrosa)",
+                JobId = curJob,
+                PlayerCount = #Players:GetPlayers(),
+                FirstSeen = App._CoopFirstSeen,
+                Heartbeat = now,
+                UpdatedAt = now
+            }
+            WriteCoopSessionsAuthorized(allSessions)
+            return "uprace"
+        elseif isGhoulOrSky and otherActiveCount == 0 then
+            -- Với Ghoul / Skypiea: Tuyệt đối không solo, giữ role uprace chờ acc V3 back-help
+            App._SoloHuntOutside = false
+            App.CoopRole = "uprace"
+            App.CoopRoleTag = "uprace (Chờ Back-Help)"
+            App.CoopEnable = true
+            App._LockedHelperName = nil
+            App._LockedHelperRole = nil
+            App.CoopSTT = 2
+
+            allSessions[myName] = {
+                Name = myName,
+                Role = "uprace",
+                LockedHelper = "",
+                LockedHelperRole = "",
+                CoopSTT = 2,
+                CoopEnable = true,
+                Race = NormalizeCoopRaceGroup(GetCurrentRace()),
+                TargetRace = myGroup,
+                HasV2 = true,
+                HasV3 = false,
+                Sea = (GetCurrentSea and GetCurrentSea()) or "Sea 2 (Dressrosa)",
+                JobId = curJob,
+                PlayerCount = #Players:GetPlayers(),
+                FirstSeen = App._CoopFirstSeen,
+                Heartbeat = now,
+                UpdatedAt = now
+            }
+            WriteCoopSessionsAuthorized(allSessions)
+            return "uprace"
+        end
+
+        -- 2.4. Bầu chọn helprace mới cho cụm 12 acc tiếp theo (helprace1 cho acc 1..12, helprace2 cho acc 13..24, helprace3 cho acc 25..36...)
+        local usedIndices = {}
+        for _, hData in pairs(activeHelpers) do
+            usedIndices[hData.Index] = true
+        end
+        local nextHelperIdx = 1
+        while usedIndices[nextHelperIdx] do
+            nextHelperIdx = nextHelperIdx + 1
+        end
+
+        local poolForNewCluster = { myName }
+        for _, uName in ipairs(unassignedPeers) do
+            table.insert(poolForNewCluster, uName)
+        end
+        table.sort(poolForNewCluster, function(a, b)
+            local fsA = (a == myName and App._CoopFirstSeen) or tonumber(groupPeers[a] and groupPeers[a].FirstSeen) or 9999999999
+            local fsB = (b == myName and App._CoopFirstSeen) or tonumber(groupPeers[b] and groupPeers[b].FirstSeen) or 9999999999
+            if fsA ~= fsB then return fsA < fsB end
+            return a < b
+        end)
+
+        local electedLeader = poolForNewCluster[1]
+        local newHelperRole = "helprace" .. tostring(nextHelperIdx)
+
+        if electedLeader == myName then
+            -- Mình là acc đầu tiên của cụm 12 acc mới (Acc #1 -> helprace1, Acc #13 -> helprace2, Acc #25 -> helprace3...)
+            App._LockedCoopRole = newHelperRole
+            App._LockedHelperIndex = nextHelperIdx
+            App._HelperLockStartTime = now
+            App._HelperLastHadFollower = now
+            App._LockedHelperName = nil
+            App._LockedHelperRole = nil
+            App._SoloHuntOutside = false
+            App.CoopRole = "helprace"
+            App.CoopRoleTag = newHelperRole
+            App.CoopEnable = true
+            App.CoopSTT = (nextHelperIdx - 1) * CLUSTER_MAX_SIZE + 1
+
+            allSessions[myName] = {
+                Name = myName,
+                Role = newHelperRole,
+                HelperIndex = nextHelperIdx,
+                LockedHelper = "",
+                LockedHelperRole = "",
+                CoopSTT = App.CoopSTT,
+                CoopEnable = true,
+                Race = NormalizeCoopRaceGroup(GetCurrentRace()),
+                TargetRace = myGroup,
+                HasV2 = true,
+                HasV3 = false,
+                Sea = (GetCurrentSea and GetCurrentSea()) or "Sea 2 (Dressrosa)",
+                JobId = curJob,
+                PlayerCount = #Players:GetPlayers(),
+                FollowersCount = 0,
+                FirstSeen = App._CoopFirstSeen,
+                HelperSince = now,
+                Heartbeat = now,
+                UpdatedAt = now
+            }
+            WriteCoopSessionsAuthorized(allSessions)
+            return "helprace"
+        else
+            -- Khóa cứng vào acc Leader của cụm mới
+            App._LockedHelperName = electedLeader
+            App._LockedHelperRole = newHelperRole
+            App._LockedHelperInfo = groupPeers[electedLeader]
+            App.AssignedHelperName = electedLeader
+            App.CurrentHelperPeer = electedLeader
+            App.CoopRole = "uprace"
+            App.CoopRoleTag = "uprace"
+            App.CoopEnable = true
+            App._SoloHuntOutside = false
+            App.CoopSTT = (nextHelperIdx - 1) * CLUSTER_MAX_SIZE + 2
+
+            allSessions[myName] = {
+                Name = myName,
+                Role = "uprace",
+                LockedHelper = electedLeader,
+                LockedHelperRole = newHelperRole,
+                CoopSTT = App.CoopSTT,
+                CoopEnable = true,
+                Race = NormalizeCoopRaceGroup(GetCurrentRace()),
+                TargetRace = myGroup,
+                HasV2 = true,
+                HasV3 = false,
+                Sea = (GetCurrentSea and GetCurrentSea()) or "Sea 2 (Dressrosa)",
+                JobId = curJob,
+                PlayerCount = #Players:GetPlayers(),
+                FirstSeen = App._CoopFirstSeen,
+                Heartbeat = now,
+                UpdatedAt = now
+            }
+            WriteCoopSessionsAuthorized(allSessions)
+            return "uprace"
+        end
+    end
+
+    -- Hàm tấn công mục tiêu Player trong Co-op / Solo Hunt
+    local function AttackCoopPlayerCharacter(targetChar)
+        if not targetChar then return end
+        local tHrp = targetChar:FindFirstChild("HumanoidRootPart")
+        local tHum = targetChar:FindFirstChildOfClass("Humanoid")
+        if not (tHrp and tHum and tHum.Health > 0) then return end
+
+        -- [AXIOM FIX] Ưu tiên equip Yama Sword cho Coop combat
+        -- Chỉ sài sword Yama, ko có Yama thì dùng Melee. Ko sài sword khác.
+        pcall(function()
+            local _ceChar = LocalPlayer.Character
+            if not _ceChar then return end
+            local _ceHum = _ceChar:FindFirstChildOfClass("Humanoid")
+            if not _ceHum then return end
+            local _ceBp = LocalPlayer:FindFirstChild("Backpack")
+            local _ceEquipped = _ceChar:FindFirstChildOfClass("Tool")
+            -- 1. Nếu đang cầm Yama rồi -> giữ nguyên tuyệt đối
+            if _ceEquipped and _ceEquipped.Name:lower():find("yama") then return end
+            -- 2. Tìm Yama trong Backpack
+            local _yamaFound = nil
+            if _ceBp then
+                for _, _itm in ipairs(_ceBp:GetChildren()) do
+                    if _itm:IsA("Tool") and _itm.Name:lower():find("yama") then
+                        _yamaFound = _itm
+                        break
+                    end
+                end
+            end
+            if _yamaFound then
+                _ceHum:EquipTool(_yamaFound)
+                return
+            end
+            -- 3. Ko có Yama -> fallback dùng Melee
+            if not _ceEquipped or (_ceEquipped.ToolTip ~= "Melee" and _ceEquipped.ToolTip ~= "Sword") then
+                if _ceBp then
+                    for _, _itm in ipairs(_ceBp:GetChildren()) do
+                        if _itm:IsA("Tool") and _itm.ToolTip == "Melee" then
+                            _ceHum:EquipTool(_itm)
+                            return
+                        end
+                    end
+                end
+            end
+        end)
+        if EnsureFastAttackBuso then pcall(EnsureFastAttackBuso) end
+
+        pcall(function()
+            local netModules = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("Net")
+            if netModules then
+                local regAttack = netModules:FindFirstChild("RE/RegisterAttack")
+                local regHit = netModules:FindFirstChild("RE/RegisterHit")
+                if regAttack then regAttack:FireServer() end
+                local hitParts = {}
+                for _, part in ipairs(targetChar:GetChildren()) do
+                    if part:IsA("BasePart") then
+                        table.insert(hitParts, { targetChar, part })
+                    end
+                end
+                local head = targetChar:FindFirstChild("Head") or tHrp
+                local callHash = tostring(LocalPlayer.UserId):sub(2, 4) .. tostring(coroutine.running()):sub(11, 15)
+                if regHit and head and #hitParts > 0 then
+                    regHit:FireServer(head, hitParts, {}, callHash)
+                end
+            end
+        end)
+
+        pcall(function()
+            VirtualUser:CaptureController()
+            VirtualUser:Button1Down(Vector2.new(800, 600))
+        end)
+
+        if os.clock() - (App._lastCoopSkillCast or 0) >= 0.6 then
+            App._lastCoopSkillCast = os.clock()
+            pcall(function()
+                local vim = cloneref and cloneref(game:GetService("VirtualInputManager")) or game:GetService("VirtualInputManager")
+                if vim then
+                    for _, kc in ipairs({ Enum.KeyCode.Z, Enum.KeyCode.X, Enum.KeyCode.C }) do
+                        vim:SendKeyEvent(true, kc, false, game)
+                        task.wait(0.03)
+                        vim:SendKeyEvent(false, kc, false, game)
+                    end
+                end
+            end)
+        end
+    end
+
+    -- =========================================================================
+    -- [AXIOM CLUSTER COOP V3 EXECUTION TICK]
+    -- =========================================================================
+    local function AxiomCoopClusterTick()
+        if App._AxiomCoopTickBusy and (os.clock() - (App._AxiomCoopTickBusySince or 0)) < 20 then return end
+        App._AxiomCoopTickBusy = true
+        App._AxiomCoopTickBusySince = os.clock()
+
+        local _tickOk, _tickErr = pcall(function()
+            if CheckCyborgV3 and CheckCyborgV3() then
+                PurgeMyCoopSession()
+                return
+            end
+
+            if not IsEligibleForCoop() then
+                App.CurrentActivity = "⏳ [Coop V3] Chờ đủ điều kiện Coop (đúng tộc + đã V2 + Beli >= 2M + chưa V3)..."
+                return
+            end
+
+            if not (IsSea2 and IsSea2()) then
+                TravelToSea2("Qua Sea 2 chạy Co-op V3")
+                return
+            end
+
+            if EnsurePirates then pcall(EnsurePirates) end
+
+            if os.clock() - (App._lastCoopPvpEnableTick or 0) >= 5 then
+                App._lastCoopPvpEnableTick = os.clock()
+                if ForceEnablePvpRemote then pcall(ForceEnablePvpRemote) end
+            end
+
+            -- [AXIOM UPDATE] Auto jump mỗi 5s khi làm coop (giữ nhân vật không bị AFK kick)
+            if os.clock() - (App._lastCoopJumpTick or 0) >= 5 then
+                App._lastCoopJumpTick = os.clock()
+                pcall(function()
+                    local _cjChar = LocalPlayer.Character
+                    local _cjHum = _cjChar and _cjChar:FindFirstChildOfClass("Humanoid")
+                    if _cjHum and _cjHum.Health > 0 then
+                        _cjHum.Jump = true
+                        pcall(function() _cjHum:ChangeState(Enum.HumanoidStateType.Jumping) end)
+                    end
+                end)
+                pcall(function()
+                    local _cjVim = cloneref and cloneref(game:GetService("VirtualInputManager")) or game:GetService("VirtualInputManager")
+                    if _cjVim then
+                        _cjVim:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+                        task.delay(0.05, function()
+                            pcall(function() _cjVim:SendKeyEvent(false, Enum.KeyCode.Space, false, game) end)
+                        end)
+                    end
+                end)
+            end
+
+            local role = AxiomCoopClusterEval()
+            if role == "none" then return end
+
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if not (char and hrp and hum and hum.Health > 0) then return end
+
+            -- 1. VAI TRÒ HELPRACEX (helprace1, helprace2, ...): Đứng cố định tại điểm hiến tế, KHÔNG TP
+            if role == "helprace" then
+                local rTag = tostring(App.CoopRoleTag or "helprace1"):upper()
+                local fCount = tonumber(App._CoopMyFollowersCount) or 0
+                local fList = (App._CoopMyFollowersList and #App._CoopMyFollowersList > 0) and table.concat(App._CoopMyFollowersList, ", ") or "Đang chờ..."
+                App.CurrentActivity = string.format("🛡️ [%s] Đứng tại điểm hiến tế (%d/11 UpRace nhắm vào: %s)", rTag, fCount, fList)
+
+                pcall(function() hum:UnequipTools() end)
+                local dist = (hrp.Position - COOP_SACRIFICE_POS).Magnitude
+                if dist > 4.5 then
+                    DynamicTween(CFrame.new(COOP_SACRIFICE_POS))
+                end
+                return
+            end
+
+            -- 2. VAI TRÒ UPRACE: Luôn nhận và trả nhiệm vụ Wenlocktoad định kỳ
+            if os.clock() - (App._lastWenlockCoopTick or 0) >= 1.5 then
+                App._lastWenlockCoopTick = os.clock()
+                if CoopWenlocktoadStep() then
+                    return
+                end
+            end
+
+            -- 2A. Chế độ khóa cứng helpraceX (Follow & Kill đúng helpraceX đã chọn)
+            if App._LockedHelperName and App._LockedHelperName ~= "" and not App._SoloHuntOutside then
+                local helperName = App._LockedHelperName
+                local helperRole = tostring(App._LockedHelperRole or "helprace1"):upper()
+                local helperInfo = App._LockedHelperInfo
+                local helperJobId = tostring(helperInfo and helperInfo.JobId or "")
+                local helperPlr = Players:FindFirstChild(helperName)
+
+                -- KIỂM TRA ĐÃ Ở TRONG SERVER CỦA HELPRACEX CHƯA:
+                -- Nếu đã ở cùng server (JobId trùng khớp hoặc thấy helperPlr trong Players) -> TUYỆT ĐỐI KHÔNG TP!
+                local isSameServer = (helperPlr ~= nil) or (helperJobId ~= "" and helperJobId == tostring(game.JobId))
+
+                if not isSameServer then
+                    if helperJobId ~= "" and helperJobId ~= tostring(game.JobId) and tostring(helperInfo and helperInfo.Sea or "Sea 2"):find("Sea 2") then
+                        if os.clock() - (App._lastCoopTpAttempt or 0) >= 10 then
+                            App._lastCoopTpAttempt = os.clock()
+                            App.CurrentActivity = string.format("🚀 [UpRace -> %s] Đã khóa cứng %s! Đang TP sang server %s...", helperRole, helperName, helperJobId:sub(1, 8))
+                            pcall(function()
+                                local sb = ReplicatedStorage:FindFirstChild("__ServerBrowser")
+                                if sb then sb:InvokeServer("teleport", helperJobId) end
+                            end)
+                            task.wait(0.25)
+                            pcall(function()
+                                TeleportService:TeleportToPlaceInstance(game.PlaceId, helperJobId, LocalPlayer)
+                            end)
+                        else
+                            App.CurrentActivity = string.format("⏳ [UpRace -> %s] Đang kết nối sang server của %s (%s)...", helperRole, helperName, helperJobId:sub(1, 8))
+                        end
+                    else
+                        App.CurrentActivity = string.format("⏳ [UpRace -> %s] Đang chờ %s cập nhật JobId Sea 2...", helperRole, helperName)
+                    end
+                    return
+                end
+
+                -- ĐÃ Ở CÙNG SERVER VỚI HELPRACEX ĐÃ KHÓA CỨNG:
+                local hChar = helperPlr and helperPlr.Character
+                local hHrp = hChar and hChar:FindFirstChild("HumanoidRootPart")
+                local hHum = hChar and hChar:FindFirstChildOfClass("Humanoid")
+
+                if hChar and hHrp and hHum and hHum.Health > 0 then
+                    local distToSacrifice = (hHrp.Position - COOP_SACRIFICE_POS).Magnitude
+                    if distToSacrifice <= 350 then
+                        App.CurrentActivity = string.format("⚔️ [UpRace -> %s] Đang kill %s (HP: %d/%d) để hoàn thành V3...", helperRole, helperName, math.floor(hHum.Health), math.floor(hHum.MaxHealth))
+                        DynamicTween(hHrp.CFrame * CFrame.new(0, 2, 2.5))
+                        if (hrp.Position - hHrp.Position).Magnitude <= 35 then
+                            AttackCoopPlayerCharacter(hChar)
+                        end
+                    else
+                        App.CurrentActivity = string.format("⏳ [UpRace -> %s] Đứng tại điểm hiến tế chờ %s bay tới (cách %dm)...", helperRole, helperName, math.floor(distToSacrifice))
+                        if (hrp.Position - COOP_SACRIFICE_POS).Magnitude > 6 then
+                            DynamicTween(CFrame.new(COOP_SACRIFICE_POS))
+                        end
+                    end
+                else
+                    App.CurrentActivity = string.format("⏳ [UpRace -> %s] Cùng server! Đang chờ %s hồi sinh...", helperRole, helperName)
+                    if (hrp.Position - COOP_SACRIFICE_POS).Magnitude > 6 then
+                        DynamicTween(CFrame.new(COOP_SACRIFICE_POS))
+                    end
+                end
+                return
+            end
+
+            -- 2B. Chế độ Solo săn các acc ngoài
+            local myGroup = NormalizeCoopRaceGroup(App and App.TargetRace or TARGET_RACE or GetCurrentRace())
+            -- [AXIOM FIX] TUYỆT ĐỐI KHÔNG ĐỂ ACC NÀO SOLO UPRACE VỚI GHOUL / SKYPIEA!
+            if myGroup == "ghoul" or myGroup == "skypiea" then
+                App.CurrentActivity = "⏳ [Coop UpRace] Đang ở điểm tập kết (-389.69, 40.99, 31.59) chờ acc V3 back-help..."
+                local dist = (hrp.Position - COOP_SACRIFICE_POS).Magnitude
+                if dist > 6 then
+                    DynamicTween(CFrame.new(COOP_SACRIFICE_POS))
+                end
+                return
+            end
+            App._UnkillableOutsidePlayers = App._UnkillableOutsidePlayers or {}
+            local needSameRace = (myGroup == "skypiea")
+            local bestTarget = nil
+            local bestDist = math.huge
+
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer then
+                    local skipUntil = App._UnkillableOutsidePlayers[plr.Name]
+                    if not skipUntil or os.clock() > skipUntil then
+                        local pChar = plr.Character
+                        local pHrp = pChar and pChar:FindFirstChild("HumanoidRootPart")
+                        local pHum = pChar and pChar:FindFirstChildOfClass("Humanoid")
+                        if pChar and pHrp and pHum and pHum.Health > 0 then
+                            local raceOk = true
+                            if needSameRace then
+                                local pData = plr:FindFirstChild("Data")
+                                local pRace = pData and pData:FindFirstChild("Race") and tostring(pData.Race.Value) or ""
+                                raceOk = (NormalizeCoopRaceGroup(pRace) == "skypiea")
+                            end
+                            if raceOk then
+                                local d = (hrp.Position - pHrp.Position).Magnitude
+                                if d < bestDist then
+                                    bestDist = d
+                                    bestTarget = plr
+                                end
                             end
                         end
                     end
                 end
             end
+
+            if bestTarget and bestTarget.Character then
+                local tChar = bestTarget.Character
+                local tHrp = tChar:FindFirstChild("HumanoidRootPart")
+                local tHum = tChar:FindFirstChildOfClass("Humanoid")
+                if tHrp and tHum then
+                    if App._CurrentOutsideTargetName ~= bestTarget.Name then
+                        App._CurrentOutsideTargetName = bestTarget.Name
+                        App._OutsideTargetEngageAt = os.clock()
+                        App._OutsideTargetPeakHp = tHum.Health
+                    else
+                        if tHum.Health < (App._OutsideTargetPeakHp or tHum.Health) - 50 then
+                            App._OutsideTargetPeakHp = tHum.Health
+                            App._OutsideTargetEngageAt = os.clock()
+                        elseif os.clock() - (App._OutsideTargetEngageAt or os.clock()) > 20 then
+                            -- Quá 20s không gây sát thương (đối phương tắt PvP / ở Safezone) -> Bỏ qua tìm mục tiêu khác
+                            App._UnkillableOutsidePlayers[bestTarget.Name] = os.clock() + 180
+                            App._CurrentOutsideTargetName = nil
+                            return
+                        end
+                    end
+
+                    App.CurrentActivity = string.format("🗡️ [UpRace Solo] Hết acc Coop -> Đang săn người chơi ngoài: %s (HP: %d)...", bestTarget.Name, math.floor(tHum.Health))
+                    DynamicTween(tHrp.CFrame * CFrame.new(0, 2, 2.5))
+                    if (hrp.Position - tHrp.Position).Magnitude <= 35 then
+                        AttackCoopPlayerCharacter(tChar)
+                    end
+                end
+            else
+                App.CurrentActivity = "🔄 [UpRace Solo] Không còn mục tiêu ngoài khả dụng trong server -> Hop Low Server đi săn tiếp..."
+                if TriggerLowServerHop then
+                    TriggerLowServerHop(true)
+                end
+                task.wait(4)
+            end
+        end)
+
+        App._AxiomCoopTickBusy = false
+        if _tickOk == false then
+            warn("[AXIOM COOP TICK] Lỗi: " .. tostring(_tickErr))
+            if App then App.CurrentActivity = "⚠️ [Coop V3] Lỗi tick: " .. tostring(_tickErr) end
         end
     end
-    return false, nil, nil
-end
 
-local function HasPeerNeedingHelp(): (boolean, string?, table?)
-    return HasAnyUpRaceInSessions()
-end
-
-local function IsEligibleForCoop(): boolean
-    local myGroup = NormalizeCoopRaceGroup(App and App.TargetRace or TARGET_RACE or "")
-    if not IsCoopSupportedRace(myGroup) then return false end
-
-    local curGroup = NormalizeCoopRaceGroup(GetCurrentRace and GetCurrentRace() or "")
-    if curGroup ~= myGroup then return false end
-
-    local hasV2 = (App and App.HasV2Confirmed) or (CheckRaceV2 and CheckRaceV2())
-    if not hasV2 then return false end
-
-    local hasV3 = (App and App.HasV3Confirmed) or (CheckCyborgV3 and CheckCyborgV3())
-    if hasV3 then
-        local needHelp = HasPeerNeedingHelp()
-        return (needHelp == true)
-    end
-
-    -- Nếu đã có V2 nhưng chưa đủ 2M Beli để mua V3 -> Nhặt Chest cày đủ 2M Beli trước khi bật Coop
-    if GetBeli and GetBeli() < 2000000 then
-        return false
-    end
-
-    return true
+    EvaluateCoopRoles = AxiomCoopClusterEval
+    ExecuteCoopV3Tick = AxiomCoopClusterTick
+    getgenv().AxiomCoopClusterEval = AxiomCoopClusterEval
+    getgenv().AxiomCoopClusterTick = AxiomCoopClusterTick
+    getgenv().EvaluateCoopRoles = AxiomCoopClusterEval
+    getgenv().ExecuteCoopV3Tick = AxiomCoopClusterTick
 end
 
 -- // [AXIOM DUAL RACE AUTO-LATCH ENGINE]
@@ -796,6 +1891,9 @@ local function RerollRace()
     end)
 
     task.wait(1.5)
+    if IsTargetRace and IsTargetRace() and type(getgenv().EnsureFishmanV2V3Ready) == "function" then
+        pcall(getgenv().EnsureFishmanV2V3Ready)
+    end
 end
 
 -- // GEOGRAPHIC REGIONS & PLACE IDS
@@ -830,7 +1928,10 @@ end
 -- // SUPPORTED RACES: CYBORG, MINK (RABBIT), HUMAN DURING SEA 2 V2 & V3 PROGRESSION
 -- // SHARED REGISTRY: Axiom_Sea2_V3_Sessions.json // ZERO SAME-SERVER DUPLICATES
 -- // ==============================================================================
-
+local ReadJsonSafe, WriteJsonSafe, LoadVisitedServersPersistent, MarkServerVisitedPersistent
+local IsJobOccupiedByAnotherCyborg, ReserveJobIdForTeleport, UnregisterCyborgSession
+local CheckSameServerCollision, BroadcastV3Heartbeat
+do
 local _HttpService = cloneref(game:GetService("HttpService"))
 local _Players = cloneref(game:GetService("Players"))
 local _LocalPlayer = _Players.LocalPlayer
@@ -972,7 +2073,7 @@ local function ReserveV3Job(targetJobId)
 end
 
 -- Quét đụng độ tức thì nếu lỡ vào chung server: Chỉ acc vào sau mới hop
-local function CheckSameServerCollision()
+CheckSameServerCollision = function()
     if not IsActiveInSea2V3() then return false end
     if not game.JobId or game.JobId == "" then return false end
 
@@ -1032,7 +2133,7 @@ local VISITED_SERVERS_FILE = "Axiom_LowHop_Visited.json"
 local VISITED_EXPIRY_SECONDS = 900
 local SESSION_HEARTBEAT_TIMEOUT = 120
 
-local function ReadJsonSafe(filename, defaultVal)
+ReadJsonSafe = function(filename, defaultVal)
     if not (isfile and isfile(filename)) then return defaultVal or {} end
     local ok, raw = pcall(readfile, filename)
     if not ok or not raw or raw == "" then return defaultVal or {} end
@@ -1041,7 +2142,7 @@ local function ReadJsonSafe(filename, defaultVal)
     return defaultVal or {}
 end
 
-local function WriteJsonSafe(filename, data)
+WriteJsonSafe = function(filename, data)
     if not writefile then return false end
     local okEncode, raw = pcall(function() return _HttpService:JSONEncode(data) end)
     if not okEncode or not raw then return false end
@@ -1049,7 +2150,7 @@ local function WriteJsonSafe(filename, data)
     return okWrite
 end
 
-local function LoadVisitedServersPersistent()
+LoadVisitedServersPersistent = function()
     local visitedMap = ReadJsonSafe(VISITED_SERVERS_FILE, {})
     local now = os.time()
     local list = {}
@@ -1061,7 +2162,7 @@ local function LoadVisitedServersPersistent()
     return list
 end
 
-local function MarkServerVisitedPersistent(jobId)
+MarkServerVisitedPersistent = function(jobId)
     if not jobId or jobId == "" then return end
     local visitedMap = ReadJsonSafe(VISITED_SERVERS_FILE, {})
     local now = os.time()
@@ -1075,7 +2176,7 @@ local function MarkServerVisitedPersistent(jobId)
     WriteJsonSafe(VISITED_SERVERS_FILE, cleanedMap)
 end
 
-local function IsJobOccupiedByAnotherCyborg(jobId)
+IsJobOccupiedByAnotherCyborg = function(jobId)
     if not jobId or jobId == "" then return false, "" end
     local targetJob = tostring(jobId)
     local myName = (_LocalPlayer and _LocalPlayer.Name) or (LocalPlayer and LocalPlayer.Name) or ""
@@ -1103,7 +2204,7 @@ local function IsJobOccupiedByAnotherCyborg(jobId)
     return false, ""
 end
 
-local function ReserveJobIdForTeleport(jobId)
+ReserveJobIdForTeleport = function(jobId)
     local lp = _LocalPlayer or LocalPlayer
     if not lp or not jobId or jobId == "" then return end
     local myName = lp.Name
@@ -1198,7 +2299,7 @@ local function BroadcastCyborgHeartbeat()
     WriteJsonSafe(CYBORG_SESSION_FILE, sessions)
 end
 
-local function UnregisterCyborgSession()
+UnregisterCyborgSession = function()
     local lp = _LocalPlayer or LocalPlayer
     if not lp then return end
     local myName = lp.Name
@@ -1482,6 +2583,7 @@ pcall(function()
         MarkServerVisitedPersistent(game.JobId)
     end
 end)
+end
 
 -- // AXIOM HEADLESS LOW-PLAYER SERVER HOP ENGINE (CONTROLLED ON-DEMAND ENGINE)
 -- // Parallel 100-Page Scanner // Zero UI // Teleport State Machine
@@ -1592,6 +2694,36 @@ do
 
         for _, server in pairs(byJob) do pool[#pool + 1] = server end
 
+        -- [AXIOM FIX 20P HOP] Nếu không tìm thấy server <= 8 người, tự động tìm server thấp nhất có thể (<= 11)
+        if #pool == 0 then
+            local fallbackByJob = {}
+            for page = 1, math.min(10, HopCFG.MaxPages) do
+                pcall(function()
+                    local servers = browser:InvokeServer(page)
+                    if type(servers) == "table" then
+                        for jobId, data in pairs(servers) do
+                            if type(data) == "table" then
+                                local c = tonumber(data.Count) or 99
+                                local id = tostring(jobId)
+                                if id ~= tostring(game.JobId) and not ghoulOccupiedJobs[id] and not chestV3OccupiedJobs[id] and c <= 11 then
+                                    if not fallbackByJob[id] or c < fallbackByJob[id].Count then
+                                        fallbackByJob[id] = { JobId = id, Count = c, Region = tostring(data.Region or "Unknown") }
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end)
+            end
+            for _, s in pairs(fallbackByJob) do pool[#pool + 1] = s end
+        end
+
+        -- [AXIOM FIX 20P HOP] Nếu VisitedServers đã chặn toàn bộ server, xóa để quét lại
+        if #pool == 0 and #VisitedServers > 0 then
+            table.clear(VisitedServers)
+            pcall(function() WriteJsonSafe(VISITED_SERVERS_FILE, {}) end)
+        end
+
         table.sort(pool, function(a, b)
 
             if a.Count == b.Count then return a.JobId < b.JobId end
@@ -1701,6 +2833,8 @@ do
 
                 task.wait(0.1)
             until os.clock() >= deadline
+
+            return true
         end
 
         return false
@@ -1763,6 +2897,15 @@ do
                 end
             end
 
+            -- [AXIOM FIX 20P HOP] Nếu ép buộc hop (20p) mà vẫn chưa chuyển server thành công, xóa visited và hop trực tiếp
+            if force then
+                warn("[AXIOM HOP] Forced hop fallback: Calling TeleportService:Teleport...")
+                pcall(function()
+                    table.clear(VisitedServers)
+                    TeleportService:Teleport(game.PlaceId, LocalPlayer)
+                end)
+            end
+
             warn("[AXIOM HOP] Teleport cycle finished without transition. Releasing lock.")
 
             task.wait(2)
@@ -1799,13 +2942,18 @@ local function EnsurePirates()
     return tostring(LocalPlayer.Team) == "Pirates"
 end
 
+getgenv().AxiomEnsurePirates = EnsurePirates
+
 local function EnsureMarines()
 
     if SyncDualTargetRace then SyncDualTargetRace() end
 
     -- [CHỐT CHẶN COOP PIRATES]: Nếu là acc Coop Sea 2, bắt buộc chọn Pirates trước và tuyệt đối không qua Marines
     if IsSea2 and IsSea2() and IsEligibleForCoop and IsEligibleForCoop() then
-        EnsurePirates()
+        if tostring(LocalPlayer.Team) ~= "Pirates" and (os.clock() - (App._lastEnsurePiratesAt or 0)) >= 15 then
+            App._lastEnsurePiratesAt = os.clock()
+            EnsurePirates()
+        end
 
         return
     end
@@ -2112,7 +3260,7 @@ end
 
 local noclipConn = RunService.Stepped:Connect(function()
 
-    if State.AutoLaw or (App and App.IsFarmingBeliChest) then
+    if State.AutoLaw or (App and (App.IsFarmingBeliChest or App._IsPreparingFishmanGear)) then
         BypassCollisions()
     end
 end)
@@ -2120,7 +3268,8 @@ end)
 table.insert(State.Connections, noclipConn)
 
 -- [[ DYNAMIC 170 STUD/S VECTOR TWEEN ]]
-local function DynamicTween(targetCFrame)
+local function DynamicTween(targetCFrame, _isFishmanPrepTween)
+    if App and App._IsPreparingFishmanGear and not _isFishmanPrepTween then return end
     local char = LocalPlayer.Character
 
     if not char then return end
@@ -2165,6 +3314,8 @@ local function DynamicTween(targetCFrame)
 
     State.ActiveTween:Play()
 end
+
+getgenv().AxiomDynamicTween = DynamicTween
 
 -- [[ REMOTES & INTERACTION PRIMITIVES ]]
 local function BuyMicrochip()
@@ -2717,6 +3868,223 @@ end
 getgenv().CheckRaceV2 = CheckRaceV2
 getgenv().CheckCyborgV3 = CheckCyborgV3
 
+-- // ==============================================================================
+-- // [AXIOM FISHMAN V2/V3 PRE-CHECK ENGINE]: SHARKMAN KARATE & TUSHITA/YAMA (350 MASTERY)
+-- // Trước khi chạy V2, V3 cho race Fishman tại Sea 2:
+-- // 1. Kiểm tra inventory có Tushita / Yama >= 350 Mastery -> LoadItem (ưu tiên Tushita)
+-- // 2. Kiểm tra có Sharkman Karate không -> Nếu không, ở Sea 2 tween đến NPC
+-- //    Sharkman Teacher (-2598.96, 238.88, -10313.21) và gọi BuySharkmanKarate
+-- // ==============================================================================
+local SHARKMAN_TEACHER_POS = Vector3.new(-2598.96, 238.88, -10313.21)
+local SHARKMAN_TEACHER_CF  = CFrame.new(-2598.96, 238.88, -10313.21)
+
+local function IsFishmanTargetRace(): boolean
+    local targetKey = CleanRaceStr(App and App.TargetRace or TARGET_RACE or "")
+    return (targetKey == "fishman" or targetKey == "shark")
+end
+
+local function HasSharkmanKarate(): boolean
+    local char = LocalPlayer.Character
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if char then
+        for _, item in ipairs(char:GetChildren()) do
+            if item:IsA("Tool") and item.Name:lower():find("sharkman karate", 1, true) then
+                return true
+            end
+        end
+    end
+    if bp then
+        for _, item in ipairs(bp:GetChildren()) do
+            if item:IsA("Tool") and item.Name:lower():find("sharkman karate", 1, true) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function HasSwordInBackpackOrCharacter(swordName: string): boolean
+    local sLow = tostring(swordName or ""):lower()
+    local char = LocalPlayer.Character
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if char then
+        for _, item in ipairs(char:GetChildren()) do
+            if item:IsA("Tool") and item.Name:lower() == sLow then
+                return true
+            end
+        end
+    end
+    if bp then
+        for _, item in ipairs(bp:GetChildren()) do
+            if item:IsA("Tool") and item.Name:lower() == sLow then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function GetFishmanPreferredSword350(): string?
+    local hasTushita350 = false
+    local hasYama350 = false
+
+    pcall(function()
+        local commF = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("CommF_")
+        local inv = commF:InvokeServer("getInventory")
+        if type(inv) == "table" then
+            for _, item in pairs(inv) do
+                if type(item) == "table" then
+                    local nameStr = tostring(item.Name or item.Item or ""):lower()
+                    local mastery = tonumber(item.Mastery or item.Level or item.MasteryLevel or item.Value) or 0
+                    if nameStr == "tushita" or nameStr:find("tushita", 1, true) then
+                        if mastery >= 350 then
+                            hasTushita350 = true
+                        end
+                    elseif nameStr == "yama" or nameStr:find("yama", 1, true) then
+                        if mastery >= 350 then
+                            hasYama350 = true
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    pcall(function()
+        for _, container in ipairs({ LocalPlayer.Character, LocalPlayer:FindFirstChild("Backpack") }) do
+            if container then
+                for _, item in ipairs(container:GetChildren()) do
+                    if item:IsA("Tool") then
+                        local nameStr = item.Name:lower()
+                        local lvlObj = item:FindFirstChild("Level") or item:FindFirstChild("Mastery")
+                        local mastery = tonumber(item:GetAttribute("Level") or item:GetAttribute("Mastery") or (lvlObj and lvlObj.Value)) or 0
+                        if (nameStr == "tushita" or nameStr:find("tushita", 1, true)) and mastery >= 350 then
+                            hasTushita350 = true
+                        elseif (nameStr == "yama" or nameStr:find("yama", 1, true)) and mastery >= 350 then
+                            hasYama350 = true
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    -- Ưu tiên Tushita nếu cả 2 đều đạt 350 Mastery
+    if hasTushita350 then
+        return "Tushita"
+    elseif hasYama350 then
+        return "Yama"
+    end
+    return nil
+end
+
+local function EnsureFishmanV2V3Ready(): boolean
+    if not IsFishmanTargetRace() then return true end
+    if not (IsSea2 and IsSea2()) then return false end
+    if not (IsTargetRace and IsTargetRace()) then return false end
+    if App.HasV3Confirmed or (CheckCyborgV3 and CheckCyborgV3()) then return true end
+
+    if App._IsPreparingFishmanGear then
+        while App._IsPreparingFishmanGear and App.Running do
+            task.wait(0.2)
+        end
+        return true
+    end
+
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not (char and hrp and hum and hum.Health > 0) then return false end
+
+    -- Đợi Backpack đồng bộ công cụ sau khi spawn tránh nhận diện nhầm
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if bp and #bp:GetChildren() == 0 and not char:FindFirstChildOfClass("Tool") then
+        for _ = 1, 15 do
+            task.wait(0.1)
+            if (bp and #bp:GetChildren() > 0) or char:FindFirstChildOfClass("Tool") then
+                break
+            end
+        end
+    end
+
+    local currentStage = (App.HasV2Confirmed and "V3") or "V2"
+
+    -- 1. Kiểm tra và LoadItem Tushita / Yama (350 Mastery, ưu tiên Tushita)
+    if App._FishmanSwordCheckedStage ~= currentStage or (os.clock() - (App._FishmanSwordLastCheck or 0) > 20) then
+        App._FishmanSwordLastCheck = os.clock()
+        local preferredSword = GetFishmanPreferredSword350()
+        App._FishmanPreferredSword = preferredSword
+        App._FishmanSwordCheckedStage = currentStage
+    end
+
+    local targetSword = App._FishmanPreferredSword
+    if targetSword and not HasSwordInBackpackOrCharacter(targetSword) then
+        if os.clock() - (App._LastFishmanLoadSwordAt or 0) >= 3 then
+            App._LastFishmanLoadSwordAt = os.clock()
+            App.CurrentActivity = string.format("🗡️ [Fishman Prep] Đang LoadItem %s (350 Mastery)...", tostring(targetSword))
+            pcall(function()
+                local args = {
+                    "LoadItem",
+                    targetSword
+                }
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("CommF_"):InvokeServer(unpack(args))
+            end)
+            task.wait(0.5)
+        end
+    end
+
+    -- 2. Kiểm tra Sharkman Karate; nếu chưa có thì ở Sea 2 tween đến NPC Sharkman Teacher và mua
+    if not HasSharkmanKarate() then
+        local alreadyTriedThisStage = (App._SharkmanTriedStage == currentStage) and ((os.clock() - (App._SharkmanTriedAt or 0)) < 60)
+        if not alreadyTriedThisStage then
+            App._IsPreparingFishmanGear = true
+            local okPrep, errPrep = pcall(function()
+                App.CurrentActivity = "🥋 [Fishman Prep] Chưa có Sharkman Karate -> Đang tween đến Sharkman Teacher (-2598.96, 238.88, -10313.21)..."
+                local deadline = os.clock() + 180
+                while App.Running and IsSea2() and not HasSharkmanKarate() and os.clock() < deadline do
+                    char = LocalPlayer.Character
+                    hrp = char and char:FindFirstChild("HumanoidRootPart")
+                    hum = char and char:FindFirstChildOfClass("Humanoid")
+                    if not (char and hrp and hum and hum.Health > 0) then
+                        task.wait(0.2)
+                        break
+                    end
+                    BypassCollisions()
+                    local dist = (hrp.Position - SHARKMAN_TEACHER_POS).Magnitude
+                    if dist <= 6 then
+                        if State.ActiveTween then
+                            pcall(function() State.ActiveTween:Cancel() end)
+                            State.ActiveTween = nil
+                        end
+                        break
+                    end
+                    DynamicTween(SHARKMAN_TEACHER_CF, true)
+                    task.wait(0.1)
+                end
+
+                if IsSea2() and not HasSharkmanKarate() then
+                    App.CurrentActivity = "🥋 [Fishman Prep] Đang mua Sharkman Karate tại NPC Sharkman Teacher..."
+                    local args = {
+                        "BuySharkmanKarate"
+                    }
+                    game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("CommF_"):InvokeServer(unpack(args))
+                    task.wait(0.8)
+                end
+
+                App._SharkmanTriedStage = currentStage
+                App._SharkmanTriedAt = os.clock()
+            end)
+            App._IsPreparingFishmanGear = false
+            if not okPrep then
+                warn("[AXIOM FISHMAN PREP] Lỗi khi lấy Sharkman Karate: " .. tostring(errPrep))
+            end
+        end
+    end
+
+    return true
+end
+getgenv().EnsureFishmanV2V3Ready = EnsureFishmanV2V3Ready
+
 -- // [AXIOM RACE V2/V3 PRE-LOAD ENGINE]: CHỐT CHẶN TẢI TRẠNG THÁI V2 TRƯỚC KHI CHẠY HUB
 -- // Ngăn chặn tuyệt đối việc kích hoạt Hub trước khi nạp xong dữ liệu V2 từ máy chủ
 local function EnsureRaceV2Loaded()
@@ -2758,6 +4126,10 @@ local function EnsureRaceV2Loaded()
                         App.HasV2Confirmed = false
                     end
 
+                    if IsFishmanTargetRace() and not App.HasV3Confirmed then
+                        pcall(EnsureFishmanV2V3Ready)
+                    end
+
                     App.InitialV2Checked = true
 
                     return (App.HasV2Confirmed == true)
@@ -2769,6 +4141,9 @@ local function EnsureRaceV2Loaded()
     end
 
     -- Phase 3: Fallback an toàn mở khóa hệ thống
+    if IsFishmanTargetRace() and not App.HasV3Confirmed then
+        pcall(EnsureFishmanV2V3Ready)
+    end
     App.InitialV2Checked = true
     App.CurrentActivity = "✅ [Hệ thống] Đã nạp xong trạng thái Race! Bắt đầu điều phối..."
 
@@ -2787,6 +4162,10 @@ autoBuyBoatFishThread = task.spawn(function()
         local curKey = CleanRaceStr(GetCurrentRace())
         local isFishTarget = (targetKey == "fishman" or targetKey == "shark")
         local isFishCur = (curKey == "fishman" or curKey == "shark")
+
+        if isFishTarget and isFishCur and IsSea2() and not (App.HasV3Confirmed or (CheckCyborgV3 and CheckCyborgV3())) then
+            pcall(EnsureFishmanV2V3Ready)
+        end
 
         if isFishTarget and isFishCur and CheckRaceV2() then
             pcall(function()
@@ -2824,6 +4203,8 @@ local function TravelToSea2(reason: string?)
         TeleportService:Teleport(4442272183, LocalPlayer)
     end
 end
+
+getgenv().AxiomTravelToSea2 = TravelToSea2
 
 local function TravelToSea3(reason: string?)
 
@@ -3070,6 +4451,7 @@ StoreHeldFruit = function()
 end
 
 local function ExecuteRaceV3TurnIn(): boolean
+    if EnsureFishmanV2V3Ready then pcall(EnsureFishmanV2V3Ready) end
     local commF = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommF_")
 
     if GetBeli() < 2000000 then return false end
@@ -3248,6 +4630,9 @@ local function EnsureFastAttackBuso()
         end)
     end
 end
+
+getgenv().AxiomEquipCombatTool = EquipCombatTool
+getgenv().AxiomEnsureFastAttackBuso = EnsureFastAttackBuso
 
 local function ShouldPauseFastAttack()
     -- [AXIOM HOTFIX]: Nhường quyền FastAttack cho ExecuteFastAttack247 khi đang chạy GetMM (Valkyrie & Mirror)
@@ -3505,6 +4890,7 @@ local function CalculateOptimalPortalRoute(targetPos)
 end
 
 local function DirectLinearFlight(targetCFrame)
+    if EnsureFishmanV2V3Ready then pcall(EnsureFishmanV2V3Ready) end
     local char = LocalPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
 
@@ -3529,6 +4915,7 @@ local function DirectLinearFlight(targetCFrame)
 end
 
 local function SmartNavigate(targetCFrame)
+    if EnsureFishmanV2V3Ready then pcall(EnsureFishmanV2V3Ready) end
     local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
 
     if not root then return end
@@ -3707,6 +5094,8 @@ end
 -- // =============================================================================
 -- // [AXIOM V3 TARGET BELI CHEST HARVESTER (SEA 3 ONLY)] & [CHEST V3 SESSION 5s/60s]
 -- // =============================================================================
+local SaveConfirmedV2Cache, GetRequiredBeliForV3Target, NeedsChestBeliForV3Target, ExecuteUpraceBeliChestFarm
+do
 local MAX_V3_CHESTS_BEFORE_HOP = 30
 App._UpraceChestCount = App._UpraceChestCount or 0
 App._UpraceVisitedChests = App._UpraceVisitedChests or {}
@@ -3719,7 +5108,7 @@ local function GetV2CacheKey()
     return myName .. "_" .. curRace
 end
 
-local function SaveConfirmedV2Cache()
+SaveConfirmedV2Cache = function()
     pcall(function()
         local data = ReadJsonSafe(V2_STATE_CACHE_FILE, {})
         local key = GetV2CacheKey()
@@ -3735,7 +5124,7 @@ local function IsConfirmedV2InCache()
     return data[GetV2CacheKey()] == true
 end
 
-local function GetRequiredBeliForV3Target(): number
+GetRequiredBeliForV3Target = function(): number
     if (App and App.HasV3Confirmed) or (CheckCyborgV3 and CheckCyborgV3()) then
         return 0
     end
@@ -3750,7 +5139,7 @@ local function GetRequiredBeliForV3Target(): number
 end
 getgenv().GetRequiredBeliForV3Target = GetRequiredBeliForV3Target
 
-local function NeedsChestBeliForV3Target(): (boolean, number, number)
+NeedsChestBeliForV3Target = function(): (boolean, number, number)
     if not (IsTargetRace and IsTargetRace()) then
         return false, 0, GetBeli()
     end
@@ -4045,7 +5434,7 @@ local function GetNearestUnopenedChest()
     return candidates[1], #candidates
 end
 
-local function ExecuteUpraceBeliChestFarm()
+ExecuteUpraceBeliChestFarm = function()
     if App._UpraceChestLoopBusy then return true end
     App._UpraceChestLoopBusy = true
 
@@ -4178,6 +5567,8 @@ local function ExecuteUpraceBeliChestFarm()
             local chestCF = targetChest.CFrame
             local startWait = os.clock()
             local beliBefore = GetBeli()
+            local nearSince = nil       -- [AXIOM CHEST FIX] thoi diem bat dau dung sat chest (<= 6 studs)
+            local reachedChest = false  -- [AXIOM CHEST FIX] da toi sat chest it nhat 1 lan
 
             while App.Running and chestInst and chestInst.Parent and not chestInst:GetAttribute("IsDisabled") and (os.clock() - startWait < 18) do
                 if GetBeli() >= GetRequiredBeliForV3Target() then
@@ -4217,20 +5608,63 @@ local function ExecuteUpraceBeliChestFarm()
                             end
                         end)
                     end
+                    reachedChest = true
                     task.wait(0.15)
                     if chestInst:GetAttribute("IsDisabled") or not chestInst.Parent or GetBeli() > beliBefore then
                         break
                     end
-                    if dist <= 3.5 and (os.clock() - startWait > 1.2) then
+                    -- [AXIOM CHEST FIX] Chưa xác nhận nhặt được thì ở lại chạm tiếp (tối đa 3.5s), KHÔNG bỏ qua sớm
+                    nearSince = nearSince or os.clock()
+                    if (os.clock() - nearSince) >= 3.5 then
                         break
                     end
+                else
+                    nearSince = nil
                 end
 
                 task.wait(0.05)
             end
 
-            App._UpraceVisitedChests[chestInst] = true
-            App._UpraceChestCount = (App._UpraceChestCount or 0) + 1
+            -- [AXIOM CHEST FIX] Chỉ tính chest khi XÁC NHẬN đã nhặt (chest biến mất / IsDisabled / Beli tăng) và mình đã tới sát chest
+            local chestGone = (not chestInst) or (not chestInst.Parent)
+            local chestDisabled = false
+            if not chestGone then
+                local okAttr, attrVal = pcall(function() return chestInst:GetAttribute("IsDisabled") end)
+                chestDisabled = (okAttr and attrVal) and true or false
+            end
+            local beliGained = GetBeli() > beliBefore
+            local aliveNow = false
+            do
+                local cNow = LocalPlayer.Character
+                local hNow = cNow and cNow:FindFirstChildOfClass("Humanoid")
+                aliveNow = (hNow ~= nil and hNow.Health > 0)
+            end
+            App._UpraceChestFails = App._UpraceChestFails or {}
+
+            if (chestGone or chestDisabled or beliGained) and (reachedChest or beliGained) then
+                -- Đã nhặt thật sự
+                App._UpraceVisitedChests[chestInst] = true
+                App._UpraceChestCount = (App._UpraceChestCount or 0) + 1
+                pcall(function()
+                    if App.UI and App.UI.lblChest then
+                        App.UI.lblChest.Text = string.format("📦 Chest đã chạm: %d/%d", App._UpraceChestCount, MAX_V3_CHESTS_BEFORE_HOP)
+                    end
+                end)
+            elseif chestGone or chestDisabled then
+                -- Chest bị người khác nhặt / biến mất khi mình chưa tới -> bỏ qua, KHÔNG cộng vào bộ đếm
+                App._UpraceVisitedChests[chestInst] = true
+            elseif not aliveNow then
+                -- Nhân vật chết giữa chừng -> không tính chest, chờ hồi sinh rồi thử lại
+                task.wait(0.5)
+            else
+                -- Chưa nhặt được (timeout/ko chạm được): KHÔNG tính, thử lại; quá 3 lần thì bỏ qua chest này (vẫn không cộng)
+                local f = (App._UpraceChestFails[chestInst] or 0) + 1
+                App._UpraceChestFails[chestInst] = f
+                warn(string.format("[AXIOM CHEST FIX] Chưa nhặt được chest (lần %d/3) -> không tính, thử lại", f))
+                if f >= 3 then
+                    App._UpraceVisitedChests[chestInst] = true
+                end
+            end
             task.wait(0.05)
         end
     end)
@@ -4242,6 +5676,7 @@ local function ExecuteUpraceBeliChestFarm()
     return true
 end
 getgenv().ExecuteUpraceBeliChestFarm = ExecuteUpraceBeliChestFarm
+end
 
 local function ProcessFragmentFarmCakeQueen()
     -- [AXIOM UPDATE]: Nếu đã có Race Target và chưa V3 nhưng thiếu Beli (2.5M cho V2+V3, 2M cho V3):
@@ -6756,6 +8191,9 @@ end
 
 -- // DETERMINISTIC CO-OP ELECTION & SESSION LEDGER
 EvaluateCoopRoles = function()
+    if getgenv().AxiomCoopClusterEval then
+        return getgenv().AxiomCoopClusterEval()
+    end
     local myName = tostring(LocalPlayer.Name)
     local myGroup = NormalizeCoopRaceGroup(App and App.TargetRace or TARGET_RACE or "")
     local curGroup = NormalizeCoopRaceGroup(GetCurrentRace and GetCurrentRace() or "")
@@ -6972,6 +8410,9 @@ end
 
 -- Main Co-op V3 Step (Executed in Sea 2 when V2 is done and V3 is needed/helping)
 ExecuteCoopV3Tick = function()
+    if getgenv().AxiomCoopClusterTick then
+        return getgenv().AxiomCoopClusterTick()
+    end
     if os.clock() - (App._lastCoopPvpEnableTick or 0) >= 5 then
         App._lastCoopPvpEnableTick = os.clock()
         if ForceEnablePvpRemote then pcall(ForceEnablePvpRemote) end
@@ -7161,9 +8602,16 @@ masterKaitunThread = task.spawn(function()
             end
 
             if not App.InitialV2Checked then
-                App.CurrentActivity = "Sẵn sàng điều phối tác vụ"
-                task.wait(0.3)
-                return
+                App._GateStartedAt = App._GateStartedAt or os.clock()
+                if (os.clock() - App._GateStartedAt) >= 15 then
+                    -- Quá 15s mà EnsureRaceV2Loaded chưa xong (remote lag/treo) -> mở khóa, CheckRaceV2 sẽ tự kiểm tra lại
+                    warn("[AXIOM GATE WATCHDOG] InitialV2Checked quá 15s -> ép mở khóa điều phối tác vụ")
+                    App.InitialV2Checked = true
+                else
+                    App.CurrentActivity = "Sẵn sàng điều phối tác vụ"
+                    task.wait(0.3)
+                    return
+                end
             end
 
             local frags = GetFragments()
@@ -7193,13 +8641,15 @@ masterKaitunThread = task.spawn(function()
             -- 2. ĐÃ CÓ TỘC MỤC TIÊU & ĐÃ XONG V3 -> LÀM TIẾP V4 / KÉO CẦN
             if isTarget and hasV3 then
                 if isCoopRace then
-                    EvaluateCoopRoles()
+                    App._CheckingBackHelpEligibility = true
+                    if EvaluateCoopRoles then EvaluateCoopRoles() end
+                    App._CheckingBackHelpEligibility = nil
                     if App.CoopRole == "helprace" and App.CoopEnable == true then
                         if not IsSea2() then
                             TravelToSea2("Acc V3 quay về Sea 2 làm HelpRace hỗ trợ đồng đội lên V3")
                             return
                         end
-                        ExecuteCoopV3Tick()
+                        if ExecuteCoopV3Tick then ExecuteCoopV3Tick() end
                         return
                     end
                 end
@@ -7373,6 +8823,8 @@ local countedChests = {}
 
 local function RegisterChestTouch(chestInst)
     if not chestInst then return end
+    -- [AXIOM CHEST FIX] Khi đang tự nhặt Chest V3 ở Sea 3 đã có bộ đếm xác nhận riêng (App._UpraceChestCount) -> không đếm sớm theo khoảng cách/Touched
+    if App.IsFarmingBeliChest then return end
     local rootChest = chestInst:FindFirstAncestorOfClass("Model") or chestInst
     if not countedChests[rootChest] then
         countedChests[rootChest] = true
@@ -7735,19 +9187,27 @@ local serverJoinTime = os.clock()
 serverJoinEpoch = os.time()
 
 timerThread = task.spawn(function()
-
+    local last20mHopAttempt = 0
     while App.Running do
         local elapsed = os.clock() - serverJoinTime
         local m, s = math.floor(elapsed / 60), math.floor(elapsed % 60)
 
-        timerBadge.Text = string.format("⏰ %02d:%02d / 20:00", m, s)
-
-        if elapsed >= 1200  then
+        if elapsed < 1200 then
+            timerBadge.Text = string.format("⏰ %02d:%02d / 20:00", m, s)
+        else
+            timerBadge.Text = string.format("⏰ %02d:%02d / 20:00 [HOP]", m, s)
             App.CurrentActivity = "⏰ Đã kết nối 20 phút! Tự động Hop Low Server..."
 
-            TriggerLowServerHop(true)
-
-            break
+            -- [AXIOM FIX 20P HOP] Không break! Tiếp tục gọi Hop mỗi 8s nếu chưa chuyển server thành công
+            if (os.clock() - last20mHopAttempt) >= 8 then
+                last20mHopAttempt = os.clock()
+                warn("[AXIOM TIMER 20P] Đã đủ 20 phút kết nối -> Kích hoạt TriggerLowServerHop(true)...")
+                if App then App.IsHopping = false end
+                local hopFn = TriggerLowServerHop or getgenv().TriggerLowServerHop
+                if hopFn then
+                    hopFn(true)
+                end
+            end
         end
 
         task.wait(1)
