@@ -3988,7 +3988,7 @@ local function EnsureFishmanV2V3Ready(): boolean
         while App._IsPreparingFishmanGear and App.Running do
             task.wait(0.2)
         end
-        return true
+        return HasSharkmanKarate()
     end
 
     local char = LocalPlayer.Character
@@ -4079,6 +4079,11 @@ local function EnsureFishmanV2V3Ready(): boolean
                 warn("[AXIOM FISHMAN PREP] Lỗi khi lấy Sharkman Karate: " .. tostring(errPrep))
             end
         end
+    end
+
+    -- [CHỐT CHẶN FISHMAN]: Target race Fishman chưa có Sharkman Karate thì tuyệt đối chưa sẵn sàng V2/V3
+    if IsFishmanTargetRace() and not HasSharkmanKarate() then
+        return false
     end
 
     return true
