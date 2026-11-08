@@ -13,6 +13,7 @@ local TweenService = game:GetService("TweenService")
 local HttpService = game:GetService("HttpService")
 local TeleportService = game:GetService("TeleportService")
 local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
 local CoreGui = pcall(function() return game:GetService("CoreGui") end) and game:GetService("CoreGui") or LocalPlayer:WaitForChild("PlayerGui")
 
 local CommF = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommF_")
@@ -181,9 +182,37 @@ local function WriteHopConfig(overrides)
 end
 
 -- ============================================================================
--- HOP LOW (RÚT GỌN: ƯU TIÊN PING THẤP + PLAYER THẤP)
+-- HOP LOW (RÚT GỌN: ƯU TIÊN PING THẤP + PLAYER THẤP + CACHE TRÁNH LẶP)
 -- ============================================================================
-local TriedJobs = { [tostring(game.JobId)] = true }
+local HOP_CACHE_FILE = "AutoHumanV3_HopCache.json"
+
+local function LoadTriedJobs()
+    local cache = { [tostring(game.JobId)] = os.time() }
+    if isfile and readfile and isfile(HOP_CACHE_FILE) then
+        local okR, raw = pcall(readfile, HOP_CACHE_FILE)
+        if okR and type(raw) == "string" then
+            local okD, data = pcall(function() return HttpService:JSONDecode(raw) end)
+            if okD and type(data) == "table" then
+                local now = os.time()
+                for jid, ts in pairs(data) do
+                    if type(ts) == "number" and (now - ts) < 180 then
+                        cache[tostring(jid)] = ts
+                    end
+                end
+            end
+        end
+    end
+    return cache
+end
+
+local function SaveTriedJob(cache, jobId)
+    cache[tostring(jobId)] = os.time()
+    if writefile then
+        pcall(writefile, HOP_CACHE_FILE, HttpService:JSONEncode(cache))
+    end
+end
+
+local TriedJobs = LoadTriedJobs()
 
 local function SleepCheck(sec)
     local t0 = os.clock()
@@ -258,30 +287,34 @@ local function HopLow()
 
         if Stopped() then break end
 
-        local pool = {}
-        for _, s in ipairs(list) do
-            if s.ping <= 70 and s.playing <= 8 then table.insert(pool, s) end
-        end
-        if #pool == 0 then pool = list end
+        if #list == 0 then
+            TriedJobs = { [tostring(game.JobId)] = os.time() }
+        else
+            local pool = {}
+            for _, s in ipairs(list) do
+                if s.ping <= 70 and s.playing <= 8 then table.insert(pool, s) end
+            end
+            if #pool == 0 then pool = list end
 
-        table.sort(pool, function(a, b)
-            local aTier, bTier = math.floor(a.ping / 30), math.floor(b.ping / 30)
-            if aTier ~= bTier then return aTier < bTier end
-            if a.playing ~= b.playing then return a.playing < b.playing end
-            return a.ping < b.ping
-        end)
+            table.sort(pool, function(a, b)
+                local aTier, bTier = math.floor(a.ping / 30), math.floor(b.ping / 30)
+                if aTier ~= bTier then return aTier < bTier end
+                if a.playing ~= b.playing then return a.playing < b.playing end
+                return a.ping < b.ping
+            end)
 
-        for i = 1, math.min(#pool, 5) do
-            if Stopped() then break end
-            local target = pool[i]
-            TriedJobs[target.id] = true
-            SetStatus(("Hop Low -> %s | Players: %d | Ping: %dms"):format(target.id:sub(1, 8), target.playing, target.ping))
-            if browser then
-                pcall(function() browser:InvokeServer("teleport", target.id) end)
+            for i = 1, math.min(#pool, 5) do
+                if Stopped() then break end
+                local target = pool[i]
+                SaveTriedJob(TriedJobs, target.id)
+                SetStatus(("Hop Low -> %s | Players: %d | Ping: %dms"):format(target.id:sub(1, 8), target.playing, target.ping))
+                if browser then
+                    pcall(function() browser:InvokeServer("teleport", target.id) end)
+                    if not SleepCheck(3) then break end
+                end
+                pcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, target.id, LocalPlayer) end)
                 if not SleepCheck(3) then break end
             end
-            pcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, target.id, LocalPlayer) end)
-            if not SleepCheck(3) then break end
         end
         if not SleepCheck(1) then break end
     end
@@ -404,7 +437,7 @@ local function LaunchRealKidHop(destination)
 end
 
 -- ============================================================================
--- HÀM CHECK DATA, RACE, V2/V3, INVENTORY (RÚT GỌN), PULL LEVER, SEA
+-- HÀM CHECK DATA, RACE, V2/V3, THỜI GIAN ĐÊM, INVENTORY, PULL LEVER, SEA
 -- ============================================================================
 local function EnsureTeam()
     if Stopped() then return end
@@ -422,6 +455,19 @@ local function GetRace() return tostring(Data:WaitForChild("Race").Value) end
 local function GetBeli() return tonumber(Data:WaitForChild("Beli").Value) or 0 end
 local function GetFragments() return tonumber(Data:WaitForChild("Fragments").Value) or 0 end
 local function GetSea() return SEA_PLACES[game.PlaceId] or 0 end
+
+local function IsNight()
+    local ct = Lighting.ClockTime
+    return ct >= 18 or ct < 5
+end
+
+local function HasBlueFlower()
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    local ch = LocalPlayer.Character
+    return (bp and (bp:FindFirstChild("Flower 1") or bp:FindFirstChild("Flower1")) ~= nil)
+        or (ch and (ch:FindFirstChild("Flower 1") or ch:FindFirstChild("Flower1")) ~= nil)
+        or false
+end
 
 local V3Abilities = {
     Human = "Last Resort",
@@ -596,11 +642,24 @@ if not hasV3 then
         return
     end
 
-    -- Đã đủ Beli & 10k Frag nhưng thiếu V2/V3 -> TP Sea 2 chạy AutoUpgradeRaceV3 -> TP Sea 3
+    -- Đã đủ Beli & 10k Frag nhưng thiếu V2/V3 -> TP Sea 2 -> nếu đang up V2 mà trời sáng thì Hop Low liên tục tới khi gặp trời tối
     if GetSea() ~= 2 then TravelToSea(2) end
-    if not Stopped() and LaunchRealKidMain({ AutoUpgradeRaceV3 = true }, "Auto Upgrade Human V2/V3 (Sea 2)") then
+    if Stopped() then return end
+
+    if not HasRaceV2() and not HasBlueFlower() and not IsNight() then
+        SetStatus(("Đang up V2 nhưng trời sáng (Clock: %.1f) -> Hop Low tìm trời tối..."):format(Lighting.ClockTime))
+        HopLow()
+        return
+    end
+
+    if LaunchRealKidMain({ AutoUpgradeRaceV3 = true }, "Auto Upgrade Human V2/V3 (Sea 2)") then
         while not Stopped() and task.wait(2) do
-            SetStatus("Đang làm Human V2/V3 ở Sea 2...")
+            if not HasRaceV2() and not HasBlueFlower() and not IsNight() then
+                SetStatus(("Đang up V2 mà trời chuyển sáng (Clock: %.1f) -> Hop Low tìm trời tối..."):format(Lighting.ClockTime))
+                HopLow()
+                return
+            end
+            SetStatus(("Đang làm Human V2/V3 ở Sea 2 (Clock: %.1f)..."):format(Lighting.ClockTime))
             if HasRaceV3() then
                 SetStatus("Đã xong Human V3! Đang TP sang Sea 3...")
                 TravelToSea(3)
