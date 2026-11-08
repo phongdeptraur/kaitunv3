@@ -1,0 +1,2385 @@
+-- // AUTO GHOUL V3 + PULL LEVER (REALKID + NIGHT HUB + LOCK 3M/SAFEZONE + COOP/BACK-HELP)
+repeat task.wait() until game:IsLoaded()
+if getgenv()._AutoGhoulV3PullLoaded then return end
+getgenv()._AutoGhoulV3PullLoaded = true
+getgenv()._AutoGhoulV3Stop = false
+getgenv()._AutoGhoulAimHRP = nil
+getgenv()._AutoGhoulAimPos = nil
+getgenv()._AutoGhoulAimCamPos = nil
+getgenv()._AutoGhoulAimCam = nil
+getgenv()._AutoGhoulMyChar = nil
+
+local Players = game:GetService("Players")
+while not Players.LocalPlayer do task.wait() end
+local LocalPlayer = Players.LocalPlayer
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local HttpService = game:GetService("HttpService")
+local TeleportService = game:GetService("TeleportService")
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+local VIM = game:GetService("VirtualInputManager")
+
+local CommF = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommF_")
+local request_ = request or http_request or (syn and syn.request) or (fluxus and fluxus.request) or (Krnl and Krnl.request)
+
+local function Stopped()
+    return getgenv()._AutoGhoulV3Stop == true
+end
+
+-- ============================================================================
+-- CẤU HÌNH & HẰNG SỐ
+-- ============================================================================
+local REALKID_KEY = "TRAU_PREMIUM_306B4DB2D52F3D14BAB7247D2CC4B53D8E3C8EC77B572154"
+local URL_MAIN = "https://raw.githubusercontent.com/realkidhub/realkid/refs/heads/main/main.lua"
+local URL_HOP  = "https://raw.githubusercontent.com/realkidhub/realkid/refs/heads/main/RealKidHop.lua"
+
+local TWEEN_SPEED = 190 -- Khóa cứng 190 stud/s
+local MAX_PVP_DIST = 50000
+local LOCK_TIMEOUT = 3 * 60 -- 3 phút mỗi mục tiêu
+local GHOUL_V3_TIMEOUT = 45 * 60 -- 45 phút
+local SESSION_FILE = "ghoulsession.txt"
+local SESSION_TTL = 60 -- Quá 60s không cập nhật coi như acc đã tắt
+
+local POS_CAKE_LOAF  = Vector3.new(-1954.96, 37.83, -11875.87)
+local POS_SEA_CASTLE = Vector3.new(-5021.44, 314.55, -3003.93)
+
+local SEA_PLACES = {
+    [2753915549]      = 1,
+    [4442272183]      = 2,
+    [79091703265657]  = 2,
+    [7449423635]      = 3,
+    [100117331123089] = 3,
+}
+
+local DESTINATIONS = {
+    CAKE_PRINCE = "Cake Prince",
+    DOUGH_KING  = "Dough King",
+    RIP_INDRA   = "Rip Indra",
+    SERVER_4H   = "Server 4 Hours",
+}
+
+local BASE_MAIN_JSON = [[{"EspSeaEventIsland":false,"UpgradeDragonTalon":false,"ChangeTransparencyCanSee":false,"LeviathanMultiCannon":false,"RemoveHitVFX":false,"ValueDamageMultiSegments":60000,"SafeMode":false,"AutoTrainV4":false,"TweenSpeedV4":190,"WaitForHeartIce":false,"AutoMelee":false,"AttackMultiSegmentsLeviathan":false,"farm_m1_gun_sea":false,"DungeonAccountStart":false,"prehistoric_skull_guitar":true,"AutoV3Target_Toggle":false,"selected_fighting_style":"Black Leg","ResetAfterTrial":false,"InterfaceLanguage":"Tiếng Việt","AutoCollectGear":false,"PvPAimRadius":150,"AutoTpAncientClock":false,"selected_team":"Marines","AutoSwords":false,"AutoRemoveSkyFog":false,"FastAttackPlayers":false,"auto_multi_raid":false,"Select_Boss_Farm":"","AutoEliteQuest":false,"AutoDojoTrainer":false,"AutoDracoFully":false,"attack_method_golem":"Attack","BaitSelection":"Basic Bait","auto_pirate_raid":false,"AntiAFK":true,"ResetVolcanoAfterCollectingLoot":false,"auto_farm_sea_event":false,"AutoGun":false,"AutoFindMirageIsland":false,"AutoAwakening":false,"AutoSlapDodgeAABB":false,"EspChests":false,"ChooseSeaLevel":"Lv 5","AzureEmberToTrade":1,"AutoTweenEventFishingSpot":false,"selected_farm_target":"Bones","selected_sea_events":[],"discord_notice_mirage":false,"AutoTpAncientOne":false,"HalloweenCandyPotion":false,"Berry":false,"AutoHopChest":true,"AutoFireShootHeartLeviathan":false,"AutoLookAtMoon":false,"card_selection":[],"EspAdvancedFruitsDealer":false,"account_pick_slot_raid":false,"autotwfruits":false,"discord_notice_spy":false,"AutoCollectDragonEggs":false,"AutoYamaCDK":false,"HalloweenSummonJack":false,"JumpPowerSliderV2":50,"EspAuraColourDealers":false,"AutoCraftEnchantScroll":false,"farm_height_2":30,"auto_farm_nearest_range":500,"auto_zou_quest":false,"AutoFarmObservationHop":false,"auto_dragon_hunter":false,"global_skill_hold_x":10,"AutoBloxFruit":false,"SwapDragoRace":false,"HalloweenJack":false,"global_skill_hold_z":10,"AutoPhoenixDungeon":false,"AutoOpenMenuHopFarm":false,"HalloweenPumpkins":false,"AutoBossToggle":false,"AutoPickDungeonCards":false,"BringMobMax":"6","SelectedV4Gear2":"Alpha","RaceV4Aura":false,"AutoCollectMirageChest":false,"ignore_cake_prince":false,"TeleportToPlayer":false,"AutoResetWhenCompleteVolcano":false,"AutoStackDarkbeard":false,"AutoValkyrie":false,"AutoRelicDragoTrial":false,"auto_travel_dressrosa":false,"auto_mastery_fruits":false,"discord_ping_mode":"Không ping","GoToSharkmanNPC":false,"AutoTrainDragoV4":false,"auto_farm_materials":false,"EspGears":false,"AutoTushitaSword":false,"global_skill_keys":["Z","X","C"],"AutoDriveToHydraIsland":false,"auto_buy_style":false,"RandomAround":false,"JumpPower":false,"global_skill_delay":100,"AutoTeleportBarista":false,"global_skill_weapons":["Melee","Sword","Blox Fruit","Gun"],"AutoBuyV4Gear":false,"SelectBoatTarget":"My Boat","DungeonAutoJoin":false,"HalloweenHellfire":false,"AutoEscapeRoughSea":true,"EspBerries":false,"EnchantScrollType":"CommonScroll","AutoCollectAzureEmber":false,"HopBerry":false,"discord_notice_stored_fruit":false,"HalloweenWerewolf":false,"auto_patch_prehistoric":false,"auto_farm_general":false,"AutoUnlockDoughDungeon":false,"AutoFindPrehistoricIsland":false,"accept_quests":false,"WalkSpeed":false,"AutoDefense":false,"auto_destroy_lava":true,"AutoHiddenQuest":false,"TweenToDragoTrials":false,"FarmMastery_G":false,"AutoFindLeviathan":false,"BusuAura":true,"Chest":false,"AutoTryLuck":false,"AutoDragoV3":false,"auto_citizen_quest":false,"AutoTravel":false,"AutoBuyHakiRecipes":false,"AcceptRainbowQuest":false,"AutoTweenHighestPoint":false,"AutoPullLever":false,"AutoTradeAzureEmber":false,"auto_load_script":false,"discord_fruit_rarities":["Common","Uncommon","Rare","Legendary","Mythical"],"global_skill_hold_v":10,"AutoPrayGravestone":false,"WalkSpeedSliderV2":100,"discord_notice_prehistoric":false,"auto_farm_nearest":false,"AutoDragoV2":false,"multi_raid_players":[],"StopWhenChalice":false,"AutoCraftVolcanicMagnet":false,"BringMode":"400","auto_farm_tyrant":false,"AutoSellFish":false,"auto_farm_leviathan":false,"auto_factory_raid":false,"global_skill_hold_f":10,"AutoBuyChipFruit":false,"discord_notice_profile":false,"HalloweenRandom":false,"EspPlayers":false,"weapon_choice":"Melee","AutoSkullGuitar":false,"discord_notice_frozen":false,"auto_training_dummy":false,"AutoRedeemCodes":false,"EspFruits":false,"AutoSelectDungeon":false,"auto_sea_event_friend":false,"AutoSpawnPrehistoricIsland":true,"AutoSoulReaper":false,"AutoCompleteTrialRace":false,"DungeonMinPlayers":2,"SelectedV4GearSlot":"Auto","AutoUnlockedPuzzle":false,"RaceV3Aura":false,"AutoYamaSword":false,"AutoHopSecretHint":false,"KenAura2":false,"AutoTeleportToShrineActived":false,"HalloweenAutoHat":false,"AutoLeiAccessory":false,"tyrant_skull_guitar":false,"AutoStoreFruitFlag":false,"MaxChestHop":30,"AutoBuyFruitsFlag":false,"farm_m1_fruit_sea":false,"BoatSpeedV7":"220","AutoBigmom":false,"AutoRainbowColors":false,"AutoSailBoat":false,"HalloweenSeedHop":false,"AutoGetCDK":false,"DungeonDifficulty":"Normal","AutoTweenAdvancedFruitDealer":false,"AutoRandomBones":false,"AutoCanvendishSword":false,"ChooseBoats":"MarineGrandBrigade","AutoTeleportFrozenDimension":false,"Initialize":true,"AutoFarmMaterialSkullGuitar":false,"AutoStartRaid":false,"SpectatePlayer":false,"AutoSerpentBow":false,"AutoDragoV1":false,"global_skill_hold_c":10,"AutoCollectDinoBones":false,"AutoFindKitsuneIsland":false,"RemoveDeathRespawnVFX":false,"AutoChooseV4Gear":false,"HalloweenOniChoice":"Celestial (Right)","AutoObservationV2":false,"AutoTushitaCDK":false,"auto_low_cpu_once":false,"AutoMirror":false,"MagicFruits":false,"raidnew":false,"AutoDriveToTikiOutport":false,"AutoFarmObservation":false,"autoshootgun":true,"mastery_health_percent":30,"AutoSpawnRipIndra":false,"HalloweenDoors":false,"hopantirs":false,"AutoTwinHooks":false,"auto_break_bottle":false,"RodSelection":"Fishing Rod","Bringmob":true,"DisableNotify":false,"AutoKillPlayerAfterTrial":false,"AutoHydraLantern":false,"EspIslandLocation":false,"MasterySword":false,"AutoResetLostBoat":true,"AutoPrehistoricFully":false,"AutoQuestBoss":false}]]
+
+local BASE_HOP_JSON = [[{"VisitedJobs":{"a403930c-1443-4f12-ab49-a594cc627cf9":true,"3056d8e0-9d8b-406f-9693-faf642d0c02a":true,"caed7da4-7cc6-4693-907b-e335a16ff45c":true,"8958fa92-fbc2-47cc-9035-ab54a836ad79":true,"b47e14dd-925c-4c73-83f7-f216a1bf3214":true},"PortalEnabled":true,"RaceV4Enabled":false,"WeaponCategory":"Melee","SearchEnabled":true,"DebugEnabled":false,"FruitWebhookEnabled":false,"WebhookEnabled":false,"AttackEnabled":true,"PullLeverEnabled":false,"FruitEnabled":false,"RandomEnabled":false,"Destination":"Cake Prince","RaidEnabled":false,"GunHeight":35,"AttackHeight":30,"GhostFruitEnabled":false,"SearchPause":5,"BerryEnabled":false,"BuyLegendaryEnabled":false,"RaceV3Enabled":false,"BossEnabled":true,"StoreEnabled":false,"KenEnabled":false,"WebhookAddress":"","MovementSpeed":200,"AuraEnabled":true,"InitialSide":"Marines","ChestEnabled":false,"AutoLoadEnabled":false,"Language":"Tiếng Việt"}]]
+
+-- ============================================================================
+-- STATUS UI (TÁCH LUỒNG RENDER) + NÚT X UNLOAD TOÀN BỘ + AUTO-REQUEUE
+-- ============================================================================
+local UIParent
+do
+    local ok, res = pcall(function()
+        local h = gethui and gethui()
+        if h then
+            local t = Instance.new("Folder"); t.Parent = h; t:Destroy()
+            return h
+        end
+        local cg = game:GetService("CoreGui")
+        local t = Instance.new("Folder"); t.Parent = cg; t:Destroy()
+        return cg
+    end)
+    UIParent = (ok and res) or LocalPlayer:WaitForChild("PlayerGui")
+end
+
+pcall(function()
+    local old = UIParent:FindFirstChild("AutoGhoulV3Status")
+    if old then old:Destroy() end
+end)
+
+local Gui = Instance.new("ScreenGui")
+Gui.Name = "AutoGhoulV3Status"
+Gui.ResetOnSpawn = false
+Gui.Parent = UIParent
+
+local Bar = Instance.new("Frame")
+Bar.Size = UDim2.new(0, 520, 0, 30)
+Bar.Position = UDim2.new(0.5, -260, 0, 8)
+Bar.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+Bar.BackgroundTransparency = 0.12
+Bar.BorderSizePixel = 0
+Bar.Active = true
+Bar.Draggable = true
+Bar.Parent = Gui
+Instance.new("UICorner", Bar).CornerRadius = UDim.new(0, 6)
+Instance.new("UIStroke", Bar).Color = Color3.fromRGB(55, 55, 70)
+
+local StatusLbl = Instance.new("TextLabel")
+StatusLbl.Size = UDim2.new(1, -36, 1, 0)
+StatusLbl.Position = UDim2.new(0, 10, 0, 0)
+StatusLbl.BackgroundTransparency = 1
+StatusLbl.TextColor3 = Color3.fromRGB(235, 245, 255)
+StatusLbl.Font = Enum.Font.GothamBold
+StatusLbl.TextSize = 12
+StatusLbl.TextXAlignment = Enum.TextXAlignment.Left
+StatusLbl.TextTruncate = Enum.TextTruncate.AtEnd
+StatusLbl.Text = "[AutoGhoulV3] Đang khởi tạo..."
+StatusLbl.Parent = Bar
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 22, 0, 22)
+CloseBtn.Position = UDim2.new(1, -26, 0, 4)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(190, 45, 55)
+CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.TextSize = 12
+CloseBtn.Text = "X"
+CloseBtn.AutoButtonColor = true
+CloseBtn.Parent = Bar
+Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 5)
+
+local ActiveTween, ActiveNoclip, ActiveBV, ActiveBG, ActivePvPConn, TeleportConn
+local hoverAboveMode = false
+local PendingStatus = "[AutoGhoulV3] Đang khởi tạo..."
+local LastRenderedStatus = ""
+
+local function ClearAimState()
+    getgenv()._AutoGhoulAimHRP = nil
+    getgenv()._AutoGhoulAimPos = nil
+    getgenv()._AutoGhoulAimCamPos = nil
+    getgenv()._AutoGhoulAimCam = nil
+    getgenv()._AutoGhoulMyChar = nil
+end
+
+local function CancelActiveTween()
+    if ActiveTween then
+        pcall(function() ActiveTween:Cancel(); ActiveTween:Destroy() end)
+        ActiveTween = nil
+    end
+end
+
+local function EnsureAntiGravity(hrp)
+    if not hrp or not hrp.Parent then return end
+    if not ActiveBV or ActiveBV.Parent ~= hrp then
+        if ActiveBV then pcall(function() ActiveBV:Destroy() end) end
+        ActiveBV = Instance.new("BodyVelocity")
+        ActiveBV.Name = "AutoGhoulBV"
+        ActiveBV.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+        ActiveBV.P = 9e9
+        ActiveBV.Velocity = Vector3.zero
+        ActiveBV.Parent = hrp
+    else
+        ActiveBV.Velocity = Vector3.zero
+    end
+    if not ActiveBG or ActiveBG.Parent ~= hrp then
+        if ActiveBG then pcall(function() ActiveBG:Destroy() end) end
+        ActiveBG = Instance.new("BodyGyro")
+        ActiveBG.Name = "AutoGhoulBG"
+        ActiveBG.MaxTorque = Vector3.new(9e9, 0, 9e9)
+        ActiveBG.P = 9e9
+        ActiveBG.CFrame = hrp.CFrame
+        ActiveBG.Parent = hrp
+    end
+end
+
+local function CleanupMovement()
+    CancelActiveTween()
+    if ActiveNoclip then pcall(function() ActiveNoclip:Disconnect() end) ActiveNoclip = nil end
+    if ActiveBV then pcall(function() if ActiveBV.Parent then ActiveBV:Destroy() end end) ActiveBV = nil end
+    if ActiveBG then pcall(function() if ActiveBG.Parent then ActiveBG:Destroy() end end) ActiveBG = nil end
+    pcall(function()
+        local ch = LocalPlayer.Character
+        local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
+            hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, true)
+        end
+        local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+        end
+    end)
+end
+
+local function StopPvPTween()
+    ClearAimState()
+    if ActivePvPConn then pcall(function() ActivePvPConn:Disconnect() end) ActivePvPConn = nil end
+    CleanupMovement()
+end
+
+-- Forward declare RemoveFromGhoulSession cho UnloadAll
+local RemoveFromGhoulSession
+
+local function UnloadAll()
+    getgenv()._AutoGhoulV3Stop = true
+    getgenv()._AutoGhoulV3PullLoaded = false
+    getgenv()._HoppingServer = false
+    StopPvPTween()
+    if RemoveFromGhoulSession then pcall(RemoveFromGhoulSession) end
+    if TeleportConn then pcall(function() TeleportConn:Disconnect() end) TeleportConn = nil end
+    pcall(function() if Gui and Gui.Parent then Gui:Destroy() end end)
+    print("[AutoGhoulV3] Đã unload toàn bộ script!")
+end
+
+CloseBtn.MouseButton1Click:Connect(UnloadAll)
+
+task.spawn(function()
+    while not Stopped() do
+        if PendingStatus ~= LastRenderedStatus then
+            local ok = pcall(function()
+                if StatusLbl and StatusLbl.Parent then
+                    StatusLbl.Text = PendingStatus
+                end
+            end)
+            if ok then LastRenderedStatus = PendingStatus end
+        end
+        task.wait(0.1)
+    end
+    pcall(function() if Gui and Gui.Parent then Gui:Destroy() end end)
+end)
+
+local function SetStatus(msg)
+    if Stopped() then return end
+    PendingStatus = "[AutoGhoulV3] " .. tostring(msg)
+    print(PendingStatus)
+end
+
+local function SleepCheck(sec)
+    local t0 = os.clock()
+    while not Stopped() and (os.clock() - t0) < sec do task.wait(0.1) end
+    return not Stopped()
+end
+
+do
+    local qot = queue_on_teleport or (syn and syn.queue_on_teleport) or queueonteleport
+    local scriptPath = getgenv().AutoGhoulScriptPath or "AutoGhoulV3Pull.lua"
+    if qot and isfile and isfile(scriptPath) then
+        local queued = false
+        TeleportConn = LocalPlayer.OnTeleport:Connect(function(state)
+            if not Stopped() and state == Enum.TeleportState.Started and not queued then
+                queued = true
+                qot(('loadfile(%q)()'):format(scriptPath))
+            end
+        end)
+    end
+end
+
+-- ============================================================================
+-- GHI CONFIG ĐÈ LÊN CONFIG BASE
+-- ============================================================================
+local function EnsureFolders()
+    if isfolder and makefolder then
+        if not isfolder("RealKidHub") then makefolder("RealKidHub") end
+        if not isfolder("RealKidHub/save2") then makefolder("RealKidHub/save2") end
+    end
+end
+
+local function WriteMainConfig(overrides)
+    EnsureFolders()
+    local cfg = HttpService:JSONDecode(BASE_MAIN_JSON)
+    for k, v in pairs(overrides or {}) do cfg[k] = v end
+    writefile("RealKidHub/save2/" .. LocalPlayer.Name .. ".json", HttpService:JSONEncode(cfg))
+end
+
+local function WriteHopConfig(overrides)
+    local cfg = HttpService:JSONDecode(BASE_HOP_JSON)
+    for k, v in pairs(overrides or {}) do cfg[k] = v end
+    local path = "RealKidHop_" .. tostring(LocalPlayer.UserId) .. ".json"
+    if isfile and readfile and isfile(path) then
+        local okR, raw = pcall(readfile, path)
+        if okR and type(raw) == "string" then
+            local okD, old = pcall(function() return HttpService:JSONDecode(raw) end)
+            if okD and type(old) == "table" and old.Destination == cfg.Destination
+                and type(old.VisitedJobs) == "table" and next(old.VisitedJobs) ~= nil then
+                cfg.VisitedJobs = old.VisitedJobs
+            end
+        end
+    end
+    writefile(path, HttpService:JSONEncode(cfg))
+end
+
+-- ============================================================================
+-- CACHE SERVER ĐÃ GHÉ & TELEPORT + HOP LOW / HOP HIGH (11/12 PLAYER)
+-- ============================================================================
+local function LoadJobCache(file, ttl)
+    local cache = {}
+    if isfile and readfile and isfile(file) then
+        local okR, raw = pcall(readfile, file)
+        if okR and type(raw) == "string" then
+            local okD, data = pcall(function() return HttpService:JSONDecode(raw) end)
+            if okD and type(data) == "table" then
+                local now = os.time()
+                for jid, ts in pairs(data) do
+                    if type(ts) == "number" and (now - ts) < ttl then cache[tostring(jid)] = ts end
+                end
+            end
+        end
+    end
+    return cache
+end
+
+local function RecordJobCache(file, cache, jobId)
+    cache[tostring(jobId)] = os.time()
+    if writefile then pcall(writefile, file, HttpService:JSONEncode(cache)) end
+end
+
+local function DirectTeleport(jobId, placeId)
+    local sb = ReplicatedStorage:FindFirstChild("__ServerBrowser")
+    if sb then
+        pcall(function() sb:InvokeServer("teleport", jobId) end)
+        if not SleepCheck(3) then return end
+    end
+    pcall(function() TeleportService:TeleportToPlaceInstance(placeId or game.PlaceId, jobId, LocalPlayer) end)
+end
+
+local HOP_CACHE_FILE = "AutoGhoulV3_HopCache.json"
+local TriedJobs = LoadJobCache(HOP_CACHE_FILE, 180)
+TriedJobs[tostring(game.JobId)] = os.time()
+
+local function HopServer(mode)
+    if Stopped() or getgenv()._HoppingServer then return end
+    getgenv()._HoppingServer = true
+    local isHigh = (mode == "high")
+    SetStatus(isHigh and "Đang tìm server đông (11/12 player)..." or "Đang tìm server low player & ping thấp để refresh...")
+
+    while not Stopped() and task.wait(0.3) do
+        local list = {}
+        local browser = ReplicatedStorage:FindFirstChild("__ServerBrowser")
+        if browser then
+            local done, byJob = 0, {}
+            for page = 1, 150 do
+                if Stopped() then break end
+                task.spawn(function()
+                    for _ = 1, 2 do
+                        if Stopped() then break end
+                        local ok, res = pcall(function() return browser:InvokeServer(page) end)
+                        if ok and type(res) == "table" then
+                            for jid, d in pairs(res) do
+                                local id = tostring(jid)
+                                if not TriedJobs[id] and not byJob[id] then
+                                    local cnt = (type(d) == "table" and tonumber(d.Count)) or tonumber(d) or 1
+                                    local reg = (type(d) == "table" and tostring(d.Region or "")) or ""
+                                    local ping = reg:find("Sing") and 40 or reg:find("Japan") and 95 or reg:find("Germ") and 190 or (reg:find("US") or reg:find("United States")) and 230 or 140
+                                    if (isHigh and cnt >= 6 and cnt < 12) or (not isHigh and cnt >= 1 and cnt < 11) then
+                                        byJob[id] = { id = id, playing = cnt, ping = ping }
+                                    end
+                                end
+                            end
+                            break
+                        end
+                        task.wait(0.04)
+                    end
+                    done = done + 1
+                end)
+            end
+            local t0 = os.clock()
+            repeat task.wait(0.05) until Stopped() or done >= 150 or (os.clock() - t0) >= 3.5
+            for _, s in pairs(byJob) do table.insert(list, s) end
+        end
+
+        if Stopped() then break end
+
+        if #list == 0 then
+            local cursor = ""
+            local sortDir = isHigh and "Desc" or "Asc"
+            for _ = 1, 5 do
+                if Stopped() then break end
+                local url = ("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=%s&limit=100%s")
+                    :format(game.PlaceId, sortDir, cursor ~= "" and ("&cursor=" .. cursor) or "")
+                local ok, raw = pcall(function() return game:HttpGet(url) end)
+                local okJ, data = false, nil
+                if ok and raw then okJ, data = pcall(function() return HttpService:JSONDecode(raw) end) end
+                if not okJ or not data or not data.data then break end
+                for _, s in ipairs(data.data) do
+                    local id = tostring(s.id)
+                    local cnt = tonumber(s.playing) or 0
+                    local maxP = tonumber(s.maxPlayers) or 12
+                    if not TriedJobs[id] and cnt < maxP and ((isHigh and cnt >= 6) or (not isHigh and cnt >= 1)) then
+                        table.insert(list, { id = id, playing = cnt, ping = tonumber(s.ping) or 999 })
+                    end
+                end
+                cursor = data.nextPageCursor
+                if not cursor or cursor == "" then break end
+            end
+        end
+
+        if Stopped() then break end
+
+        if #list == 0 then
+            TriedJobs = { [tostring(game.JobId)] = os.time() }
+        else
+            local pool = {}
+            if isHigh then
+                for _, s in ipairs(list) do
+                    if s.playing == 11 then table.insert(pool, s) end
+                end
+                if #pool == 0 then pool = list end
+                table.sort(pool, function(a, b)
+                    if a.playing ~= b.playing then return a.playing > b.playing end
+                    return a.ping < b.ping
+                end)
+            else
+                for _, s in ipairs(list) do
+                    if s.ping <= 70 and s.playing <= 8 then table.insert(pool, s) end
+                end
+                if #pool == 0 then pool = list end
+                table.sort(pool, function(a, b)
+                    local aTier, bTier = math.floor(a.ping / 30), math.floor(b.ping / 30)
+                    if aTier ~= bTier then return aTier < bTier end
+                    if a.playing ~= b.playing then return a.playing < b.playing end
+                    return a.ping < b.ping
+                end)
+            end
+
+            for i = 1, math.min(#pool, 5) do
+                if Stopped() then break end
+                local target = pool[i]
+                RecordJobCache(HOP_CACHE_FILE, TriedJobs, target.id)
+                SetStatus(("%s -> %s | Players: %d | Ping: %dms"):format(isHigh and "Hop High" or "Hop Low", target.id:sub(1, 8), target.playing, target.ping))
+                DirectTeleport(target.id, game.PlaceId)
+                if not SleepCheck(3) then break end
+            end
+        end
+        if not SleepCheck(1) then break end
+    end
+    getgenv()._HoppingServer = false
+end
+
+local function HopLow()  HopServer("low")  end
+local function HopHigh() HopServer("high") end
+
+-- ============================================================================
+-- NIGHT HUB API HOP (RÚT GỌN: DOUGH KING, RIP INDRA, CAKE PRINCE)
+-- ============================================================================
+local NH_BASE_URL = "http://163.223.9.144/boss"
+local NH_PREFIX   = "NIGHTHUB|"
+local NH_KEY_HEX  = "8992d555ed7846a562b058523100fbd0e59b5f6f28e98003230ffb4d9db60411"
+local NH_VISITED_FILE = "Axiom_VisitedServers.json"
+local NH_Visited  = LoadJobCache(NH_VISITED_FILE, 600)
+
+local NH_ENDPOINTS = {
+    ["Dough King"]  = { "DoughKing", "Dough_King" },
+    ["Cake Prince"] = { "CakePrince", "Cake_Prince" },
+    ["Rip Indra"]   = { "RipIndra", "Indra", "rip_indra" },
+}
+local NH_BOSS_ALIASES = {
+    ["Dough King"]  = { "Dough King" },
+    ["Cake Prince"] = { "Cake Prince" },
+    ["Rip Indra"]   = { "rip_indra", "rip_indra True Form" },
+}
+
+local NH_KeyBytes = {}
+for i = 1, #NH_KEY_HEX, 2 do NH_KeyBytes[#NH_KeyBytes + 1] = tonumber(NH_KEY_HEX:sub(i, i + 1), 16) end
+local NH_Alphabet = nil
+
+local bxor, band, lshift, rshift, lrotate = bit32.bxor, bit32.band, bit32.lshift, bit32.rshift, bit32.lrotate
+local function U32LE(b, o) return b[o] + b[o + 1] * 256 + b[o + 2] * 65536 + b[o + 3] * 16777216 end
+local function QR(s, a, b, c, d)
+    s[a] = (s[a] + s[b]) % 4294967296; s[d] = lrotate(bxor(s[d], s[a]), 16)
+    s[c] = (s[c] + s[d]) % 4294967296; s[b] = lrotate(bxor(s[b], s[c]), 12)
+    s[a] = (s[a] + s[b]) % 4294967296; s[d] = lrotate(bxor(s[d], s[a]), 8)
+    s[c] = (s[c] + s[d]) % 4294967296; s[b] = lrotate(bxor(s[b], s[c]), 7)
+end
+local function Permute(s)
+    for _ = 1, 10 do
+        QR(s,1,5,9,13); QR(s,2,6,10,14); QR(s,3,7,11,15); QR(s,4,8,12,16)
+        QR(s,1,6,11,16); QR(s,2,7,12,13); QR(s,3,8,9,14); QR(s,4,5,10,15)
+    end
+end
+local function InitState(key, counter, nonce)
+    local s = { 1634760805, 857760878, 2036477234, 1797285236 }
+    for i = 0, 7 do s[5 + i] = U32LE(key, 1 + 4 * i) end
+    s[13] = counter % 4294967296
+    for i = 0, 2 do s[14 + i] = U32LE(nonce, 1 + 4 * i) end
+    return s
+end
+local function Keystream(key, nonce, counter, len)
+    local out, total = {}, 0
+    while total < len do
+        local init = InitState(key, counter, nonce)
+        local s = { table.unpack(init) }
+        Permute(s)
+        for i = 1, 16 do
+            local sum = (s[i] + init[i]) % 4294967296
+            for sh = 0, 24, 8 do
+                if total >= len then break end
+                total = total + 1
+                out[total] = band(rshift(sum, sh), 255)
+            end
+        end
+        counter = counter + 1
+    end
+    return out
+end
+local function ComputeTag(key, nonce, data)
+    local s = InitState(key, 4294967295, nonce)
+    Permute(s)
+    local padded = #data + (16 - #data % 16) % 16
+    for i = 0, padded - 1, 16 do
+        for j = 0, 3 do
+            local off = i + 4 * j
+            s[j + 1] = bxor(s[j + 1], (data[off + 1] or 0) + (data[off + 2] or 0) * 256 + (data[off + 3] or 0) * 65536 + (data[off + 4] or 0) * 16777216)
+        end
+        Permute(s)
+    end
+    s[1] = bxor(s[1], #data)
+    Permute(s)
+    local w = s[1]
+    return { band(w, 255), band(rshift(w, 8), 255), band(rshift(w, 16), 255), band(rshift(w, 24), 255) }
+end
+local function GetNHAlphabet()
+    if NH_Alphabet then return NH_Alphabet end
+    local ks = Keystream(NH_KeyBytes, {0,0,0,0,0,0,0,0,0,0,0,0}, 11259375, 128)
+    local c = {}
+    for i = 1, 64 do c[i] = ("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"):sub(i, i) end
+    for i = 64, 2, -1 do
+        local n = i - 1
+        local t = (ks[2 * n + 1] * 256 + ks[2 * n + 2]) % i + 1
+        c[i], c[t] = c[t], c[i]
+    end
+    NH_Alphabet = table.concat(c)
+    return NH_Alphabet
+end
+local function DecryptNHJobId(enc)
+    if type(enc) ~= "string" then return nil end
+    if enc:sub(1, #NH_PREFIX) ~= NH_PREFIX then return enc end
+    local body, alpha = enc:sub(#NH_PREFIX + 1), GetNHAlphabet()
+    local map, idx = {}, {}
+    for i = 1, 64 do map[alpha:sub(i, i)] = i - 1 end
+    for i = 1, #body do
+        local v = map[body:sub(i, i)]
+        if not v then return nil end
+        idx[#idx + 1] = v
+    end
+    local raw = {}
+    for i = 1, #idx, 4 do
+        local c1, c2, c3, c4 = idx[i], idx[i + 1], idx[i + 2], idx[i + 3]
+        if not c2 then return nil end
+        raw[#raw + 1] = band(lshift(c1, 2) + rshift(c2, 4), 255)
+        if c3 then raw[#raw + 1] = band(lshift(band(c2, 15), 4) + rshift(c3, 2), 255) end
+        if c4 then raw[#raw + 1] = band(lshift(band(c3, 3), 6) + c4, 255) end
+    end
+    if #raw < 12 then return nil end
+    local nonce, ct = {}, {}
+    for i = 1, 8 do nonce[i] = raw[i] end
+    for i = 9, 12 do nonce[i] = 0 end
+    for i = 13, #raw do ct[#ct + 1] = raw[i] end
+    local tag = ComputeTag(NH_KeyBytes, nonce, ct)
+    for i = 1, 4 do if tag[i] ~= raw[8 + i] then return nil end end
+    local ks, out = Keystream(NH_KeyBytes, nonce, 1, #ct), {}
+    for i = 1, #ct do out[i] = string.char(bxor(ct[i], ks[i])) end
+    return table.concat(out)
+end
+
+local function FetchNightHubServers(targetName)
+    local eps = NH_ENDPOINTS[targetName]
+    if not eps then return {} end
+    for _, ep in ipairs(eps) do
+        if Stopped() then return {} end
+        local url = NH_BASE_URL .. "/" .. ep
+        local raw = nil
+        if request_ then
+            for _ = 1, 2 do
+                local ok, res = pcall(request_, {
+                    Url = url, Method = "GET",
+                    Headers = {
+                        ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36",
+                        ["Accept"] = "application/json",
+                        ["Cache-Control"] = "no-cache"
+                    }
+                })
+                if ok and res then
+                    local code = res.StatusCode or res.status or (res.Success and 200 or 0)
+                    if code == 200 then raw = res.Body or res.body or (type(res) == "string" and res); break
+                    elseif code == 429 then SleepCheck(0.5) end
+                end
+            end
+        end
+        if (not raw or raw == "") and game.HttpGet then
+            local ok, res = pcall(function() return game:HttpGet(url) end)
+            if ok and res and res ~= "" then raw = res end
+        end
+        if raw and raw ~= "" then
+            local okJ, payload = pcall(HttpService.JSONDecode, HttpService, raw)
+            if okJ and type(payload) == "table" then
+                local list = payload.data or payload.servers or payload.Servers or payload
+                local out = {}
+                if type(list) == "table" then
+                    for _, e in ipairs(list) do
+                        if type(e) == "table" and (e.JobId or e.job_id) then
+                            local jid = DecryptNHJobId(e.JobId or e.job_id)
+                            if jid and jid ~= "" then
+                                table.insert(out, {
+                                    JobId = tostring(jid),
+                                    Players = tonumber(e.Players or e.players or e.count) or 0,
+                                    PlaceId = tonumber(e.PlaceId or e.placeId) or game.PlaceId,
+                                    Sea = tonumber(e.Sea or e.sea) or 3,
+                                    Idx = #out + 1,
+                                })
+                            end
+                        end
+                    end
+                end
+                if #out > 0 then return out end
+            end
+        end
+    end
+    return {}
+end
+
+local function TryNightHubHop(targetName, doneCheckFn)
+    local servers = FetchNightHubServers(targetName)
+    if Stopped() or #servers == 0 then return false end
+
+    local curSea = SEA_PLACES[game.PlaceId] or 3
+    local cands = {}
+    for _, s in ipairs(servers) do
+        if s.JobId ~= tostring(game.JobId) and not NH_Visited[s.JobId] and s.Sea == curSea and s.Players < 12 then
+            table.insert(cands, s)
+        end
+    end
+    if #cands == 0 then return false end
+
+    table.sort(cands, function(a, b)
+        if a.Players ~= b.Players then return a.Players < b.Players end
+        return a.Idx > b.Idx
+    end)
+
+    for i = 1, math.min(#cands, 2) do
+        if Stopped() or (doneCheckFn and doneCheckFn()) then return false end
+        local chosen = cands[i]
+        RecordJobCache(NH_VISITED_FILE, NH_Visited, chosen.JobId)
+        SetStatus(("Night Hub (%s) -> %s (%d players)"):format(targetName, chosen.JobId:sub(1, 8), chosen.Players))
+        DirectTeleport(chosen.JobId, chosen.PlaceId)
+        if not SleepCheck(4) then return false end
+    end
+    return false
+end
+
+local function FindBossAlive(aliases)
+    local folders = {
+        workspace:FindFirstChild("Enemies"),
+        workspace:FindFirstChild("Characters"),
+        ReplicatedStorage,
+    }
+    for _, folder in ipairs(folders) do
+        if folder then
+            for _, child in ipairs(folder:GetChildren()) do
+                if not Players:GetPlayerFromCharacter(child) then
+                    local ln = child.Name:lower()
+                    for _, alias in ipairs(aliases) do
+                        if child.Name == alias or ln:find(alias:lower(), 1, true) then
+                            local hum = child:FindFirstChildOfClass("Humanoid")
+                            local hrp = child:FindFirstChild("HumanoidRootPart")
+                            if hum and hrp and hum.Health > 0 then
+                                return child, hum, hrp
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+-- ============================================================================
+-- TWEEN AN TOÀN (KHÓA CỨNG 190 STUD/S, CẤM CHẠY KHI REALKID ĐANG BẬT)
+-- ============================================================================
+local function WaitAlive()
+    while not Stopped() do
+        local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+        local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 5)
+        local hrp = char:FindFirstChild("HumanoidRootPart") or char:WaitForChild("HumanoidRootPart", 5)
+        if hum and hrp and hum.Health > 0 then
+            LocalPlayer:WaitForChild("Backpack", 5)
+            return char, hum, hrp
+        end
+        task.wait(0.3)
+    end
+    return nil, nil, nil
+end
+
+local function TweenTo(targetPos)
+    if Stopped() then return false end
+    if getgenv()._RealKidMainRunning or getgenv()._RealKidHopRunning then
+        SetStatus("RealKid đang chạy -> Không được tự tween, hop low refresh!")
+        HopLow()
+        return false
+    end
+
+    while not Stopped() do
+        local char, hum, hrp = WaitAlive()
+        if Stopped() or not char then return false end
+
+        if hum.Sit then
+            hum.Sit = false
+            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            task.wait(0.2)
+        end
+
+        local dist = (hrp.Position - targetPos).Magnitude
+        if dist <= 8 then return true end
+
+        SetStatus(("Pre-Tween (190 stud/s) -> còn %.0f studs"):format(dist))
+        EnsureAntiGravity(hrp)
+
+        ActiveNoclip = RunService.Stepped:Connect(function()
+            if char and char.Parent then
+                for _, p in ipairs(char:GetDescendants()) do
+                    if p:IsA("BasePart") and p.CanCollide then p.CanCollide = false end
+                end
+                if hrp and hrp.Parent then
+                    hrp.AssemblyLinearVelocity = Vector3.zero
+                    hrp.AssemblyAngularVelocity = Vector3.zero
+                end
+            end
+        end)
+
+        ActiveTween = TweenService:Create(hrp, TweenInfo.new(dist / TWEEN_SPEED, Enum.EasingStyle.Linear), { CFrame = CFrame.new(targetPos) })
+        ActiveTween:Play()
+
+        while not Stopped() and ActiveTween and ActiveTween.PlaybackState == Enum.PlaybackState.Playing do
+            if getgenv()._RealKidMainRunning or getgenv()._RealKidHopRunning then
+                CleanupMovement()
+                HopLow()
+                return false
+            end
+            if not char.Parent or hum.Health <= 0 or (hrp.Position - targetPos).Magnitude <= 8 then
+                break
+            end
+            task.wait(0.1)
+        end
+
+        local arrived = (not Stopped()) and hum.Health > 0 and hrp.Parent and (hrp.Position - targetPos).Magnitude <= 12
+        CleanupMovement()
+        if Stopped() then return false end
+        if arrived then return true end
+        task.wait(1)
+    end
+    return false
+end
+
+-- ============================================================================
+-- KHỞI TẠO HUB & DATA CƠ BẢN
+-- ============================================================================
+local function LaunchRealKidMain(overrides, desc)
+    if Stopped() then return false end
+    if getgenv()._RealKidMainRunning or getgenv()._RealKidHopRunning then
+        HopLow()
+        return false
+    end
+    WriteMainConfig(overrides)
+    if not SleepCheck(0.2) then return false end
+    getgenv()._RealKidMainRunning = true
+    getgenv().Key = REALKID_KEY
+    SetStatus("Chạy RealKid Main: " .. (desc or "Custom"))
+    task.spawn(function()
+        local ok, err = pcall(function() loadstring(game:HttpGet(URL_MAIN))() end)
+        if not ok then warn("[AutoGhoulV3] Lỗi load RealKid Main:", err) end
+    end)
+    return true
+end
+
+local function LaunchRealKidHop(destination)
+    if Stopped() then return false end
+    if getgenv()._RealKidMainRunning or getgenv()._RealKidHopRunning then
+        HopLow()
+        return false
+    end
+    WriteHopConfig({ Destination = destination })
+    if not SleepCheck(0.2) then return false end
+    getgenv()._RealKidHopRunning = true
+    getgenv().Key = REALKID_KEY
+    SetStatus("Chạy RealKid Hop -> " .. tostring(destination))
+    task.spawn(function()
+        local ok, err = pcall(function() loadstring(game:HttpGet(URL_HOP))() end)
+        if not ok then warn("[AutoGhoulV3] Lỗi load RealKid Hop:", err) end
+    end)
+    return true
+end
+
+local Data = LocalPlayer:WaitForChild("Data")
+local function GetRace() return tostring(Data:WaitForChild("Race").Value) end
+local function GetBeli() return tonumber(Data:WaitForChild("Beli").Value) or 0 end
+local function GetFragments() return tonumber(Data:WaitForChild("Fragments").Value) or 0 end
+local function GetSea() return SEA_PLACES[game.PlaceId] or 0 end
+
+local function IsNight()
+    local ct = Lighting.ClockTime
+    return ct >= 18 or ct < 5
+end
+
+local function HasBlueFlower()
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    local ch = LocalPlayer.Character
+    return (bp and (bp:FindFirstChild("Flower 1") or bp:FindFirstChild("Flower1")) ~= nil)
+        or (ch and (ch:FindFirstChild("Flower 1") or ch:FindFirstChild("Flower1")) ~= nil)
+        or false
+end
+
+local V3Abilities = {
+    Human = "Last Resort",
+    Angel = "Heavenly Blood", Skypiea = "Heavenly Blood",
+    Shark = "Water Body",     Fishman = "Water Body",
+    Rabbit = "Agility",       Mink = "Agility",
+    Ghoul = "Heightened Senses",
+    Cyborg = "Energy Core",
+    Draco = "Primordial Reign",
+}
+
+local function HasRaceV3()
+    local ability = V3Abilities[GetRace()]
+    if not ability then return false end
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    local ch = LocalPlayer.Character
+    return (bp and bp:FindFirstChild(ability) ~= nil) or (ch and ch:FindFirstChild(ability) ~= nil) or false
+end
+
+local function HasRaceV2()
+    if HasRaceV3() then return true end
+    local ok, st = pcall(function() return CommF:InvokeServer("Alchemist", "1") end)
+    return ok and st == -2
+end
+
+local function EnsureTeam(preferTeam)
+    if Stopped() then return end
+    local targetTeam = preferTeam or "Marines"
+    if not LocalPlayer.Team or LocalPlayer.Team.Name == "Neutral" or (preferTeam and LocalPlayer.Team.Name ~= targetTeam) then
+        SetStatus("Đang chọn team " .. targetTeam .. "...")
+        pcall(function() CommF:InvokeServer("SetTeam", targetTeam) end)
+        SleepCheck(1.8)
+    end
+    WaitAlive()
+    SleepCheck(0.8)
+end
+
+local function TravelToSea(targetSea)
+    while not Stopped() and GetSea() ~= targetSea do
+        SetStatus("Đang chuyển sang Sea " .. tostring(targetSea) .. "...")
+        if targetSea == 2 then
+            pcall(function() CommF:InvokeServer("TravelDressrosa") end)
+        elseif targetSea == 3 then
+            pcall(function() CommF:InvokeServer("TravelZou") end)
+            if not SleepCheck(3) then return false end
+            if GetSea() ~= 3 then pcall(function() CommF:InvokeServer("TravelDressrosa") end) end
+        end
+        if not SleepCheck(4) then return false end
+    end
+    return not Stopped() and GetSea() == targetSea
+end
+
+-- ============================================================================
+-- GHOULSESSION.TXT MANAGER (CO-OP UP GHOUL V3 & BACK-HELP MULTI-ACCOUNT)
+-- ============================================================================
+local MY_UID = tostring(LocalPlayer.UserId)
+
+local function ReadGhoulSessionRaw()
+    if not (isfile and readfile and isfile(SESSION_FILE)) then return {}, true end
+    for _ = 1, 3 do
+        local okR, raw = pcall(readfile, SESSION_FILE)
+        if okR and type(raw) == "string" then
+            if raw:match("^%s*$") then return {}, true end
+            local okD, data = pcall(function() return HttpService:JSONDecode(raw) end)
+            if okD and type(data) == "table" then return data, true end
+        end
+        task.wait(0.05)
+    end
+    return nil, false
+end
+
+local function UpdateGhoulSession(mutatorFn)
+    local data, ok = ReadGhoulSessionRaw()
+    if not ok or not data then return nil end
+    local now = os.time()
+    local cleaned = {}
+    for uid, entry in pairs(data) do
+        if type(entry) == "table" and type(entry.updatedAt) == "number" and (now - entry.updatedAt) <= SESSION_TTL then
+            cleaned[tostring(uid)] = entry
+        end
+    end
+    if mutatorFn then
+        mutatorFn(cleaned, now)
+    end
+    if writefile then
+        pcall(writefile, SESSION_FILE, HttpService:JSONEncode(cleaned))
+    end
+    return cleaned
+end
+
+RemoveFromGhoulSession = function()
+    UpdateGhoulSession(function(tbl)
+        tbl[MY_UID] = nil
+    end)
+end
+
+local function AnalyzeGhoulSession(tbl)
+    local activeList, hosts, clones = {}, {}, {}
+    for _, e in pairs(tbl or {}) do
+        table.insert(activeList, e)
+        if e.role == "host" then
+            table.insert(hosts, e)
+        elseif e.role == "clone" then
+            table.insert(clones, e)
+        end
+    end
+    local primaryHost = nil
+    if #hosts > 0 then
+        table.sort(hosts, function(a, b)
+            if (a.isBackHelp and not b.isBackHelp) then return true end
+            if (not a.isBackHelp and b.isBackHelp) then return false end
+            return tostring(a.userId) < tostring(b.userId)
+        end)
+        primaryHost = hosts[1]
+    end
+    return activeList, primaryHost, clones
+end
+
+local function SyncV3SessionEntry()
+    local cleaned = UpdateGhoulSession(function(tbl, now)
+        local me = tbl[MY_UID]
+        local otherHost = nil
+        local lowestUid = tonumber(MY_UID) or 0
+        for uid, e in pairs(tbl) do
+            if uid ~= MY_UID and e.role == "host" then
+                otherHost = e
+            end
+            local num = tonumber(uid) or math.huge
+            if num < lowestUid then lowestUid = num end
+        end
+
+        local role
+        if me and me.role == "clone" and otherHost then
+            role = "clone"
+        elseif otherHost then
+            role = "clone"
+        elseif me and me.role == "host" then
+            role = "host"
+        else
+            -- Không có host: nếu chỉ có 1 mình hoặc mình có UserId nhỏ nhất thì nhận host
+            role = (lowestUid == (tonumber(MY_UID) or 0)) and "host" or "clone"
+        end
+
+        tbl[MY_UID] = {
+            userId = LocalPlayer.UserId,
+            name = LocalPlayer.Name,
+            role = role,
+            isBackHelp = false,
+            needsV3 = true,
+            sea = GetSea(),
+            jobId = tostring(game.JobId),
+            placeId = game.PlaceId,
+            playersCount = #Players:GetPlayers(),
+            maxPlayers = Players.MaxPlayers or 12,
+            updatedAt = now,
+        }
+    end)
+    if not cleaned then return nil, {}, nil, {} end
+    local activeList, hostEntry, cloneList = AnalyzeGhoulSession(cleaned)
+    local myEntry = cleaned[MY_UID]
+    return myEntry and myEntry.role or "host", activeList, hostEntry, cloneList
+end
+
+local lastBhCheck = 0
+local function CheckAndClaimBackHelp()
+    local nowClock = os.clock()
+    if (nowClock - lastBhCheck) < 2.2 then return false end
+    lastBhCheck = nowClock
+
+    local claimed = false
+    UpdateGhoulSession(function(tbl, now)
+        local me = tbl[MY_UID]
+        if me and me.isBackHelp then
+            local hasClone = false
+            for uid, e in pairs(tbl) do
+                if uid ~= MY_UID and e.needsV3 ~= false then hasClone = true; break end
+            end
+            if hasClone then
+                claimed = true
+                me.sea = GetSea()
+                me.jobId = tostring(game.JobId)
+                me.placeId = game.PlaceId
+                me.playersCount = #Players:GetPlayers()
+                me.maxPlayers = Players.MaxPlayers or 12
+                me.updatedAt = now
+            else
+                tbl[MY_UID] = nil
+            end
+            return
+        end
+
+        -- Kiểm tra có đúng 1 acc host lẻ loi (không phải back-help) không
+        local count, loneUid, loneEntry = 0, nil, nil
+        for uid, e in pairs(tbl) do
+            count = count + 1
+            loneUid, loneEntry = uid, e
+        end
+        if count == 1 and loneUid ~= MY_UID and loneEntry and loneEntry.role == "host" and not loneEntry.isBackHelp and loneEntry.needsV3 ~= false then
+            loneEntry.role = "clone"
+            tbl[MY_UID] = {
+                userId = LocalPlayer.UserId,
+                name = LocalPlayer.Name,
+                role = "host",
+                isBackHelp = true,
+                needsV3 = false,
+                helpingTarget = loneUid,
+                sea = GetSea(),
+                jobId = tostring(game.JobId),
+                placeId = game.PlaceId,
+                playersCount = #Players:GetPlayers(),
+                maxPlayers = Players.MaxPlayers or 12,
+                updatedAt = now,
+            }
+            claimed = true
+        end
+    end)
+    return claimed
+end
+
+local function SyncBackHelpHost()
+    local stillNeeded = false
+    local cleaned = UpdateGhoulSession(function(tbl, now)
+        local hasClone = false
+        for uid, e in pairs(tbl) do
+            if uid ~= MY_UID and e.needsV3 ~= false then
+                e.role = "clone" -- đảm bảo các acc cần V3 khác đều theo clone nếu còn lại host back-help
+                hasClone = true
+            end
+        end
+        if hasClone then
+            stillNeeded = true
+            tbl[MY_UID] = {
+                userId = LocalPlayer.UserId,
+                name = LocalPlayer.Name,
+                role = "host",
+                isBackHelp = true,
+                needsV3 = false,
+                sea = GetSea(),
+                jobId = tostring(game.JobId),
+                placeId = game.PlaceId,
+                playersCount = #Players:GetPlayers(),
+                maxPlayers = Players.MaxPlayers or 12,
+                updatedAt = now,
+            }
+        else
+            tbl[MY_UID] = nil
+        end
+    end)
+    local activeList, _, cloneList = AnalyzeGhoulSession(cleaned or {})
+    return stillNeeded, activeList, cloneList
+end
+
+-- ============================================================================
+-- CHECK SAFE ZONE, PVP, STAT SWORD 2800, HỒI CHIÊU, SILENT AIM & TWEEN 0.1S
+-- ============================================================================
+local function GetDistanceToPlayer(player)
+    local myHRP = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    local tHRP = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+    if myHRP and tHRP then
+        return (tHRP.Position - myHRP.Position).Magnitude
+    end
+    return nil
+end
+
+local function GetEnclosingSafeZone(pos, margin)
+    local m = margin or 0
+    local origin = workspace:FindFirstChild("_WorldOrigin")
+    local szFolder = (origin and origin:FindFirstChild("SafeZones")) or workspace:FindFirstChild("SafeZones")
+    if not szFolder then return nil end
+    for _, z in ipairs(szFolder:GetChildren()) do
+        if z:IsA("BasePart") then
+            local rel = z.CFrame:PointToObjectSpace(pos)
+            local half = z.Size / 2
+            if math.abs(rel.X) <= (half.X + m) and math.abs(rel.Y) <= (half.Y + m) and math.abs(rel.Z) <= (half.Z + m) then
+                return z
+            end
+        end
+    end
+    return nil
+end
+
+local function IsInSafeZone(player)
+    if player == LocalPlayer then
+        local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+        local main = pgui and pgui:FindFirstChild("Main")
+        local sz = main and main:FindFirstChild("SafeZone")
+        if sz and sz.Visible then return true end
+        if pgui then
+            for _, d in ipairs(pgui:GetDescendants()) do
+                if d:IsA("TextLabel") and d.Visible and d.Text:lower():find("safe zone") then return true end
+            end
+        end
+    end
+
+    local char = player.Character
+    if not char then return false end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if hrp and GetEnclosingSafeZone(hrp.Position, 0) then return true end
+    if char:FindFirstChild("SafeZone") or char:FindFirstChild("InSafeZone") then return true end
+    for k, v in pairs(char:GetAttributes()) do
+        if k:lower():find("safezone") and (v == true or (type(v) == "number" and v > 0)) then return true end
+    end
+    local pData = player:FindFirstChild("Data")
+    if pData then
+        for _, v in ipairs(pData:GetChildren()) do
+            if v.Name:lower():find("safezone") and (v.Value == true or (type(v.Value) == "number" and v.Value > 0)) then return true end
+        end
+    end
+    for k, v in pairs(player:GetAttributes()) do
+        if k:lower():find("safezone") and (v == true or (type(v) == "number" and v > 0)) then return true end
+    end
+    return false
+end
+
+local function HasTruePvPDisabled(player)
+    if player == LocalPlayer then
+        local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+        local main = pgui and pgui:FindFirstChild("Main")
+        local pd = main and main:FindFirstChild("PvpDisabled")
+        if pd and pd.Visible then return true end
+        if pgui then
+            for _, d in ipairs(pgui:GetDescendants()) do
+                if d:IsA("TextLabel") and d.Visible then
+                    local t = d.Text:lower()
+                    if t:find("pvp disabled") or t:find("died recently") then return true end
+                end
+            end
+        end
+    end
+
+    local char = player.Character
+    if not char then return true end
+    if char:FindFirstChildOfClass("ForceField") or char:FindFirstChild("PvpDisabled") then return true end
+    for k, v in pairs(char:GetAttributes()) do
+        if k:lower():find("pvpdisabled") and (v == true or (type(v) == "number" and v > 0)) then return true end
+    end
+    local pData = player:FindFirstChild("Data")
+    if pData then
+        local lvl = pData:FindFirstChild("Level")
+        if lvl and type(lvl.Value) == "number" and lvl.Value < 20 then return true end
+        for _, v in ipairs(pData:GetChildren()) do
+            local l = v.Name:lower()
+            if l:find("pvpdisabled") and (v.Value == true or (type(v.Value) == "number" and v.Value > 0)) then return true end
+            if l == "pvp" and v.Value == false then return true end
+        end
+    end
+    for k, v in pairs(player:GetAttributes()) do
+        local l = k:lower()
+        if l:find("pvpdisabled") and (v == true or (type(v) == "number" and v > 0)) then return true end
+        if l == "pvp" and v == false then return true end
+    end
+    return false
+end
+
+local function GetPvPStatus(player)
+    if IsInSafeZone(player) or HasTruePvPDisabled(player) then return "OFF" end
+    return "ON"
+end
+
+local lastPvpTry = 0
+local function EnsureMyPvPEnabled()
+    if Stopped() then return end
+    if HasTruePvPDisabled(LocalPlayer) or GetPvPStatus(LocalPlayer) == "OFF" then
+        local now = os.clock()
+        if (now - lastPvpTry) >= 1.2 then
+            lastPvpTry = now
+            pcall(function() CommF:InvokeServer("EnablePvp") end)
+        end
+    end
+end
+
+local function IsValidPvPTarget(player)
+    if not player or player == LocalPlayer or not player.Parent then return false, nil end
+    local ch = player.Character
+    local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+    local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+    if not (hum and hrp and hum.Health > 0) then return false, nil end
+    if GetPvPStatus(player) ~= "ON" then return false, nil end
+    local dist = GetDistanceToPlayer(player)
+    if not dist or dist > MAX_PVP_DIST then return false, nil end
+    return true, dist
+end
+
+-- Giữ khóa cả khi mục tiêu đi vào Safe Zone (chỉ nhả khi chết / respawn / out game / ForceField PvP OFF thật / > 50k stud)
+local function IsLockedTargetValid(player, expectedChar)
+    if not player or player == LocalPlayer or not player.Parent then return false, nil end
+    local ch = player.Character
+    if expectedChar and ch ~= expectedChar then return false, nil end
+    local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+    local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+    if not (hum and hrp and hum.Health > 0) then return false, nil end
+    if HasTruePvPDisabled(player) then return false, nil end
+    local dist = GetDistanceToPlayer(player)
+    if not dist or dist > MAX_PVP_DIST then return false, nil end
+    return true, dist
+end
+
+local function CountPvPPlayers()
+    local count = 0
+    for _, p in ipairs(Players:GetPlayers()) do
+        if IsValidPvPTarget(p) then count = count + 1 end
+    end
+    return count
+end
+
+-- Ưu tiên người gần nhất chưa từng quá 3 phút; nếu hết ai khác mới chọn lại người quá 3 phút cũ nhất
+local function GetNextSoloTarget(deprioritizedMap)
+    local bestFresh, bestFreshDist = nil, math.huge
+    local bestOld, bestOldTick = nil, math.huge
+    for _, p in ipairs(Players:GetPlayers()) do
+        local ok, dist = IsValidPvPTarget(p)
+        if ok then
+            local depTick = deprioritizedMap and deprioritizedMap[p.UserId]
+            if not depTick then
+                if dist < bestFreshDist then
+                    bestFresh, bestFreshDist = p, dist
+                end
+            else
+                if depTick < bestOldTick then
+                    bestOld, bestOldTick = p, depTick
+                end
+            end
+        end
+    end
+    return bestFresh or bestOld
+end
+
+local function GetStatLevel(name)
+    local stats = Data:FindFirstChild("Stats")
+    local s = stats and stats:FindFirstChild(name)
+    if not s then return 0 end
+    local lvl = s:FindFirstChild("Level")
+    if lvl and tonumber(lvl.Value) then return tonumber(lvl.Value) end
+    return tonumber(s:GetAttribute("Level")) or 0
+end
+
+local function GetFreePoints()
+    local p = Data:FindFirstChild("Points")
+    return (p and tonumber(p.Value)) or 0
+end
+
+local function EnsureSwordStats2800()
+    if Stopped() then return end
+    local swordLvl = GetStatLevel("Sword")
+    if swordLvl >= 2800 then return end
+
+    local pts = GetFreePoints()
+    local need = 2800 - swordLvl
+    if pts >= need then
+        SetStatus(("Cộng %d điểm còn dư vào Sword (%d -> 2800)..."):format(need, swordLvl))
+        pcall(function() CommF:InvokeServer("AddPoint", "Sword", need) end)
+        SleepCheck(0.4)
+        return
+    end
+
+    if GetFragments() < 2500 then
+        SetStatus(("Thiếu Fragment để Reset Point (%d/2500) -> Cộng tạm %d vào Sword"):format(GetFragments(), pts))
+        if pts > 0 then pcall(function() CommF:InvokeServer("AddPoint", "Sword", pts) end) SleepCheck(0.3) end
+        return
+    end
+
+    SetStatus(("Sword %d + Dư %d < 2800 -> Reset Point (2500 Frag)..."):format(swordLvl, pts))
+    local oldPts = pts
+    pcall(function() CommF:InvokeServer("BlackbeardReward", "Refund", "1") end)
+    if not SleepCheck(0.2) then return end
+    pcall(function() CommF:InvokeServer("BlackbeardReward", "Refund", "2") end)
+
+    local t0 = os.clock()
+    while not Stopped() and (os.clock() - t0) < 2.5 do
+        if GetFreePoints() > oldPts then break end
+        task.wait(0.1)
+    end
+    if Stopped() or not SleepCheck(0.2) then return end
+
+    local newSword = GetStatLevel("Sword")
+    local newPts = GetFreePoints()
+    local addSword = math.min(math.max(0, 2800 - newSword), newPts)
+    if addSword > 0 then
+        SetStatus(("Cộng %d điểm vào Sword (mục tiêu 2800)..."):format(addSword))
+        pcall(function() CommF:InvokeServer("AddPoint", "Sword", addSword) end)
+        if not SleepCheck(0.35) then return end
+    end
+
+    local rem = GetFreePoints()
+    if rem > 0 then
+        local mPts = math.floor(rem / 2)
+        local dPts = rem - mPts
+        SetStatus(("Chia đều %d điểm còn lại -> Melee: %d | Defense: %d"):format(rem, mPts, dPts))
+        if mPts > 0 then pcall(function() CommF:InvokeServer("AddPoint", "Melee", mPts) end) SleepCheck(0.2) end
+        if dPts > 0 then pcall(function() CommF:InvokeServer("AddPoint", "Defense", dPts) end) SleepCheck(0.2) end
+    end
+end
+
+local function GetToolMastery(tool)
+    if not tool then return 0 end
+    local lvl = tool:FindFirstChild("Level") or tool:FindFirstChild("Mastery")
+    if lvl and tonumber(lvl.Value) then return tonumber(lvl.Value) end
+    return tonumber(tool:GetAttribute("Level") or tool:GetAttribute("Mastery")) or 0
+end
+
+local function GetGhoulV3Sword()
+    local function checkHotbar(name)
+        local bp = LocalPlayer:FindFirstChild("Backpack")
+        local ch = LocalPlayer.Character
+        local t = (ch and ch:FindFirstChild(name)) or (bp and bp:FindFirstChild(name))
+        return t ~= nil and GetToolMastery(t) >= 350
+    end
+
+    local hasTushita = checkHotbar("Tushita")
+    local hasYama = checkHotbar("Yama")
+
+    if not hasTushita or not hasYama then
+        local ok, inv = pcall(function() return CommF:InvokeServer("getInventory") end)
+        if ok and type(inv) == "table" then
+            for _, v in pairs(inv) do
+                local n = tostring(v.Name or "")
+                local m = tonumber(v.Mastery or v.Level) or 0
+                if n == "Tushita" and m >= 350 then hasTushita = true end
+                if n == "Yama" and m >= 350 then hasYama = true end
+            end
+        end
+    end
+
+    local chosen = hasTushita and "Tushita" or (hasYama and "Yama" or nil)
+    if chosen then
+        local bp = LocalPlayer:FindFirstChild("Backpack")
+        local ch = LocalPlayer.Character
+        if not ((ch and ch:FindFirstChild(chosen)) or (bp and bp:FindFirstChild(chosen))) then
+            pcall(function() CommF:InvokeServer("LoadItem", chosen) end)
+            SleepCheck(0.5)
+        end
+    end
+    return chosen
+end
+
+local function FindToolByKind(kind, exactName)
+    local containers = { LocalPlayer.Character, LocalPlayer:FindFirstChild("Backpack") }
+    if exactName then
+        for _, c in ipairs(containers) do
+            local t = c and c:FindFirstChild(exactName)
+            if t and t:IsA("Tool") then return t end
+        end
+        return nil
+    end
+    for _, c in ipairs(containers) do
+        if c then
+            for _, t in ipairs(c:GetChildren()) do
+                if t:IsA("Tool") and t.ToolTip == kind then return t end
+            end
+        end
+    end
+    return nil
+end
+
+local SKILL_KEYS = {
+    { Name = "Z", Code = Enum.KeyCode.Z },
+    { Name = "X", Code = Enum.KeyCode.X },
+    { Name = "C", Code = Enum.KeyCode.C },
+}
+
+local function SetupSilentAimHooks()
+    if getgenv()._AutoGhoulAimHooked then return end
+    if not (hookmetamethod and getnamecallmethod and checkcaller) then return end
+    getgenv()._AutoGhoulAimHooked = true
+
+    local localMouse = LocalPlayer:GetMouse()
+    local wrap = newcclosure or function(f) return f end
+    local oldIndex, oldNamecall
+    local inIndex, inNamecall = false, false
+
+    pcall(function()
+        oldIndex = hookmetamethod(game, "__index", wrap(function(self, k)
+            if inIndex or getgenv()._AutoGhoulV3Stop == true then
+                return oldIndex(self, k)
+            end
+            local aimPos = getgenv()._AutoGhoulAimPos
+            if not aimPos then
+                return oldIndex(self, k)
+            end
+            if k ~= "Hit" and k ~= "Target" and k ~= "Origin" and k ~= "UnitRay" then
+                return oldIndex(self, k)
+            end
+            if not rawequal(self, localMouse) or checkcaller() then
+                return oldIndex(self, k)
+            end
+
+            inIndex = true
+            local orig = getgenv()._AutoGhoulAimCamPos or aimPos
+            local dir = aimPos - orig
+            local res
+            if k == "Hit" then
+                res = CFrame.new(aimPos)
+            elseif k == "Target" then
+                res = getgenv()._AutoGhoulAimHRP
+            elseif k == "Origin" then
+                res = (dir.Magnitude > 0.1) and CFrame.lookAt(orig, aimPos) or CFrame.new(aimPos)
+            elseif k == "UnitRay" then
+                res = Ray.new(orig, (dir.Magnitude > 0.1) and dir.Unit or Vector3.new(0, 0, -1))
+            end
+            inIndex = false
+            return res
+        end))
+    end)
+
+    pcall(function()
+        oldNamecall = hookmetamethod(game, "__namecall", wrap(function(self, ...)
+            if inNamecall or getgenv()._AutoGhoulV3Stop == true then
+                return oldNamecall(self, ...)
+            end
+            local aimPos = getgenv()._AutoGhoulAimPos
+            if not aimPos or checkcaller() then
+                return oldNamecall(self, ...)
+            end
+
+            local m = getnamecallmethod()
+            if m == "ViewportPointToRay" or m == "ScreenPointToRay" then
+                if rawequal(self, getgenv()._AutoGhoulAimCam) then
+                    local orig = getgenv()._AutoGhoulAimCamPos
+                    if orig then
+                        local dir = aimPos - orig
+                        if dir.Magnitude > 0.1 then
+                            return Ray.new(orig, dir.Unit)
+                        end
+                    end
+                end
+                return oldNamecall(self, ...)
+            end
+
+            if m == "FireServer" or m == "InvokeServer" then
+                inNamecall = true
+                local isTargetRemote = false
+                if oldIndex then
+                    local ok, matched = pcall(function()
+                        local cn = oldIndex(self, "ClassName")
+                        if cn ~= "RemoteEvent" and cn ~= "RemoteFunction" then return false end
+                        local nm = oldIndex(self, "Name")
+                        if nm == "CommE" then return true end
+                        local ch = getgenv()._AutoGhoulMyChar
+                        if ch then
+                            local p1 = oldIndex(self, "Parent")
+                            if rawequal(p1, ch) then return true end
+                            local p2 = p1 and oldIndex(p1, "Parent")
+                            if rawequal(p2, ch) then return true end
+                        end
+                        return false
+                    end)
+                    isTargetRemote = ok and matched == true
+                end
+                inNamecall = false
+
+                if isTargetRemote then
+                    local args = { ... }
+                    if type(args[1]) == "string" and (args[1] == "Dodge" or args[1] == "DoubleJump") then
+                        return oldNamecall(self, ...)
+                    end
+                    local changed = false
+                    for i, v in ipairs(args) do
+                        if typeof(v) == "Vector3" then
+                            args[i] = aimPos
+                            changed = true
+                        elseif typeof(v) == "CFrame" then
+                            args[i] = CFrame.new(aimPos)
+                            changed = true
+                        end
+                    end
+                    if changed then
+                        return oldNamecall(self, unpack(args))
+                    end
+                end
+            end
+
+            return oldNamecall(self, ...)
+        end))
+    end)
+end
+
+local function IsSkillReady(key)
+    local main = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("Main")
+    local skills = main and main:FindFirstChild("Skills")
+    local box = skills or main
+    if not box or (skills and not skills.Visible) then return false end
+
+    local function visibleChain(obj)
+        while obj and obj ~= main do
+            if obj:IsA("GuiObject") and not obj.Visible then return false end
+            obj = obj.Parent
+        end
+        return true
+    end
+
+    local slot = box:FindFirstChild(key, true) or box:FindFirstChild("[" .. key .. "]", true) or box:FindFirstChild(key:lower(), true)
+    if not (slot and slot:IsA("GuiObject") and visibleChain(slot)) then
+        slot = nil
+        for _, d in ipairs(box:GetDescendants()) do
+            if (d:IsA("TextLabel") or d:IsA("TextButton")) and visibleChain(d) then
+                local c = d.Text:gsub("%s+", ""):upper()
+                if (c == "[" .. key .. "]" or c == key) and d.Parent and d.Parent:IsA("GuiObject") then
+                    slot = d.Parent; break
+                end
+            end
+        end
+    end
+    if not slot then return false end
+
+    local titleObj = slot:FindFirstChild("Title") or slot:FindFirstChild("SkillTitle") or slot:FindFirstChild("Name")
+    local title = (titleObj and titleObj:IsA("TextLabel") and titleObj.Text) or ""
+    if title == "" then
+        for _, lbl in ipairs(slot:GetDescendants()) do
+            if lbl:IsA("TextLabel") and lbl.Visible and #lbl.Text > 0 then
+                local tl = lbl.Text:lower()
+                if not (tl:find("%[" .. key:lower() .. "%]") or tl == key:lower() or tl:find("thông thạo") or tl:find("mastery") or tl:find("tối đa") or tl:find("/")) then
+                    title = lbl.Text; break
+                end
+            end
+        end
+    end
+    local tl = title:lower()
+    if tl:find("locked") or tl:find("chưa mở") then return false end
+
+    local cd = slot:FindFirstChild("Cooldown") or slot:FindFirstChild("CooldownBar") or slot:FindFirstChild("CD")
+    if not cd then
+        for _, ch in ipairs(slot:GetChildren()) do
+            if (ch:IsA("Frame") or ch:IsA("ImageLabel")) and ch.Name:lower():find("cool") then cd = ch; break end
+        end
+    end
+    if cd and cd:IsA("GuiObject") and cd.Visible and (cd.Size.X.Scale > 0.02 or cd.AbsoluteSize.X > 4) then
+        return false
+    end
+    return true
+end
+
+local function GetReadySkillsForTool(tool)
+    if not tool or Stopped() then return {} end
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not (hum and hum.Health > 0) then return {} end
+    if tool.Parent ~= char then
+        pcall(function() hum:EquipTool(tool) end)
+        if not SleepCheck(0.1) then return {} end
+    end
+    local ready = {}
+    for _, sk in ipairs(SKILL_KEYS) do
+        if IsSkillReady(sk.Name) then table.insert(ready, sk) end
+    end
+    return ready
+end
+
+local function CastReadySkills(tool, readyKeys, targetHRP)
+    if not tool or not readyKeys or #readyKeys == 0 or Stopped() then return end
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local myHRP = char and char:FindFirstChild("HumanoidRootPart")
+    if not (hum and hum.Health > 0 and myHRP and targetHRP and targetHRP.Parent) then return end
+
+    if tool.Parent ~= char then
+        pcall(function() hum:EquipTool(tool) end)
+        if not SleepCheck(0.1) then return end
+    end
+
+    for _, sk in ipairs(readyKeys) do
+        if Stopped() or not targetHRP.Parent then return end
+        local tHum = targetHRP.Parent:FindFirstChildOfClass("Humanoid")
+        if not tHum or tHum.Health <= 0 then return end
+        if (targetHRP.Position - myHRP.Position).Magnitude > 22 then return end
+        if IsSkillReady(sk.Name) then
+            getgenv()._AutoGhoulAimHRP = targetHRP
+            getgenv()._AutoGhoulAimPos = targetHRP.Position
+            pcall(function()
+                VIM:SendKeyEvent(true, sk.Code, false, game)
+                task.wait(0.08)
+                VIM:SendKeyEvent(false, sk.Code, false, game)
+            end)
+            if not SleepCheck(0.15) then return end
+        end
+    end
+end
+
+local function EnsurePvPTweenLoop(getTargetFn)
+    SetupSilentAimHooks()
+
+    if not ActiveNoclip then
+        ActiveNoclip = RunService.Stepped:Connect(function()
+            if Stopped() then return end
+            local myChar = LocalPlayer.Character
+            getgenv()._AutoGhoulMyChar = myChar
+            local myHum = myChar and myChar:FindFirstChildOfClass("Humanoid")
+            local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+            if myChar and myChar.Parent then
+                for _, p in ipairs(myChar:GetDescendants()) do
+                    if p:IsA("BasePart") and p.CanCollide then p.CanCollide = false end
+                end
+            end
+            if myHum and myHum.Health > 0 then
+                if myHum.Sit then myHum.Sit = false end
+                pcall(function()
+                    myHum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+                    myHum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+                end)
+            end
+            if myHRP and myHRP.Parent then
+                EnsureAntiGravity(myHRP)
+                myHRP.AssemblyLinearVelocity = Vector3.zero
+                myHRP.AssemblyAngularVelocity = Vector3.zero
+            end
+        end)
+    end
+
+    if ActivePvPConn then return end
+    local lastTween = 0
+    ActivePvPConn = RunService.Heartbeat:Connect(function()
+        if Stopped() then StopPvPTween() return end
+        local cam = workspace.CurrentCamera
+        getgenv()._AutoGhoulAimCam = cam
+        getgenv()._AutoGhoulAimCamPos = cam and cam.CFrame.Position or nil
+
+        local target = getTargetFn()
+        if not target or not target.Parent then
+            ClearAimState()
+            CancelActiveTween()
+            return
+        end
+
+        local myChar = LocalPlayer.Character
+        local tChar = target.Character
+        local myHum = myChar and myChar:FindFirstChildOfClass("Humanoid")
+        local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+        local tHRP = tChar and tChar:FindFirstChild("HumanoidRootPart")
+        local tHum = tChar and tChar:FindFirstChildOfClass("Humanoid")
+        if not (myHum and myHum.Health > 0 and myHRP and tHRP and tHum and tHum.Health > 0) then
+            ClearAimState()
+            CancelActiveTween()
+            return
+        end
+
+        if not hoverAboveMode then
+            getgenv()._AutoGhoulAimHRP = tHRP
+            getgenv()._AutoGhoulAimPos = tHRP.Position
+        else
+            getgenv()._AutoGhoulAimHRP = nil
+            getgenv()._AutoGhoulAimPos = nil
+        end
+
+        if (tHRP.Position - myHRP.Position).Magnitude > MAX_PVP_DIST then
+            CancelActiveTween()
+            return
+        end
+
+        local goalPos = hoverAboveMode
+            and (tHRP.Position + Vector3.new(0, 60, 0))
+            or (tHRP.CFrame * CFrame.new(0, 0.5, 2)).Position
+        local goalDist = (goalPos - myHRP.Position).Magnitude
+
+        if goalDist <= 3 then
+            CancelActiveTween()
+            local lookAt = Vector3.new(tHRP.Position.X, myHRP.Position.Y, tHRP.Position.Z)
+            if (lookAt - myHRP.Position).Magnitude > 0.1 then
+                myHRP.CFrame = CFrame.new(myHRP.Position, lookAt)
+            end
+            return
+        end
+
+        local now = os.clock()
+        if (now - lastTween) >= 0.1 then
+            lastTween = now
+            CancelActiveTween()
+            local dur = math.max(goalDist / TWEEN_SPEED, 0.02)
+            local lookAt = Vector3.new(tHRP.Position.X, goalPos.Y, tHRP.Position.Z)
+            local goalCF = (not hoverAboveMode and (lookAt - goalPos).Magnitude > 0.1)
+                and CFrame.new(goalPos, lookAt)
+                or CFrame.new(goalPos)
+            ActiveTween = TweenService:Create(myHRP, TweenInfo.new(dur, Enum.EasingStyle.Linear), { CFrame = goalCF })
+            ActiveTween:Play()
+        end
+    end)
+end
+
+-- ============================================================================
+-- CO-OP HOST TẾ MẠNG (RA KHỎI SAFE ZONE, BẬT PVP CHO CLONE ĐÁNH)
+-- ============================================================================
+local function FindSafeOutdoorSpot(myPos)
+    local z = GetEnclosingSafeZone(myPos, 4)
+    if z then
+        local half = z.Size / 2
+        local dirs = {
+            z.CFrame.LookVector * (half.Z + 35),
+            -z.CFrame.LookVector * (half.Z + 35),
+            z.CFrame.RightVector * (half.X + 35),
+            -z.CFrame.RightVector * (half.X + 35),
+        }
+        local bestPos, bestDist = nil, math.huge
+        for _, off in ipairs(dirs) do
+            local cand = Vector3.new(z.Position.X + off.X, math.max(myPos.Y, z.Position.Y) + 18, z.Position.Z + off.Z)
+            if not GetEnclosingSafeZone(cand, 4) then
+                local d = (cand - myPos).Magnitude
+                if d < bestDist then
+                    bestPos, bestDist = cand, d
+                end
+            end
+        end
+        if bestPos then return bestPos end
+    end
+    return Vector3.new(-380, 95, 300)
+end
+
+local function RunCoopHost(isBackHelp)
+    StopPvPTween()
+    if GetSea() ~= 2 then
+        TravelToSea(2)
+        return
+    end
+    if getgenv()._RealKidMainRunning or getgenv()._RealKidHopRunning then
+        HopLow()
+        return
+    end
+
+    -- Chọn team Marines để không bị trùng Crew Pirate chặn sát thương với clone
+    EnsureTeam("Marines")
+    if Stopped() then return end
+
+    local fullWaitSince = 0
+    while not Stopped() do
+        local keepGoing, clones
+        if isBackHelp then
+            local okNeed, _, cl = SyncBackHelpHost()
+            keepGoing, clones = okNeed, cl
+            if not keepGoing then
+                CleanupMovement()
+                SetStatus("Back-Help hoàn tất (Clone đã lên Ghoul V3)! Quay lại Sea 3...")
+                TravelToSea(3)
+                return
+            end
+        else
+            local myRole, activeList, _, cl = SyncV3SessionEntry()
+            clones = cl
+            if HasRaceV3() then
+                CleanupMovement()
+                return
+            end
+            if myRole ~= "host" or #activeList < 2 then
+                CleanupMovement()
+                return
+            end
+        end
+
+        -- Kiểm tra slot server: nếu full khiến clone chưa kịp join -> Hop Low
+        local missingClones = 0
+        for _, c in ipairs(clones or {}) do
+            if tostring(c.jobId) ~= tostring(game.JobId) then
+                missingClones = missingClones + 1
+            end
+        end
+        local maxP = Players.MaxPlayers or 12
+        local freeSlots = maxP - #Players:GetPlayers()
+        if missingClones > 0 and freeSlots < missingClones then
+            CleanupMovement()
+            SetStatus(("Server đầy (%d/%d) còn %d Clone chưa vào -> Hop Low!"):format(#Players:GetPlayers(), maxP, missingClones))
+            HopLow()
+            return
+        elseif missingClones > 0 and #Players:GetPlayers() >= (maxP - 1) then
+            if fullWaitSince == 0 then fullWaitSince = os.clock() end
+            if (os.clock() - fullWaitSince) >= 20 then
+                CleanupMovement()
+                SetStatus("Server quá đông, Clone chưa join kịp -> Hop Low!")
+                HopLow()
+                return
+            end
+        else
+            fullWaitSince = 0
+        end
+
+        local char, hum, myHRP = WaitAlive()
+        if Stopped() or not char then break end
+        if not LocalPlayer.Team or LocalPlayer.Team.Name ~= "Marines" then
+            EnsureTeam("Marines")
+        end
+
+        -- Giữ Anti-Gravity + Noclip liên tục để đứng ngoài Safe Zone chờ clone đánh
+        if not ActiveNoclip then
+            ActiveNoclip = RunService.Stepped:Connect(function()
+                if Stopped() then return end
+                local ch = LocalPlayer.Character
+                local h = ch and ch:FindFirstChildOfClass("Humanoid")
+                local r = ch and ch:FindFirstChild("HumanoidRootPart")
+                if ch and ch.Parent then
+                    for _, p in ipairs(ch:GetDescendants()) do
+                        if p:IsA("BasePart") and p.CanCollide then p.CanCollide = false end
+                    end
+                end
+                if h and h.Health > 0 and h.Sit then h.Sit = false end
+                if r and r.Parent then
+                    EnsureAntiGravity(r)
+                    r.AssemblyLinearVelocity = Vector3.zero
+                    r.AssemblyAngularVelocity = Vector3.zero
+                end
+            end)
+        end
+
+        if IsInSafeZone(LocalPlayer) then
+            local outPos = FindSafeOutdoorSpot(myHRP.Position)
+            SetStatus(("%s: Đang bay ra ngoài Safe Zone để Clone đánh..."):format(isBackHelp and "Back-Help Host" or "Co-op Host"))
+            local d = (outPos - myHRP.Position).Magnitude
+            CancelActiveTween()
+            ActiveTween = TweenService:Create(myHRP, TweenInfo.new(math.max(d / TWEEN_SPEED, 0.05), Enum.EasingStyle.Linear), { CFrame = CFrame.new(outPos) })
+            ActiveTween:Play()
+            SleepCheck(0.8)
+        else
+            CancelActiveTween()
+            EnsureMyPvPEnabled()
+            SetStatus(("%s: Đứng ngoài Safe Zone (PvP ON) | Clones: %d"):format(isBackHelp and "Back-Help Host" or "Co-op Host", #(clones or {})))
+            SleepCheck(1.2)
+        end
+    end
+    CleanupMovement()
+end
+
+-- ============================================================================
+-- CHECK INVENTORY / PULL LEVER / BOSS TARGET (KÈM BACK-HELP WATCHER)
+-- ============================================================================
+local function CheckInvItems()
+    local hasHelm, hasMirror = false, false
+    local usedReplication, done = false, false
+
+    task.spawn(function()
+        pcall(function()
+            local irMod = ReplicatedStorage:WaitForChild("ItemReplicationService", 8)
+            local keysMod = irMod and irMod:WaitForChild("KEYS", 8)
+            local econ = ReplicatedStorage:WaitForChild("Economy", 8)
+            local itemIdMod = econ and econ:WaitForChild("ItemId", 8)
+            if not (irMod and keysMod and itemIdMod) then return end
+
+            local okR, ItemReplication = pcall(require, irMod)
+            local okK, KEYS = pcall(require, keysMod)
+            local okI, ItemId = pcall(require, itemIdMod)
+            if not (okR and okK and okI and ItemReplication and KEYS and ItemId) then return end
+
+            local t0 = os.clock()
+            while not Stopped() and not ItemReplication.IsInitialized and (os.clock() - t0) < 20 do
+                task.wait(0.5)
+            end
+            if Stopped() or not ItemReplication.IsInitialized then return end
+
+            for _, item in pairs(ItemReplication:GetItems(KEYS.QUANTITY)) do
+                if (item.Value or 0) > 0 then
+                    local okD, d = pcall(function() return ItemId.getDataFromId(item.ItemId):unwrap() end)
+                    if okD and d then
+                        local k = (tostring(d.StorageKey or "") .. " " .. tostring(d.DisplayName or d.Name or "")):lower()
+                        if k:find("valkyrie") then hasHelm = true end
+                        if k:find("mirror") and k:find("fractal") then hasMirror = true end
+                    end
+                end
+            end
+            usedReplication = true
+        end)
+        done = true
+    end)
+
+    while not done and not Stopped() do task.wait(0.05) end
+    if Stopped() then return false, false end
+
+    if not usedReplication then
+        local okG, inv = pcall(function() return CommF:InvokeServer("getInventory") end)
+        if okG and type(inv) == "table" then
+            for _, v in pairs(inv) do
+                local n = tostring(v.Name or ""):lower()
+                if n:find("valkyrie") then hasHelm = true end
+                if n:find("mirror") and n:find("fractal") then hasMirror = true end
+            end
+        end
+    end
+    return hasHelm, hasMirror
+end
+
+local function IsLeverPulled()
+    local ok, res = pcall(function() return CommF:InvokeServer("CheckTempleDoor") end)
+    return ok and res == true
+end
+
+local function RunSea3BossTarget(destination, preTweenPos, waitMsgFn, doneCheckFn)
+    if Stopped() then return end
+    if CheckAndClaimBackHelp() then CleanupMovement(); TravelToSea(2); return end
+    if GetSea() ~= 3 then TravelToSea(3) end
+    if Stopped() then return end
+
+    if TweenTo(preTweenPos) and LaunchRealKidHop(destination) then
+        local aliases = NH_BOSS_ALIASES[destination]
+        local launchTick = os.clock()
+        local lastNhCheck = 0
+        local wasBossAlive = false
+        local bossDiedTick = 0
+
+        while not Stopped() and task.wait(1.5) do
+            if CheckAndClaimBackHelp() then CleanupMovement(); TravelToSea(2); return end
+            SetStatus(waitMsgFn())
+            if doneCheckFn() then return end
+
+            local bossAlive = aliases and (FindBossAlive(aliases) ~= nil) or false
+            if bossAlive then
+                wasBossAlive = true
+                bossDiedTick = 0
+            else
+                if wasBossAlive and bossDiedTick == 0 then
+                    bossDiedTick = os.clock()
+                end
+                local passedLaunch = (os.clock() - launchTick) >= 3
+                local passedDropWait = (not wasBossAlive) or ((os.clock() - bossDiedTick) >= 5)
+                if passedLaunch and passedDropWait and (os.clock() - lastNhCheck) >= 6 then
+                    lastNhCheck = os.clock()
+                    TryNightHubHop(destination, doneCheckFn)
+                end
+            end
+        end
+    end
+end
+
+-- ============================================================================
+-- CHẾ ĐỘ GHOUL V3 CHÍNH (SOLO 3M/SAFEZONE + CO-OP CLONE + CO-OP HOST)
+-- ============================================================================
+local function RunGhoulV3Phase()
+    if GetSea() ~= 2 then TravelToSea(2) end
+    if Stopped() then return end
+
+    local chosenSword = nil
+    local statsChecked = false
+    local deprioritized = {}
+
+    local function CheckWenlock()
+        local ok, rs = pcall(function() return CommF:InvokeServer("Wenlocktoad", "1") end)
+        if not ok then return nil end
+        if rs == -2 then return -2 end
+        if rs == 0 then
+            SetStatus("Starting Trial (Wenlocktoad 2)...")
+            pcall(function() CommF:InvokeServer("Wenlocktoad", "2") end)
+            SleepCheck(0.4)
+        elseif rs == 2 then
+            SetStatus("Đủ kill -> Trả nhiệm vụ Ghoul V3 (Wenlocktoad 3)...")
+            pcall(function() CommF:InvokeServer("Wenlocktoad", "3") end)
+            SleepCheck(0.5)
+        end
+        return rs
+    end
+
+    local function PrepareGhoulV3Weapons()
+        if statsChecked then
+            if chosenSword and not FindToolByKind(nil, chosenSword) then
+                pcall(function() CommF:InvokeServer("LoadItem", chosenSword) end)
+            end
+            return
+        end
+        chosenSword = GetGhoulV3Sword()
+        if chosenSword then EnsureSwordStats2800() end
+        statsChecked = true
+    end
+
+    local function EngageTargetStep(targetPlayer, tChar, myHRP, startTick, labelPrefix)
+        local tHRP = tChar:FindFirstChild("HumanoidRootPart")
+        local tHum = tChar:FindFirstChildOfClass("Humanoid")
+        if not (tHRP and tHum and tHum.Health > 0) then return false end
+
+        local elapsedMin = (os.clock() - startTick) / 60
+        local realDist = (tHRP.Position - myHRP.Position).Magnitude
+
+        if IsInSafeZone(targetPlayer) then
+            hoverAboveMode = true
+            SetStatus(("%s: %s vào Safe Zone (giữ khóa, +60 stud) | %.0fm"):format(labelPrefix, targetPlayer.DisplayName, elapsedMin))
+            SleepCheck(0.2)
+            return true
+        end
+
+        local weapons = {}
+        if chosenSword then
+            local sw = FindToolByKind(nil, chosenSword)
+            if sw then table.insert(weapons, sw) end
+        end
+        local ml = FindToolByKind("Melee")
+        if ml then table.insert(weapons, ml) end
+
+        local activeTool, readyKeys = nil, nil
+        for _, w in ipairs(weapons) do
+            local rk = GetReadySkillsForTool(w)
+            if #rk > 0 then
+                activeTool, readyKeys = w, rk
+                break
+            end
+        end
+
+        if activeTool then
+            hoverAboveMode = false
+            SetStatus(("%s: %s [%.0f stud] | Spam %s | %.0fm"):format(labelPrefix, targetPlayer.DisplayName, realDist, activeTool.Name, elapsedMin))
+            if realDist <= 22 then
+                CastReadySkills(activeTool, readyKeys, tHRP)
+                if not Stopped() and (not tHum.Parent or tHum.Health <= 0) then
+                    pcall(function() CommF:InvokeServer("Wenlocktoad", "3") end)
+                    SleepCheck(0.25)
+                end
+            else
+                SleepCheck(0.1)
+            end
+        else
+            hoverAboveMode = true
+            SetStatus(("%s: %s [%.0f stud] | Hồi chiêu (+60 stud) | %.0fm"):format(labelPrefix, targetPlayer.DisplayName, realDist, elapsedMin))
+            SleepCheck(0.15)
+        end
+        return true
+    end
+
+    while not Stopped() do
+        local stW = CheckWenlock()
+        if HasRaceV3() or stW == -2 then
+            StopPvPTween()
+            RemoveFromGhoulSession()
+            SetStatus("Đã xong Ghoul V3! Đang TP sang Sea 3...")
+            TravelToSea(3)
+            return
+        end
+
+        local myRole, activeList, hostEntry = SyncV3SessionEntry()
+
+        -- CO-OP MODE (>= 2 acc trong ghoulsession.txt)
+        if #activeList >= 2 then
+            if myRole == "host" then
+                RunHostModeTag = true
+                RunCoopHost(false)
+            else
+                -- CLONE MODE
+                StopPvPTween()
+                if not hostEntry or hostEntry.sea ~= 2 or tostring(hostEntry.jobId or "") == "" then
+                    SetStatus("Co-op Clone: Đợi Host vào Sea 2...")
+                    SleepCheck(2)
+                elseif tostring(hostEntry.jobId) ~= tostring(game.JobId) then
+                    SetStatus(("Co-op Clone -> Join server Host (%s)..."):format(tostring(hostEntry.name)))
+                    DirectTeleport(tostring(hostEntry.jobId), tonumber(hostEntry.placeId) or game.PlaceId)
+                    SleepCheck(4)
+                else
+                    -- Chung server Sea 2 với Host -> bật PvP & đánh Host đến khi lên V3
+                    EnsureTeam("Pirates")
+                    EnsureMyPvPEnabled()
+                    PrepareGhoulV3Weapons()
+                    local cloneStart = os.clock()
+                    local hostPlayer = nil
+                    EnsurePvPTweenLoop(function() return hostPlayer end)
+
+                    local lastSync = 0
+                    while not Stopped() do
+                        local curW = CheckWenlock()
+                        if HasRaceV3() or curW == -2 then
+                            StopPvPTween()
+                            RemoveFromGhoulSession()
+                            SetStatus("Co-op Clone xong Ghoul V3! Đang sang Sea 3...")
+                            TravelToSea(3)
+                            return
+                        end
+
+                        if (os.clock() - lastSync) >= 2 then
+                            lastSync = os.clock()
+                            local r2, list2, h2 = SyncV3SessionEntry()
+                            hostEntry = h2
+                            if #list2 < 2 or r2 == "host" or not h2 or h2.sea ~= 2 or tostring(h2.jobId) ~= tostring(game.JobId) then
+                                StopPvPTween()
+                                break
+                            end
+                        end
+
+                        local char, _, myHRP = WaitAlive()
+                        if Stopped() or not char then break end
+                        if not char:FindFirstChild("HasBuso") then pcall(function() CommF:InvokeServer("Buso") end) end
+                        if not LocalPlayer.Team or LocalPlayer.Team.Name ~= "Pirates" then EnsureTeam("Pirates") end
+                        EnsureMyPvPEnabled()
+                        PrepareGhoulV3Weapons()
+
+                        hostPlayer = Players:GetPlayerByUserId(tonumber(hostEntry.userId)) or Players:FindFirstChild(tostring(hostEntry.name))
+                        if hostPlayer and hostPlayer.Character and IsLockedTargetValid(hostPlayer, hostPlayer.Character) then
+                            EngageTargetStep(hostPlayer, hostPlayer.Character, myHRP, cloneStart, "Co-op Kill Host")
+                        else
+                            hoverAboveMode = false
+                            SetStatus(("Co-op Clone: Đợi Host (%s) ra khỏi Safe Zone / bật PvP..."):format(tostring(hostEntry.name)))
+                            SleepCheck(0.4)
+                        end
+                    end
+                    StopPvPTween()
+                end
+            end
+        else
+            -- SOLO MODE (< 2 acc trong ghoulsession.txt)
+            EnsureTeam("Pirates")
+            EnsureMyPvPEnabled()
+            if Stopped() then break end
+
+            if CountPvPPlayers() < 3 then
+                SetStatus(("Solo Ghoul V3: Chỉ có %d/3 player PvP ON -> Hop High (11/12)..."):format(CountPvPPlayers()))
+                HopHigh()
+                return
+            end
+
+            PrepareGhoulV3Weapons()
+            if Stopped() then break end
+
+            local v3Start = os.clock()
+            local currentTarget, lockedChar, lockStart = nil, nil, 0
+            local lastSync = 0
+            EnsurePvPTweenLoop(function() return currentTarget end)
+
+            while not Stopped() do
+                if (os.clock() - v3Start) >= GHOUL_V3_TIMEOUT then
+                    StopPvPTween()
+                    SetStatus("Up Ghoul V3 quá 45 phút trong server này -> Hop Low!")
+                    HopLow()
+                    return
+                end
+
+                local curStat = CheckWenlock()
+                if HasRaceV3() or curStat == -2 then
+                    StopPvPTween()
+                    RemoveFromGhoulSession()
+                    SetStatus("Đã hoàn thành Ghoul V3! Đang TP sang Sea 3...")
+                    TravelToSea(3)
+                    return
+                end
+
+                if (os.clock() - lastSync) >= 2 then
+                    lastSync = os.clock()
+                    local r2, list2 = SyncV3SessionEntry()
+                    if #list2 >= 2 or r2 == "clone" then
+                        StopPvPTween()
+                        SetStatus("Phát hiện Co-op / Back-Help -> Chuyển sang chế độ Co-op!")
+                        break
+                    end
+                end
+
+                local char, _, myHRP = WaitAlive()
+                if Stopped() or not char then break end
+                if not char:FindFirstChild("HasBuso") then pcall(function() CommF:InvokeServer("Buso") end) end
+                if not LocalPlayer.Team or LocalPlayer.Team.Name ~= "Pirates" then EnsureTeam("Pirates") end
+                EnsureMyPvPEnabled()
+                PrepareGhoulV3Weapons()
+
+                -- Kiểm tra hết hạn lock 3 phút hoặc mục tiêu chết / PvP OFF thật / out game
+                if currentTarget then
+                    if not IsLockedTargetValid(currentTarget, lockedChar) then
+                        local deadOrRespawn = (not currentTarget.Parent) or (currentTarget.Character ~= lockedChar)
+                            or (not lockedChar or not lockedChar:FindFirstChildOfClass("Humanoid") or lockedChar:FindFirstChildOfClass("Humanoid").Health <= 0)
+                        if deadOrRespawn then
+                            pcall(function() CommF:InvokeServer("Wenlocktoad", "3") end)
+                        end
+                        currentTarget, lockedChar, lockStart = nil, nil, 0
+                    elseif (os.clock() - lockStart) >= LOCK_TIMEOUT then
+                        deprioritized[currentTarget.UserId] = os.clock()
+                        SetStatus(("Quá 3p chưa kill được %s -> Đổi mục tiêu khác!"):format(currentTarget.DisplayName))
+                        currentTarget, lockedChar, lockStart = nil, nil, 0
+                    end
+                end
+
+                if not currentTarget then
+                    local nextT = GetNextSoloTarget(deprioritized)
+                    if nextT and nextT.Character then
+                        currentTarget = nextT
+                        lockedChar = nextT.Character
+                        lockStart = os.clock()
+                    end
+                end
+
+                if currentTarget and lockedChar and lockedChar.Parent then
+                    local kept = EngageTargetStep(currentTarget, lockedChar, myHRP, lockStart, "Solo Lock")
+                    if not kept then
+                        currentTarget, lockedChar, lockStart = nil, nil, 0
+                        SleepCheck(0.15)
+                    end
+                else
+                    hoverAboveMode = false
+                    SetStatus(("Chờ player PvP ON (<= 50k stud)... | %.0fm/45m"):format((os.clock() - v3Start) / 60))
+                    SleepCheck(0.4)
+                end
+            end
+            StopPvPTween()
+        end
+    end
+end
+
+-- ============================================================================
+-- LUỒNG CHÍNH (STATE MACHINE)
+-- ============================================================================
+-- 0. CHECK NẾU MÌNH ĐANG LÀM BACK-HELP HOST TRONG GHOULSESSION.TXT
+if HasRaceV3() and CheckAndClaimBackHelp() then
+    RunCoopHost(true)
+    return
+end
+
+if GetRace() == "Ghoul" and HasRaceV2() and not HasRaceV3() then
+    EnsureTeam("Pirates")
+else
+    EnsureTeam(nil)
+end
+if Stopped() then return end
+
+-- 1. CHƯA PHẢI GHOUL -> CHẠY REALKID MAIN CONFIG "auto_ghoul_v1":true Ở SEA 2
+if GetRace() ~= "Ghoul" then
+    if GetSea() ~= 2 then TravelToSea(2) end
+    if not Stopped() and LaunchRealKidMain({ auto_ghoul_v1 = true }, "Auto Ghoul V1 (Sea 2)") then
+        while not Stopped() and task.wait(2) do
+            SetStatus(("Đang lấy Ghoul V1 | Race hiện tại: %s"):format(GetRace()))
+            if GetRace() == "Ghoul" then
+                SetStatus("Đã có tộc Ghoul! Hop Low để refresh...")
+                HopLow()
+                return
+            end
+        end
+    end
+    return
+end
+if Stopped() then return end
+
+-- 2. ĐÃ LÀ GHOUL -> CHECK V2, V3 & BELI, FRAGMENT
+local hasV3 = HasRaceV3()
+if not hasV3 then
+    local okW, wStat = pcall(function() return CommF:InvokeServer("Wenlocktoad", "1") end)
+    if okW and wStat == -2 then hasV3 = true end
+end
+
+local hasV2 = HasRaceV2()
+
+if not hasV3 then
+    local reqBeli = hasV2 and 2000000 or 2500000
+    local reqFrag = 10000
+
+    if GetBeli() < reqBeli then
+        if GetSea() ~= 3 then TravelToSea(3) end
+        if not Stopped() and LaunchRealKidMain({ Chest = true }, ("Farm Chest lấy Beli (%d/%d)"):format(GetBeli(), reqBeli)) then
+            while not Stopped() and task.wait(1.5) do
+                SetStatus(("Đang farm Beli: %d / %d"):format(GetBeli(), reqBeli))
+                if GetBeli() >= reqBeli then
+                    SetStatus("Đã đủ Beli! Hop Low để refresh...")
+                    HopLow()
+                    return
+                end
+            end
+        end
+        return
+    end
+
+    if GetFragments() < reqFrag then
+        RunSea3BossTarget(
+            DESTINATIONS.CAKE_PRINCE,
+            POS_CAKE_LOAF,
+            function() return ("Đang farm Fragment (Cake Prince): %d / %d"):format(GetFragments(), reqFrag) end,
+            function()
+                if GetFragments() >= reqFrag then
+                    SetStatus("Đã đủ 10k Fragment! Hop Low để refresh...")
+                    HopLow()
+                    return true
+                end
+                return false
+            end
+        )
+        return
+    end
+
+    -- 2A. CHƯA CÓ GHOUL V2 -> TP SEA 2 CHẠY REALKID MAIN ĐỂ UP V2
+    if GetSea() ~= 2 then TravelToSea(2) end
+    if Stopped() then return end
+
+    if not hasV2 then
+        if not HasBlueFlower() and not IsNight() then
+            SetStatus(("Đang up Ghoul V2 nhưng trời sáng (Clock: %.1f) -> Hop Low tìm trời tối..."):format(Lighting.ClockTime))
+            HopLow()
+            return
+        end
+
+        if LaunchRealKidMain({ AutoUpgradeRaceV3 = true }, "Auto Ghoul V2 (Sea 2)") then
+            while not Stopped() and task.wait(2) do
+                if HasRaceV2() then
+                    SetStatus("Đã xong Ghoul V2! Hop High (11/12) để tự up Ghoul V3...")
+                    HopHigh()
+                    return
+                end
+                if not HasBlueFlower() and not IsNight() then
+                    SetStatus(("Đang up Ghoul V2 mà trời chuyển sáng (Clock: %.1f) -> Hop Low tìm trời tối..."):format(Lighting.ClockTime))
+                    HopLow()
+                    return
+                end
+                SetStatus(("Đang làm Ghoul V2 ở Sea 2 (Clock: %.1f)..."):format(Lighting.ClockTime))
+            end
+        end
+        return
+    end
+
+    -- 2B. ĐÃ XONG GHOUL V2 -> UP GHOUL V3 (SOLO + CO-OP)
+    RunGhoulV3Phase()
+    return
+end
+if Stopped() then return end
+
+RemoveFromGhoulSession()
+
+-- 3. ĐÃ ĐỦ GHOUL V3 -> ĐẢM BẢO ĐỦ 10K FRAGMENT TRƯỚC KHI CHECK INVENTORY (THEO DÕI BACK-HELP)
+if GetFragments() < 10000 then
+    RunSea3BossTarget(
+        DESTINATIONS.CAKE_PRINCE,
+        POS_CAKE_LOAF,
+        function() return ("Đã có Ghoul V3 | Farm nốt Frag: %d / 10000"):format(GetFragments()) end,
+        function()
+            if GetFragments() >= 10000 then
+                SetStatus("Đã đủ 10k Fragment! Hop Low để refresh...")
+                HopLow()
+                return true
+            end
+            return false
+        end
+    )
+    return
+end
+if Stopped() then return end
+
+if CheckAndClaimBackHelp() then CleanupMovement(); TravelToSea(2); return end
+if GetSea() ~= 3 then TravelToSea(3) end
+if Stopped() then return end
+
+-- 4. CHECK INVENTORY: VALKYRIE HELM & MIRROR FRACTAL
+local hasHelm, hasMirror = CheckInvItems()
+if Stopped() then return end
+
+if not hasHelm then
+    RunSea3BossTarget(
+        DESTINATIONS.RIP_INDRA,
+        POS_SEA_CASTLE,
+        function() return "Thiếu Valkyrie Helm -> Đang săn Rip Indra..." end,
+        function()
+            local h = CheckInvItems()
+            if h then
+                SetStatus("Đã lấy được Valkyrie Helm! Hop Low để refresh...")
+                HopLow()
+                return true
+            end
+            return false
+        end
+    )
+    return
+end
+
+if not hasMirror then
+    RunSea3BossTarget(
+        DESTINATIONS.DOUGH_KING,
+        POS_CAKE_LOAF,
+        function() return "Thiếu Mirror Fractal -> Đang săn Dough King..." end,
+        function()
+            local _, m = CheckInvItems()
+            if m then
+                SetStatus("Đã lấy được Mirror Fractal! Hop Low để refresh...")
+                HopLow()
+                return true
+            end
+            return false
+        end
+    )
+    return
+end
+
+-- 5. ĐỦ GHOUL V3 + 10K FRAG + MŨ + MẢNH -> CHECK & AUTO PULL LEVER (VẪN THEO DÕI BACK-HELP)
+if not IsLeverPulled() then
+    if LaunchRealKidMain({ AutoPullLever = true }, "Auto Pull Lever (Temple of Time)") then
+        while not Stopped() and task.wait(2) do
+            if CheckAndClaimBackHelp() then CleanupMovement(); TravelToSea(2); return end
+            SetStatus("Đang chạy Auto Pull Lever...")
+            if IsLeverPulled() then break end
+        end
+    end
+end
+
+if Stopped() then return end
+SetStatus("CHÚC MỪNG! Đã hoàn thành Ghoul V3 + Pull Lever! (Đang trực Back-Help)")
+while not Stopped() and task.wait(2.5) do
+    if CheckAndClaimBackHelp() then
+        CleanupMovement()
+        TravelToSea(2)
+        return
+    end
+end
