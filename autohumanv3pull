@@ -1,4 +1,4 @@
--- // AUTO HUMAN V3 + PULL LEVER (REALKID MAIN + REALKID HOP)
+-- // AUTO HUMAN V3 + PULL LEVER (REALKID MAIN/HOP + NIGHT HUB API + BOSS CHECK)
 repeat task.wait() until game:IsLoaded()
 if getgenv()._AutoHumanV3PullLoaded then return end
 getgenv()._AutoHumanV3PullLoaded = true
@@ -14,9 +14,9 @@ local HttpService = game:GetService("HttpService")
 local TeleportService = game:GetService("TeleportService")
 local RunService = game:GetService("RunService")
 local Lighting = game:GetService("Lighting")
-local CoreGui = pcall(function() return game:GetService("CoreGui") end) and game:GetService("CoreGui") or LocalPlayer:WaitForChild("PlayerGui")
 
 local CommF = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommF_")
+local request_ = request or http_request or (syn and syn.request) or (fluxus and fluxus.request) or (Krnl and Krnl.request)
 
 local function Stopped()
     return getgenv()._AutoHumanV3Stop == true
@@ -43,9 +43,9 @@ local SEA_PLACES = {
 
 --[[
     NOTE CÁC DESTINATION PHỔ BIẾN CHO REALKID HOP (dùng sau này chỉ cần đổi Destination):
-    - "Cake Prince"     : Farm Fragment / Cake Prince
-    - "Dough King"      : Săn Dough King lấy Mirror Fractal
-    - "Rip Indra"       : Săn Rip Indra lấy Valkyrie Helm
+    - "Cake Prince"     : Farm Fragment / Cake Prince (chạy chung Night Hub API + RealKidHop)
+    - "Dough King"      : Săn Dough King lấy Mirror Fractal (chạy chung Night Hub API + RealKidHop)
+    - "Rip Indra"       : Săn Rip Indra lấy Valkyrie Helm (chạy chung Night Hub API + RealKidHop)
     - "Server 4 Hours"  : Săn server 4 tiếng (Full Moon / Mirage / ...)
 ]]
 local DESTINATIONS = {
@@ -60,17 +60,36 @@ local BASE_MAIN_JSON = [[{"EspSeaEventIsland":false,"UpgradeDragonTalon":false,"
 local BASE_HOP_JSON = [[{"VisitedJobs":{"a403930c-1443-4f12-ab49-a594cc627cf9":true,"3056d8e0-9d8b-406f-9693-faf642d0c02a":true,"caed7da4-7cc6-4693-907b-e335a16ff45c":true,"8958fa92-fbc2-47cc-9035-ab54a836ad79":true,"b47e14dd-925c-4c73-83f7-f216a1bf3214":true},"PortalEnabled":true,"RaceV4Enabled":false,"WeaponCategory":"Melee","SearchEnabled":true,"DebugEnabled":false,"FruitWebhookEnabled":false,"WebhookEnabled":false,"AttackEnabled":true,"PullLeverEnabled":false,"FruitEnabled":false,"RandomEnabled":false,"Destination":"Cake Prince","RaidEnabled":false,"GunHeight":35,"AttackHeight":30,"GhostFruitEnabled":false,"SearchPause":5,"BerryEnabled":false,"BuyLegendaryEnabled":false,"RaceV3Enabled":false,"BossEnabled":true,"StoreEnabled":false,"KenEnabled":false,"WebhookAddress":"","MovementSpeed":200,"AuraEnabled":true,"InitialSide":"Marines","ChestEnabled":false,"AutoLoadEnabled":false,"Language":"Tiếng Việt"}]]
 
 -- ============================================================================
--- STATUS UI + NÚT X UNLOAD TOÀN BỘ + AUTO-REQUEUE
+-- STATUS UI (TÁCH LUỒNG RENDER) + NÚT X UNLOAD TOÀN BỘ + AUTO-REQUEUE
 -- ============================================================================
-if CoreGui:FindFirstChild("AutoHumanV3Status") then CoreGui.AutoHumanV3Status:Destroy() end
+local UIParent
+do
+    local ok, res = pcall(function()
+        local h = gethui and gethui()
+        if h then
+            local t = Instance.new("Folder"); t.Parent = h; t:Destroy()
+            return h
+        end
+        local cg = game:GetService("CoreGui")
+        local t = Instance.new("Folder"); t.Parent = cg; t:Destroy()
+        return cg
+    end)
+    UIParent = (ok and res) or LocalPlayer:WaitForChild("PlayerGui")
+end
+
+pcall(function()
+    local old = UIParent:FindFirstChild("AutoHumanV3Status")
+    if old then old:Destroy() end
+end)
+
 local Gui = Instance.new("ScreenGui")
 Gui.Name = "AutoHumanV3Status"
 Gui.ResetOnSpawn = false
-Gui.Parent = CoreGui
+Gui.Parent = UIParent
 
 local Bar = Instance.new("Frame")
-Bar.Size = UDim2.new(0, 460, 0, 30)
-Bar.Position = UDim2.new(0.5, -230, 0, 8)
+Bar.Size = UDim2.new(0, 470, 0, 30)
+Bar.Position = UDim2.new(0.5, -235, 0, 8)
 Bar.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
 Bar.BackgroundTransparency = 0.12
 Bar.BorderSizePixel = 0
@@ -105,11 +124,13 @@ CloseBtn.Parent = Bar
 Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 5)
 
 local ActiveTween, ActiveNoclip, ActiveBV, TeleportConn
+local PendingStatus = "[AutoHumanV3] Đang khởi tạo..."
+local LastRenderedStatus = ""
 
 local function CleanupMovement()
     if ActiveTween then pcall(function() ActiveTween:Cancel() end) ActiveTween = nil end
     if ActiveNoclip then pcall(function() ActiveNoclip:Disconnect() end) ActiveNoclip = nil end
-    if ActiveBV and ActiveBV.Parent then pcall(function() ActiveBV:Destroy() end) end
+    if ActiveBV then pcall(function() if ActiveBV.Parent then ActiveBV:Destroy() end end) end
     ActiveBV = nil
 end
 
@@ -119,18 +140,38 @@ local function UnloadAll()
     getgenv()._HoppingLow = false
     CleanupMovement()
     if TeleportConn then pcall(function() TeleportConn:Disconnect() end) TeleportConn = nil end
-    if Gui and Gui.Parent then Gui:Destroy() end
+    pcall(function() if Gui and Gui.Parent then Gui:Destroy() end end)
     print("[AutoHumanV3] Đã unload toàn bộ script!")
 end
 
 CloseBtn.MouseButton1Click:Connect(UnloadAll)
 
+-- Luồng riêng cập nhật UI (không bao giờ đụng require -> giữ nguyên capability)
+task.spawn(function()
+    while not Stopped() do
+        if PendingStatus ~= LastRenderedStatus then
+            local ok = pcall(function()
+                if StatusLbl and StatusLbl.Parent then
+                    StatusLbl.Text = PendingStatus
+                end
+            end)
+            if ok then LastRenderedStatus = PendingStatus end
+        end
+        task.wait(0.1)
+    end
+    pcall(function() if Gui and Gui.Parent then Gui:Destroy() end end)
+end)
+
 local function SetStatus(msg)
     if Stopped() then return end
-    if StatusLbl and StatusLbl.Parent then
-        StatusLbl.Text = "[AutoHumanV3] " .. tostring(msg)
-    end
-    print("[AutoHumanV3] " .. tostring(msg))
+    PendingStatus = "[AutoHumanV3] " .. tostring(msg)
+    print(PendingStatus)
+end
+
+local function SleepCheck(sec)
+    local t0 = os.clock()
+    while not Stopped() and (os.clock() - t0) < sec do task.wait(0.1) end
+    return not Stopped()
 end
 
 do
@@ -182,22 +223,18 @@ local function WriteHopConfig(overrides)
 end
 
 -- ============================================================================
--- HOP LOW (RÚT GỌN: ƯU TIÊN PING THẤP + PLAYER THẤP + CACHE TRÁNH LẶP)
+-- CACHE SERVER ĐÃ GHÉ & TELEPORT CHUNG
 -- ============================================================================
-local HOP_CACHE_FILE = "AutoHumanV3_HopCache.json"
-
-local function LoadTriedJobs()
-    local cache = { [tostring(game.JobId)] = os.time() }
-    if isfile and readfile and isfile(HOP_CACHE_FILE) then
-        local okR, raw = pcall(readfile, HOP_CACHE_FILE)
+local function LoadJobCache(file, ttl)
+    local cache = {}
+    if isfile and readfile and isfile(file) then
+        local okR, raw = pcall(readfile, file)
         if okR and type(raw) == "string" then
             local okD, data = pcall(function() return HttpService:JSONDecode(raw) end)
             if okD and type(data) == "table" then
                 local now = os.time()
                 for jid, ts in pairs(data) do
-                    if type(ts) == "number" and (now - ts) < 180 then
-                        cache[tostring(jid)] = ts
-                    end
+                    if type(ts) == "number" and (now - ts) < ttl then cache[tostring(jid)] = ts end
                 end
             end
         end
@@ -205,20 +242,26 @@ local function LoadTriedJobs()
     return cache
 end
 
-local function SaveTriedJob(cache, jobId)
+local function RecordJobCache(file, cache, jobId)
     cache[tostring(jobId)] = os.time()
-    if writefile then
-        pcall(writefile, HOP_CACHE_FILE, HttpService:JSONEncode(cache))
+    if writefile then pcall(writefile, file, HttpService:JSONEncode(cache)) end
+end
+
+local function DirectTeleport(jobId, placeId)
+    local sb = ReplicatedStorage:FindFirstChild("__ServerBrowser")
+    if sb then
+        pcall(function() sb:InvokeServer("teleport", jobId) end)
+        if not SleepCheck(3) then return end
     end
+    pcall(function() TeleportService:TeleportToPlaceInstance(placeId or game.PlaceId, jobId, LocalPlayer) end)
 end
 
-local TriedJobs = LoadTriedJobs()
-
-local function SleepCheck(sec)
-    local t0 = os.clock()
-    while not Stopped() and (os.clock() - t0) < sec do task.wait(0.1) end
-    return not Stopped()
-end
+-- ============================================================================
+-- HOP LOW (RÚT GỌN: ƯU TIÊN PING THẤP + PLAYER THẤP + CACHE TRÁNH LẶP)
+-- ============================================================================
+local HOP_CACHE_FILE = "AutoHumanV3_HopCache.json"
+local TriedJobs = LoadJobCache(HOP_CACHE_FILE, 180)
+TriedJobs[tostring(game.JobId)] = os.time()
 
 local function HopLow()
     if Stopped() or getgenv()._HoppingLow then return end
@@ -306,19 +349,270 @@ local function HopLow()
             for i = 1, math.min(#pool, 5) do
                 if Stopped() then break end
                 local target = pool[i]
-                SaveTriedJob(TriedJobs, target.id)
+                RecordJobCache(HOP_CACHE_FILE, TriedJobs, target.id)
                 SetStatus(("Hop Low -> %s | Players: %d | Ping: %dms"):format(target.id:sub(1, 8), target.playing, target.ping))
-                if browser then
-                    pcall(function() browser:InvokeServer("teleport", target.id) end)
-                    if not SleepCheck(3) then break end
-                end
-                pcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, target.id, LocalPlayer) end)
+                DirectTeleport(target.id, game.PlaceId)
                 if not SleepCheck(3) then break end
             end
         end
         if not SleepCheck(1) then break end
     end
     getgenv()._HoppingLow = false
+end
+
+-- ============================================================================
+-- NIGHT HUB API HOP (RÚT GỌN: DOUGH KING, RIP INDRA, CAKE PRINCE)
+-- ============================================================================
+local NH_BASE_URL = "http://163.223.9.144/boss"
+local NH_PREFIX   = "NIGHTHUB|"
+local NH_KEY_HEX  = "8992d555ed7846a562b058523100fbd0e59b5f6f28e98003230ffb4d9db60411"
+local NH_VISITED_FILE = "Axiom_VisitedServers.json"
+local NH_Visited  = LoadJobCache(NH_VISITED_FILE, 600)
+
+local NH_ENDPOINTS = {
+    ["Dough King"]  = { "DoughKing", "Dough_King" },
+    ["Cake Prince"] = { "CakePrince", "Cake_Prince" },
+    ["Rip Indra"]   = { "RipIndra", "Indra", "rip_indra" },
+}
+local NH_BOSS_ALIASES = {
+    ["Dough King"]  = { "Dough King" },
+    ["Cake Prince"] = { "Cake Prince" },
+    ["Rip Indra"]   = { "rip_indra", "rip_indra True Form" },
+}
+
+local NH_KeyBytes = {}
+for i = 1, #NH_KEY_HEX, 2 do NH_KeyBytes[#NH_KeyBytes + 1] = tonumber(NH_KEY_HEX:sub(i, i + 1), 16) end
+local NH_Alphabet = nil
+
+local bxor, band, lshift, rshift, lrotate = bit32.bxor, bit32.band, bit32.lshift, bit32.rshift, bit32.lrotate
+local function U32LE(b, o) return b[o] + b[o + 1] * 256 + b[o + 2] * 65536 + b[o + 3] * 16777216 end
+local function QR(s, a, b, c, d)
+    s[a] = (s[a] + s[b]) % 4294967296; s[d] = lrotate(bxor(s[d], s[a]), 16)
+    s[c] = (s[c] + s[d]) % 4294967296; s[b] = lrotate(bxor(s[b], s[c]), 12)
+    s[a] = (s[a] + s[b]) % 4294967296; s[d] = lrotate(bxor(s[d], s[a]), 8)
+    s[c] = (s[c] + s[d]) % 4294967296; s[b] = lrotate(bxor(s[b], s[c]), 7)
+end
+local function Permute(s)
+    for _ = 1, 10 do
+        QR(s,1,5,9,13); QR(s,2,6,10,14); QR(s,3,7,11,15); QR(s,4,8,12,16)
+        QR(s,1,6,11,16); QR(s,2,7,12,13); QR(s,3,8,9,14); QR(s,4,5,10,15)
+    end
+end
+local function InitState(key, counter, nonce)
+    local s = { 1634760805, 857760878, 2036477234, 1797285236 }
+    for i = 0, 7 do s[5 + i] = U32LE(key, 1 + 4 * i) end
+    s[13] = counter % 4294967296
+    for i = 0, 2 do s[14 + i] = U32LE(nonce, 1 + 4 * i) end
+    return s
+end
+local function Keystream(key, nonce, counter, len)
+    local out, total = {}, 0
+    while total < len do
+        local init = InitState(key, counter, nonce)
+        local s = { table.unpack(init) }
+        Permute(s)
+        for i = 1, 16 do
+            local sum = (s[i] + init[i]) % 4294967296
+            for sh = 0, 24, 8 do
+                if total >= len then break end
+                total = total + 1
+                out[total] = band(rshift(sum, sh), 255)
+            end
+        end
+        counter = counter + 1
+    end
+    return out
+end
+local function ComputeTag(key, nonce, data)
+    local s = InitState(key, 4294967295, nonce)
+    Permute(s)
+    local padded = #data + (16 - #data % 16) % 16
+    for i = 0, padded - 1, 16 do
+        for j = 0, 3 do
+            local off = i + 4 * j
+            s[j + 1] = bxor(s[j + 1], (data[off + 1] or 0) + (data[off + 2] or 0) * 256 + (data[off + 3] or 0) * 65536 + (data[off + 4] or 0) * 16777216)
+        end
+        Permute(s)
+    end
+    s[1] = bxor(s[1], #data)
+    Permute(s)
+    local w = s[1]
+    return { band(w, 255), band(rshift(w, 8), 255), band(rshift(w, 16), 255), band(rshift(w, 24), 255) }
+end
+local function GetNHAlphabet()
+    if NH_Alphabet then return NH_Alphabet end
+    local ks = Keystream(NH_KeyBytes, {0,0,0,0,0,0,0,0,0,0,0,0}, 11259375, 128)
+    local c = {}
+    for i = 1, 64 do c[i] = ("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"):sub(i, i) end
+    for i = 64, 2, -1 do
+        local n = i - 1
+        local t = (ks[2 * n + 1] * 256 + ks[2 * n + 2]) % i + 1
+        c[i], c[t] = c[t], c[i]
+    end
+    NH_Alphabet = table.concat(c)
+    return NH_Alphabet
+end
+local function DecryptNHJobId(enc)
+    if type(enc) ~= "string" then return nil end
+    if enc:sub(1, #NH_PREFIX) ~= NH_PREFIX then return enc end
+    local body, alpha = enc:sub(#NH_PREFIX + 1), GetNHAlphabet()
+    local map, idx = {}, {}
+    for i = 1, 64 do map[alpha:sub(i, i)] = i - 1 end
+    for i = 1, #body do
+        local v = map[body:sub(i, i)]
+        if not v then return nil end
+        idx[#idx + 1] = v
+    end
+    local raw = {}
+    for i = 1, #idx, 4 do
+        local c1, c2, c3, c4 = idx[i], idx[i + 1], idx[i + 2], idx[i + 3]
+        if not c2 then return nil end
+        raw[#raw + 1] = band(lshift(c1, 2) + rshift(c2, 4), 255)
+        if c3 then raw[#raw + 1] = band(lshift(band(c2, 15), 4) + rshift(c3, 2), 255) end
+        if c4 then raw[#raw + 1] = band(lshift(band(c3, 3), 6) + c4, 255) end
+    end
+    if #raw < 12 then return nil end
+    local nonce, ct = {}, {}
+    for i = 1, 8 do nonce[i] = raw[i] end
+    for i = 9, 12 do nonce[i] = 0 end
+    for i = 13, #raw do ct[#ct + 1] = raw[i] end
+    local tag = ComputeTag(NH_KeyBytes, nonce, ct)
+    for i = 1, 4 do if tag[i] ~= raw[8 + i] then return nil end end
+    local ks, out = Keystream(NH_KeyBytes, nonce, 1, #ct), {}
+    for i = 1, #ct do out[i] = string.char(bxor(ct[i], ks[i])) end
+    return table.concat(out)
+end
+
+local function FetchNightHubServers(targetName)
+    local eps = NH_ENDPOINTS[targetName]
+    if not eps then return {} end
+    for _, ep in ipairs(eps) do
+        if Stopped() then return {} end
+        local url = NH_BASE_URL .. "/" .. ep
+        local raw = nil
+        if request_ then
+            for _ = 1, 2 do
+                local ok, res = pcall(request_, {
+                    Url = url, Method = "GET",
+                    Headers = {
+                        ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36",
+                        ["Accept"] = "application/json",
+                        ["Cache-Control"] = "no-cache"
+                    }
+                })
+                if ok and res then
+                    local code = res.StatusCode or res.status or (res.Success and 200 or 0)
+                    if code == 200 then raw = res.Body or res.body or (type(res) == "string" and res); break
+                    elseif code == 429 then SleepCheck(0.5) end
+                end
+            end
+        end
+        if (not raw or raw == "") and game.HttpGet then
+            local ok, res = pcall(function() return game:HttpGet(url) end)
+            if ok and res and res ~= "" then raw = res end
+        end
+        if raw and raw ~= "" then
+            local okJ, payload = pcall(HttpService.JSONDecode, HttpService, raw)
+            if okJ and type(payload) == "table" then
+                local list = payload.data or payload.servers or payload.Servers or payload
+                local out = {}
+                if type(list) == "table" then
+                    for _, e in ipairs(list) do
+                        if type(e) == "table" and (e.JobId or e.job_id) then
+                            local jid = DecryptNHJobId(e.JobId or e.job_id)
+                            if jid and jid ~= "" then
+                                table.insert(out, {
+                                    JobId = tostring(jid),
+                                    Players = tonumber(e.Players or e.players or e.count) or 0,
+                                    PlaceId = tonumber(e.PlaceId or e.placeId) or game.PlaceId,
+                                    Sea = tonumber(e.Sea or e.sea) or 3,
+                                    Idx = #out + 1,
+                                })
+                            end
+                        end
+                    end
+                end
+                if #out > 0 then return out end
+            end
+        end
+    end
+    return {}
+end
+
+local function TryNightHubHop(targetName, doneCheckFn)
+    local servers = FetchNightHubServers(targetName)
+    if Stopped() or #servers == 0 then return false end
+
+    local curSea = SEA_PLACES[game.PlaceId] or 3
+    local cands = {}
+    for _, s in ipairs(servers) do
+        if s.JobId ~= tostring(game.JobId) and not NH_Visited[s.JobId] and s.Sea == curSea and s.Players < 12 then
+            table.insert(cands, s)
+        end
+    end
+    if #cands == 0 then return false end
+
+    -- Ưu tiên ít player nhất, bằng nhau thì bottom-up (lấy server cuối danh sách)
+    table.sort(cands, function(a, b)
+        if a.Players ~= b.Players then return a.Players < b.Players end
+        return a.Idx > b.Idx
+    end)
+
+    for i = 1, math.min(#cands, 2) do
+        if Stopped() or (doneCheckFn and doneCheckFn()) then return false end
+        local chosen = cands[i]
+        RecordJobCache(NH_VISITED_FILE, NH_Visited, chosen.JobId)
+        SetStatus(("Night Hub (%s) -> %s (%d players)"):format(targetName, chosen.JobId:sub(1, 8), chosen.Players))
+        DirectTeleport(chosen.JobId, chosen.PlaceId)
+        if not SleepCheck(4) then return false end
+    end
+    return false
+end
+
+-- ============================================================================
+-- CHECK LIVE BOSS (RÚT GỌN: ENEMIES / CHARACTERS / REPLICATEDSTORAGE)
+-- ============================================================================
+local function FindBossAlive(aliases)
+    local folders = {
+        workspace:FindFirstChild("Enemies"),
+        workspace:FindFirstChild("Characters"),
+        ReplicatedStorage,
+    }
+    for _, folder in ipairs(folders) do
+        if folder then
+            for _, child in ipairs(folder:GetChildren()) do
+                if not Players:GetPlayerFromCharacter(child) then
+                    local ln = child.Name:lower()
+                    for _, alias in ipairs(aliases) do
+                        if child.Name == alias or ln:find(alias:lower(), 1, true) then
+                            local hum = child:FindFirstChildOfClass("Humanoid")
+                            local hrp = child:FindFirstChild("HumanoidRootPart")
+                            if hum and hrp and hum.Health > 0 then
+                                return child, hum, hrp
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local HUMAN_V3_BOSSES = {
+    { "Diamond" },
+    { "Jeremy" },
+    { "Orbitus", "Fajita" },
+}
+
+local function HasAllHumanV3Bosses()
+    local missing = {}
+    for _, aliases in ipairs(HUMAN_V3_BOSSES) do
+        if not FindBossAlive(aliases) then
+            table.insert(missing, aliases[1])
+        end
+    end
+    return #missing == 0, missing
 end
 
 -- ============================================================================
@@ -493,27 +787,30 @@ local function HasRaceV2()
     return ok and st == -2
 end
 
--- Rút gọn từ script check inventory (ItemReplicationService + fallback getInventory)
+-- Cô lập require() sang worker thread riêng để luồng chính không bị hạ capability
 local function CheckInvItems()
     local hasHelm, hasMirror = false, false
-    local okR, ItemReplication = pcall(require, ReplicatedStorage:WaitForChild("ItemReplicationService", 8))
-    local okK, KEYS = false, nil
-    local okI, ItemId = false, nil
-    if okR and ItemReplication then
-        okK, KEYS = pcall(require, ReplicatedStorage.ItemReplicationService:WaitForChild("KEYS", 8))
-        local econ = ReplicatedStorage:WaitForChild("Economy", 8)
-        if econ then
-            okI, ItemId = pcall(require, econ:WaitForChild("ItemId", 8))
-        end
-    end
+    local usedReplication, done = false, false
 
-    if okR and okK and okI and ItemReplication and KEYS and ItemId then
-        local t0 = os.clock()
-        while not Stopped() and not ItemReplication.IsInitialized and (os.clock() - t0) < 20 do
-            task.wait(0.5)
-        end
-        if Stopped() then return false, false end
-        if ItemReplication.IsInitialized then
+    task.spawn(function()
+        pcall(function()
+            local irMod = ReplicatedStorage:WaitForChild("ItemReplicationService", 8)
+            local keysMod = irMod and irMod:WaitForChild("KEYS", 8)
+            local econ = ReplicatedStorage:WaitForChild("Economy", 8)
+            local itemIdMod = econ and econ:WaitForChild("ItemId", 8)
+            if not (irMod and keysMod and itemIdMod) then return end
+
+            local okR, ItemReplication = pcall(require, irMod)
+            local okK, KEYS = pcall(require, keysMod)
+            local okI, ItemId = pcall(require, itemIdMod)
+            if not (okR and okK and okI and ItemReplication and KEYS and ItemId) then return end
+
+            local t0 = os.clock()
+            while not Stopped() and not ItemReplication.IsInitialized and (os.clock() - t0) < 20 do
+                task.wait(0.5)
+            end
+            if Stopped() or not ItemReplication.IsInitialized then return end
+
             for _, item in pairs(ItemReplication:GetItems(KEYS.QUANTITY)) do
                 if (item.Value or 0) > 0 then
                     local okD, d = pcall(function() return ItemId.getDataFromId(item.ItemId):unwrap() end)
@@ -524,16 +821,22 @@ local function CheckInvItems()
                     end
                 end
             end
-            return hasHelm, hasMirror
-        end
-    end
+            usedReplication = true
+        end)
+        done = true
+    end)
 
-    local okG, inv = pcall(function() return CommF:InvokeServer("getInventory") end)
-    if okG and type(inv) == "table" then
-        for _, v in pairs(inv) do
-            local n = tostring(v.Name or ""):lower()
-            if n:find("valkyrie") then hasHelm = true end
-            if n:find("mirror") and n:find("fractal") then hasMirror = true end
+    while not done and not Stopped() do task.wait(0.05) end
+    if Stopped() then return false, false end
+
+    if not usedReplication then
+        local okG, inv = pcall(function() return CommF:InvokeServer("getInventory") end)
+        if okG and type(inv) == "table" then
+            for _, v in pairs(inv) do
+                local n = tostring(v.Name or ""):lower()
+                if n:find("valkyrie") then hasHelm = true end
+                if n:find("mirror") and n:find("fractal") then hasMirror = true end
+            end
         end
     end
     return hasHelm, hasMirror
@@ -552,9 +855,7 @@ local function TravelToSea(targetSea)
         elseif targetSea == 3 then
             pcall(function() CommF:InvokeServer("TravelZou") end)
             if not SleepCheck(3) then return false end
-            if GetSea() ~= 3 then
-                pcall(function() CommF:InvokeServer("TravelDressrosa") end)
-            end
+            if GetSea() ~= 3 then pcall(function() CommF:InvokeServer("TravelDressrosa") end) end
         end
         if not SleepCheck(4) then return false end
     end
@@ -569,6 +870,42 @@ local function TryRerollHuman()
         if not SleepCheck(0.9) then return false end
     end
     return GetRace() == "Human"
+end
+
+-- Pre-Tween 190 -> Bật RealKidHop -> Chạy chung Night Hub API song song nếu server chưa có boss
+local function RunSea3BossTarget(destination, preTweenPos, waitMsgFn, doneCheckFn)
+    if Stopped() then return end
+    if GetSea() ~= 3 then TravelToSea(3) end
+    if Stopped() then return end
+
+    if TweenTo(preTweenPos) and LaunchRealKidHop(destination) then
+        local aliases = NH_BOSS_ALIASES[destination]
+        local launchTick = os.clock()
+        local lastNhCheck = 0
+        local wasBossAlive = false
+        local bossDiedTick = 0
+
+        while not Stopped() and task.wait(1.5) do
+            SetStatus(waitMsgFn())
+            if doneCheckFn() then return end
+
+            local bossAlive = aliases and (FindBossAlive(aliases) ~= nil) or false
+            if bossAlive then
+                wasBossAlive = true
+                bossDiedTick = 0
+            else
+                if wasBossAlive and bossDiedTick == 0 then
+                    bossDiedTick = os.clock()
+                end
+                local passedLaunch = (os.clock() - launchTick) >= 3
+                local passedDropWait = (not wasBossAlive) or ((os.clock() - bossDiedTick) >= 5)
+                if passedLaunch and passedDropWait and (os.clock() - lastNhCheck) >= 6 then
+                    lastNhCheck = os.clock()
+                    TryNightHubHop(destination, doneCheckFn)
+                end
+            end
+        end
+    end
 end
 
 -- ============================================================================
@@ -586,19 +923,19 @@ if GetRace() ~= "Human" then
     end
 
     if not Stopped() and GetRace() ~= "Human" then
-        if GetSea() ~= 3 then TravelToSea(3) end
-        if not Stopped() and TweenTo(POS_CAKE_LOAF) and LaunchRealKidHop(DESTINATIONS.CAKE_PRINCE) then
-            while not Stopped() and task.wait(2) do
-                SetStatus(("Farm Frag roll Human | Race: %s | Frag: %d/3000"):format(GetRace(), GetFragments()))
-                if GetFragments() >= 3000 then
-                    if TryRerollHuman() then
-                        SetStatus("Đã ra Human! Hop Low để refresh...")
-                        HopLow()
-                        return
-                    end
+        RunSea3BossTarget(
+            DESTINATIONS.CAKE_PRINCE,
+            POS_CAKE_LOAF,
+            function() return ("Farm Frag roll Human | Race: %s | Frag: %d/3000"):format(GetRace(), GetFragments()) end,
+            function()
+                if GetFragments() >= 3000 and TryRerollHuman() then
+                    SetStatus("Đã ra Human! Hop Low để refresh...")
+                    HopLow()
+                    return true
                 end
+                return false
             end
-        end
+        )
         return
     end
 end
@@ -628,38 +965,69 @@ if not hasV3 then
     end
 
     if GetFragments() < reqFrag then
-        if GetSea() ~= 3 then TravelToSea(3) end
-        if not Stopped() and TweenTo(POS_CAKE_LOAF) and LaunchRealKidHop(DESTINATIONS.CAKE_PRINCE) then
-            while not Stopped() and task.wait(1.5) do
-                SetStatus(("Đang farm Fragment (Cake Prince): %d / %d"):format(GetFragments(), reqFrag))
+        RunSea3BossTarget(
+            DESTINATIONS.CAKE_PRINCE,
+            POS_CAKE_LOAF,
+            function() return ("Đang farm Fragment (Cake Prince): %d / %d"):format(GetFragments(), reqFrag) end,
+            function()
                 if GetFragments() >= reqFrag then
                     SetStatus("Đã đủ 10k Fragment! Hop Low để refresh...")
                     HopLow()
-                    return
+                    return true
                 end
+                return false
             end
-        end
+        )
         return
     end
 
-    -- Đã đủ Beli & 10k Frag nhưng thiếu V2/V3 -> TP Sea 2 -> nếu đang up V2 mà trời sáng thì Hop Low liên tục tới khi gặp trời tối
+    -- Đã đủ Beli & 10k Frag nhưng thiếu V2/V3 -> TP Sea 2
     if GetSea() ~= 2 then TravelToSea(2) end
     if Stopped() then return end
 
-    if not HasRaceV2() and not HasBlueFlower() and not IsNight() then
+    local v2Done = HasRaceV2()
+    -- Đang up V2 mà trời sáng -> Hop Low liên tục đến khi gặp trời tối
+    if not v2Done and not HasBlueFlower() and not IsNight() then
         SetStatus(("Đang up V2 nhưng trời sáng (Clock: %.1f) -> Hop Low tìm trời tối..."):format(Lighting.ClockTime))
         HopLow()
         return
     end
 
+    -- Nếu đã xong V2 (bắt đầu làm V3 ngay) -> check đủ 3 boss Human V3 đúng 1 lần đầu
+    local v3BossCheckDone = false
+    if v2Done then
+        v3BossCheckDone = true
+        local ok3, missing = HasAllHumanV3Bosses()
+        if not ok3 then
+            SetStatus(("Bắt đầu V3 thiếu boss (%s) -> Hop Low tìm server đủ 3 boss..."):format(table.concat(missing, ", ")))
+            HopLow()
+            return
+        end
+        SetStatus("Đủ 3 boss Human V3 (Diamond, Jeremy, Orbitus) -> Bắt đầu Auto V3!")
+    end
+
     if LaunchRealKidMain({ AutoUpgradeRaceV3 = true }, "Auto Upgrade Human V2/V3 (Sea 2)") then
         while not Stopped() and task.wait(2) do
-            if not HasRaceV2() and not HasBlueFlower() and not IsNight() then
+            if not v2Done then
+                v2Done = HasRaceV2()
+            end
+            if not v2Done and not HasBlueFlower() and not IsNight() then
                 SetStatus(("Đang up V2 mà trời chuyển sáng (Clock: %.1f) -> Hop Low tìm trời tối..."):format(Lighting.ClockTime))
                 HopLow()
                 return
             end
-            SetStatus(("Đang làm Human V2/V3 ở Sea 2 (Clock: %.1f)..."):format(Lighting.ClockTime))
+            -- Nếu vừa xong V2 trong server này và chuyển sang V3 -> check đủ 3 boss đúng 1 lần duy nhất
+            if v2Done and not v3BossCheckDone then
+                v3BossCheckDone = true
+                local ok3, missing = HasAllHumanV3Bosses()
+                if not ok3 then
+                    SetStatus(("Vừa xong V2 -> Bắt đầu V3 nhưng thiếu boss (%s) -> Hop Low..."):format(table.concat(missing, ", ")))
+                    HopLow()
+                    return
+                end
+            end
+
+            SetStatus(("Đang làm Human %s ở Sea 2 (Clock: %.1f)..."):format(v2Done and "V3" or "V2", Lighting.ClockTime))
             if HasRaceV3() then
                 SetStatus("Đã xong Human V3! Đang TP sang Sea 3...")
                 TravelToSea(3)
@@ -673,17 +1041,19 @@ if Stopped() then return end
 
 -- 3. ĐÃ ĐỦ HUMAN V3 -> ĐẢM BẢO ĐỦ 10K FRAGMENT TRƯỚC KHI CHECK INVENTORY
 if GetFragments() < 10000 then
-    if GetSea() ~= 3 then TravelToSea(3) end
-    if not Stopped() and TweenTo(POS_CAKE_LOAF) and LaunchRealKidHop(DESTINATIONS.CAKE_PRINCE) then
-        while not Stopped() and task.wait(1.5) do
-            SetStatus(("Đã có Human V3 | Farm nốt Frag: %d / 10000"):format(GetFragments()))
+    RunSea3BossTarget(
+        DESTINATIONS.CAKE_PRINCE,
+        POS_CAKE_LOAF,
+        function() return ("Đã có Human V3 | Farm nốt Frag: %d / 10000"):format(GetFragments()) end,
+        function()
             if GetFragments() >= 10000 then
                 SetStatus("Đã đủ 10k Fragment! Hop Low để refresh...")
                 HopLow()
-                return
+                return true
             end
+            return false
         end
-    end
+    )
     return
 end
 if Stopped() then return end
@@ -697,32 +1067,38 @@ local hasHelm, hasMirror = CheckInvItems()
 if Stopped() then return end
 
 if not hasHelm then
-    if TweenTo(POS_SEA_CASTLE) and LaunchRealKidHop(DESTINATIONS.RIP_INDRA) then
-        while not Stopped() and task.wait(2) do
-            SetStatus("Thiếu Valkyrie Helm -> Hop Rip Indra...")
+    RunSea3BossTarget(
+        DESTINATIONS.RIP_INDRA,
+        POS_SEA_CASTLE,
+        function() return "Thiếu Valkyrie Helm -> Đang săn Rip Indra..." end,
+        function()
             local h = CheckInvItems()
             if h then
                 SetStatus("Đã lấy được Valkyrie Helm! Hop Low để refresh...")
                 HopLow()
-                return
+                return true
             end
+            return false
         end
-    end
+    )
     return
 end
 
 if not hasMirror then
-    if TweenTo(POS_CAKE_LOAF) and LaunchRealKidHop(DESTINATIONS.DOUGH_KING) then
-        while not Stopped() and task.wait(2) do
-            SetStatus("Thiếu Mirror Fractal -> Hop Dough King...")
+    RunSea3BossTarget(
+        DESTINATIONS.DOUGH_KING,
+        POS_CAKE_LOAF,
+        function() return "Thiếu Mirror Fractal -> Đang săn Dough King..." end,
+        function()
             local _, m = CheckInvItems()
             if m then
                 SetStatus("Đã lấy được Mirror Fractal! Hop Low để refresh...")
                 HopLow()
-                return
+                return true
             end
+            return false
         end
-    end
+    )
     return
 end
 
