@@ -143,7 +143,6 @@ local function HopLowServer()
                 
                 repeat task.wait(0.05) until pagesCompleted >= targetPages or (os.clock() - startScrape >= 3.5)
 
-                -- Thuật toán tìm server vắng nhất <= 5 người
                 local bestJob, minP = nil, 6
                 for jStr, c in pairs(rawServers) do
                     if c < minP and not IsServerOccupied(jStr) then
@@ -168,7 +167,6 @@ local function HopLowServer()
                 end
             end
             
-            -- API Fallback tìm người ít nhất
             local cursor = ""
             local loopCount = 0
             local bestApiJob, minApiP = nil, 6
@@ -228,7 +226,7 @@ task.spawn(function()
 end)
 
 -- ==============================================================================
--- [3] ANTI-GRAVITY & TWEEN
+-- [3] ANTI-GRAVITY, TWEEN & ANTI-COLLISION (10s PLAYER DETECT)
 -- ==============================================================================
 local function SetAntiGravity(enable)
     local hrp = GetHRP()
@@ -250,6 +248,43 @@ table.insert(Axiom.Connections, RunService.Stepped:Connect(function()
         SetAntiGravity(true)
         local c = GetChar()
         if c then for _, p in ipairs(c:GetDescendants()) do if p:IsA("BasePart") then p.CanCollide = false end end end
+    end
+end))
+
+local NearbyPlayerTimer = 0
+table.insert(Axiom.Connections, RunService.Heartbeat:Connect(function(dt)
+    if not Axiom.Running or not Axiom.AutoGodhuman then return end
+    if IsHopping or IsTyrantHopping then return end
+    
+    local isFarming = (Axiom.MainLog:find("Bones") or Axiom.MainLog:find("Mat:"))
+    if not isFarming then 
+        NearbyPlayerTimer = 0
+        return 
+    end
+    
+    local hrp = GetHRP()
+    if not hrp then return end
+    
+    local found = false
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            local phrp = p.Character:FindFirstChild("HumanoidRootPart")
+            if phrp and (phrp.Position - hrp.Position).Magnitude < 150 then
+                found = true
+                break
+            end
+        end
+    end
+    
+    if found then
+        NearbyPlayerTimer = NearbyPlayerTimer + dt
+        if NearbyPlayerTimer >= 10 then
+            SetLog("Anti-Collision", "Player nearby for 10s. Hopping...")
+            NearbyPlayerTimer = 0
+            HopLowServer()
+        end
+    else
+        NearbyPlayerTimer = math.max(0, NearbyPlayerTimer - (dt * 2))
     end
 end))
 
@@ -385,8 +420,13 @@ local function EquipBuso() if GetChar() and not GetChar():FindFirstChild("HasBus
 local function EquipMelee(mName, allowTravel)
     local c = GetChar()
     if not c or not mName then return false end
+    
     local h = c:FindFirstChildOfClass("Tool")
     if h and (MatchMelee(h.Name, mName) or h.Name:lower():find(mName:lower(), 1, true)) then return true end
+
+    -- BẮT BUỘC cất vũ khí cũ để giải quyết lỗi kẹt Melee
+    if GetHum() then pcall(function() GetHum():UnequipTools() end) end
+    task.wait(0.1)
 
     local bp = LocalPlayer:FindFirstChild("Backpack")
     if bp then
@@ -396,16 +436,26 @@ local function EquipMelee(mName, allowTravel)
             end
         end
     end
-    -- Chức năng Buy / Equip: Bắt buộc Tween tới NPC
+    
+    -- NẾU KHÔNG CÓ TRONG TÚI ĐỒ (Bị chết rơi mất, hoặc chưa trang bị) -> Bắt buộc Tween đến Sea 3 NPC để lấy
     if allowTravel ~= false and MeleeReg[mName] then
         local r = MeleeReg[mName]
         if GetCurrentSea() ~= 3 then TravelToSea(3); task.wait(2.5); return false end
-        SetLog("Equip/Buy " .. mName, "Tweening to NPC")
+        SetLog("Equip/Buy " .. mName, "Tweening directly to NPC...")
+        
+        -- Tween tới chuẩn toạ độ NPC
         if TweenTo(r.CF + Vector3.new(0, 4, 0)) then
             task.wait(0.3)
             if GetHum() then pcall(function() GetHum():UnequipTools() end) end
-            if r.Buy == "BlackbeardReward" then CommF_:InvokeServer("BlackbeardReward", "DragonClaw", "1"); CommF_:InvokeServer("BlackbeardReward", "DragonClaw", "2")
-            elseif r.Buy then CommF_:InvokeServer(r.Buy) end
+            
+            -- Fire Remote TẠI CHỖ NPC
+            if r.Buy == "BlackbeardReward" then 
+                CommF_:InvokeServer("BlackbeardReward", "DragonClaw", "1")
+                CommF_:InvokeServer("BlackbeardReward", "DragonClaw", "2")
+            elseif r.Buy then 
+                CommF_:InvokeServer(r.Buy) 
+            end
+            
             task.wait(0.4); return EquipMelee(mName, false)
         end
     end
@@ -450,7 +500,7 @@ local function CheckHasFireEssence()
 end
 
 local function DeliverFireEssenceToUzoth()
-    -- Giao nộp từ xa không cần Tween
+    -- CÁC LOẠI ESSENCE/KEY ĐƯỢC PHÉP NỘP TỪ XA NHƯNG KHÔNG MUA VÕ Ở BƯỚC NÀY
     SetLog("🔥 FIRE ESSENCE FOUND!", "Submitting to Uzoth remotely...")
     local bp, c = LocalPlayer:FindFirstChild("Backpack"), GetChar()
     local fe = (bp and bp:FindFirstChild("Fire Essence")) or (c and c:FindFirstChild("Fire Essence"))
@@ -540,21 +590,38 @@ end
 local lastRk = nil
 TriggerRealKidMain = function(mode, target)
     _G.RealKidMainActive = true
-    local uid = tostring(LocalPlayer.UserId or "0")
     local tKey = string.format("%s_%s", tostring(mode), tostring(target))
 
     if lastRk ~= tKey then
         lastRk = tKey; SetLog("RealKid Main", string.format("Mode: %s | Tgt: %s", mode:upper(), tostring(target)))
         pcall(function()
+            -- Giải mã config gốc khổng lồ để cấu hình lại chính xác, không dùng config thiếu key
             local cfg = HttpService:JSONDecode([[{"EspSeaEventIsland":false,"UpgradeDragonTalon":false,"global_skill_weapons":["Melee","Sword","Blox Fruit","Gun"],"LeviathanMultiCannon":false,"GoToSharkmanNPC":false,"ValueDamageMultiSegments":60000,"AutoStartRaid":false,"AutoTrainV4":false,"auto_mastery_fruits":false,"WaitForHeartIce":false,"AutoMelee":false,"SelectBoatTarget":"My Boat","farm_m1_gun_sea":false,"DungeonAccountStart":false,"global_skill_hold_c":10,"AutoV3Target_Toggle":false,"selected_fighting_style":"Black Leg","ResetAfterTrial":false,"AutoFindKitsuneIsland":false,"AutoCollectGear":false,"HalloweenDoors":false,"AutoTpAncientClock":false,"selected_team":"Marines","AutoSwords":false,"discord_notice_spy":false,"FastAttackPlayers":true,"EspIslandLocation":false,"discord_notice_mirage":false,"AutoEliteQuest":false,"AutoDojoTrainer":false,"AutoDracoFully":false,"AutoDragoV3":false,"BaitSelection":"Basic Bait","auto_pirate_raid":false,"ChooseBoats":"MarineGrandBrigade","MasterySword":false,"auto_farm_sea_event":false,"discord_notice_stored_fruit":false,"discord_notice_profile":false,"AutoAwakening":false,"AutoSlapDodgeAABB":false,"EspChests":false,"ChooseSeaLevel":"Lv 1","AzureEmberToTrade":1,"discord_ping_mode":"Không ping","DisableNotify":false,"RemoveDeathRespawnVFX":false,"RemoveHitVFX":false,"AutoTpAncientOne":false,"HalloweenCandyPotion":false,"Berry":false,"AutoHopChest":false,"AntiAFK":true,"AutoLookAtMoon":false,"card_selection":[],"SafeMode":false,"EspAdvancedFruitsDealer":false,"autotwfruits":false,"selected_farm_target":"Bones","AutoCollectDragonEggs":false,"AutoYamaCDK":false,"HalloweenSummonJack":false,"JumpPowerSliderV2":50,"RandomAround":false,"AutoCraftEnchantScroll":false,"Initialize":true,"RaceV3Aura":true,"auto_zou_quest":false,"AutoFarmObservationHop":false,"auto_dragon_hunter":false,"AutoChooseV4Gear":false,"SwapDragoRace":false,"BusuAura":true,"autoshootgun":true,"global_skill_hold_z":10,"AutoPhoenixDungeon":false,"Select_Boss_Farm":"","HalloweenPumpkins":false,"MagicFruits":false,"AutoPickDungeonCards":false,"EspAuraColourDealers":false,"SelectedV4Gear2":"Alpha","RaceV4Aura":false,"Bringmob":true,"ignore_cake_prince":false,"ResetVolcanoAfterCollectingLoot":false,"AutoResetWhenCompleteVolcano":false,"AutoRemoveSkyFog":false,"AutoValkyrie":false,"AutoRelicDragoTrial":false,"auto_low_cpu_once":false,"AutoCollectDinoBones":false,"BringMobMax":"6","mastery_health_percent":30,"AutoTrainDragoV4":false,"auto_load_script":false,"EspGears":false,"AutoTushitaSword":false,"global_skill_keys":["Z","X","C"],"AutoDriveToHydraIsland":false,"auto_buy_style":false,"auto_farm_materials":false,"JumpPower":false,"auto_destroy_lava":true,"TweenSpeedV4":190,"InterfaceLanguage":"Tiếng Việt","AutoBuyV4Gear":false,"farm_m1_fruit_sea":false,"DungeonAutoJoin":false,"HalloweenHellfire":false,"AutoEscapeRoughSea":false,"AutoHydraLantern":false,"SelectedV4GearSlot":"Auto","AutoCollectAzureEmber":false,"AutoDriveToTikiOutport":false,"HalloweenOniChoice":"Celestial (Right)","EspBerries":false,"AutoFireShootHeartLeviathan":false,"auto_farm_general":false,"AttackMultiSegmentsLeviathan":false,"auto_farm_leviathan":false,"SpectatePlayer":false,"WalkSpeed":false,"AutoDefense":false,"HopBerry":false,"AutoHiddenQuest":false,"TweenToDragoTrials":false,"FarmMastery_G":false,"auto_patch_prehistoric":false,"AutoFindPrehistoricIsland":false,"AutoFindLeviathan":false,"accept_quests":false,"Chest":false,"auto_citizen_quest":false,"AutoTravel":false,"AutoBuyHakiRecipes":false,"EnchantScrollType":"CommonScroll","AutoTweenHighestPoint":false,"AutoCraftVolcanicMagnet":false,"AutoTradeAzureEmber":false,"selected_sea_events":[],"discord_fruit_rarities":["Common","Uncommon","Rare","Legendary","Mythical"],"AutoFindMirageIsland":false,"AutoPrayGravestone":false,"BoatSpeedV7":"220","discord_notice_prehistoric":false,"auto_farm_nearest":false,"AutoDragoV2":false,"multi_raid_players":[],"StopWhenChalice":false,"global_skill_hold_v":10,"BringMode":"400","auto_farm_tyrant":false,"AutoSellFish":false,"prehistoric_skull_guitar":false,"auto_factory_raid":false,"global_skill_hold_f":10,"AutoBuyChipFruit":false,"attack_method_golem":"Kill Aura","AutoGetCDK":false,"HalloweenSeedHop":false,"weapon_choice":"Melee","WalkSpeedSliderV2":100,"discord_notice_frozen":false,"auto_training_dummy":false,"AutoRedeemCodes":false,"EspFruits":false,"AutoSelectDungeon":false,"auto_sea_event_friend":false,"AutoSpawnPrehistoricIsland":true,"AutoSpawnRipIndra":false,"AutoRainbowColors":false,"AcceptRainbowQuest":false,"AutoSoulReaper":false,"AutoUnlockedPuzzle":false,"AutoCompleteTrialRace":false,"AutoYamaSword":false,"AutoHopSecretHint":false,"KenAura2":false,"AutoTeleportToShrineActived":false,"HalloweenAutoHat":false,"AutoPullLever":false,"tyrant_skull_guitar":false,"AutoStoreFruitFlag":false,"MaxChestHop":45,"HalloweenRandom":false,"AutoTweenAdvancedFruitDealer":false,"DungeonMinPlayers":2,"AutoBigmom":false,"ChangeTransparencyCanSee":false,"AutoSailBoat":false,"AutoBloxFruit":false,"AutoGun":false,"DungeonDifficulty":"Normal","account_pick_slot_raid":false,"AutoRandomBones":false,"AutoCanvendishSword":false,"raidnew":false,"AutoTeleportFrozenDimension":false,"AutoUnlockDoughDungeon":false,"AutoFarmMaterialSkullGuitar":false,"HalloweenWerewolf":false,"AutoSerpentBow":false,"AutoTryLuck":false,"AutoDragoV1":false,"auto_multi_raid":false,"global_skill_delay":100,"PvPAimRadius":150,"AutoTushitaCDK":false,"AutoStackDarkbeard":false,"EspPlayers":false,"AutoObservationV2":false,"auto_travel_dressrosa":false,"TeleportToPlayer":false,"AutoMirror":false,"AutoCollectMirageChest":false,"AutoBossToggle":false,"HalloweenJack":false,"AutoFarmObservation":false,"AutoSkullGuitar":false,"auto_farm_nearest_range":500,"farm_height_2":30,"AutoBuyFruitsFlag":false,"hopantirs":false,"AutoTwinHooks":false,"auto_break_bottle":false,"RodSelection":"Fishing Rod","AutoLeiAccessory":false,"AutoTweenEventFishingSpot":false,"AutoKillPlayerAfterTrial":false,"AutoOpenMenuHopFarm":false,"AutoTeleportBarista":false,"global_skill_hold_x":10,"AutoResetLostBoat":false,"AutoPrehistoricFully":false,"AutoQuestBoss":false}]])
-            cfg.auto_farm_general = (mode == "bones")
-            cfg.selected_farm_target = "Bones"
-            cfg.auto_farm_materials = (mode == "material")
-            if mode == "material" then cfg.material_choice = target end
-            cfg.Chest = (mode == "chest"); cfg.AutoHopChest = (mode == "chest"); cfg.MaxChestHop = 30
-            cfg.TweenSpeedV4 = 190; cfg.auto_load_script = false
+            
+            if mode == "material" then
+                cfg.auto_farm_general = false
+                cfg.auto_farm_materials = true
+                cfg.material_choice = target
+            elseif mode == "bones" then
+                cfg.auto_farm_general = true
+                cfg.selected_farm_target = "Bones"
+                cfg.auto_farm_materials = false
+            elseif mode == "chest" then
+                cfg.auto_farm_general = false
+                cfg.auto_farm_materials = false
+                cfg.Chest = true
+                cfg.AutoHopChest = true
+                cfg.MaxChestHop = 30
+            end
+            
+            cfg.TweenSpeedV4 = 190
+            cfg.auto_load_script = false
+            
             local e = HttpService:JSONEncode(cfg)
-            if writefile then writefile(mainConfigFileName, e); pcall(function() writefile("RealKid.json", e) end) end
+            if writefile then 
+                pcall(function() writefile("RealKid.json", e) end)
+                if mainConfigFileName then pcall(function() writefile(mainConfigFileName, e) end) end
+            end
             if getgenv then getgenv().RealKidConfig = cfg end
         end)
     end
@@ -653,8 +720,10 @@ end
 
 local function FarmTyrantRealtime(meleeName)
     _G.RealKidMainActive = false
+    -- Bắt buộc lấy Võ trước khi qua Sea đánh Boss
+    if meleeName and not EquipMelee(meleeName, true) then return end
     if GetCurrentSea() ~= 3 then TravelToSea(3); task.wait(2.5); return end
-    if meleeName then EquipMelee(meleeName, false) end; EquipBuso()
+    EquipBuso()
 
     local boss, bHum, bRoot = FindBossDeepScan("Tyrant")
     if not boss then task.wait(0.8); boss, bHum, bRoot = FindBossDeepScan("Tyrant") end
@@ -725,15 +794,22 @@ end
 local function FarmMaterial(mName, w)
     local c = MatTargets[mName]
     if not c then return end
+    
+    -- Bắt buộc lấy Võ trước khi qua Sea khác nhặt Material
+    if w and not EquipMelee(w, true) then return end
     if GetCurrentSea() ~= c.Sea then TravelToSea(c.Sea); task.wait(2.5); return end
-    if w then EquipMelee(w, false) end; EquipBuso(); ClaimQuest(c.Q, c.QID, c.Mob)
+    
+    EquipBuso(); ClaimQuest(c.Q, c.QID, c.Mob)
     SetLog("Mat: " .. mName, "Hold: " .. tostring(w))
     TriggerRealKidMain("material", mName)
 end
 
 local function FarmBoneMastery(w)
+    -- Bắt buộc lấy Võ trước khi cày Bones
+    if w and not EquipMelee(w, true) then return end
     if GetCurrentSea() ~= 3 then TravelToSea(3); task.wait(2.5); return end
-    if w and not EquipMelee(w, true) then return end; EquipBuso(); TryRollBone()
+    
+    EquipBuso(); TryRollBone()
     local lvl, h, t = GetPlayerLevel(), HasActiveQuest()
     local isB = t:find("skeleton") or t:find("zombie") or t:find("demonic") or t:find("mummy")
     if h and not isB and CommF_ then pcall(function() CommF_:InvokeServer("AbandonQuest") end); task.wait(0.2); h = false end
@@ -746,7 +822,7 @@ local function FarmBoneMastery(w)
     TriggerRealKidMain("bones", "Bones")
 end
 
--- ƯU TIÊN FARM MATERIAL TRƯỚC BONES
+-- ƯU TIÊN FARM MATERIAL TRƯỚC BONES KHI CẦN CÀY MASTERY
 local function FarmMasteryRoutine(w)
     local mat = NeedGodhumanMaterials()
     if mat then
@@ -763,8 +839,10 @@ end
 
 local function FarmTideKeeper(w)
     _G.RealKidMainActive = false
+    -- Lấy Võ xong mới đi tìm Boss
+    if w and not EquipMelee(w, true) then return end
     if GetCurrentSea() ~= 2 then TravelToSea(2); task.wait(2.5); return end
-    if w then EquipMelee(w, false) end; EquipBuso()
+    EquipBuso()
     
     local boss, hum, hrp = FindBossDeepScan("Tide Keeper")
     if boss and hum and hum.Health > 0 then
@@ -781,8 +859,10 @@ end
 
 local function FarmAwakenedIceAdmiral(w)
     _G.RealKidMainActive = false
+    -- Lấy Võ xong mới đi tìm Boss
+    if w and not EquipMelee(w, true) then return end
     if GetCurrentSea() ~= 2 then TravelToSea(2); task.wait(2.5); return end
-    if w then EquipMelee(w, false) end; EquipBuso()
+    EquipBuso()
     
     local boss, hum, hrp = FindBossDeepScan("Awakened Ice Admiral")
     if boss and hum and hum.Health > 0 then
@@ -861,6 +941,8 @@ local function RunAutoGodhumanStep()
             if tV2 == "Electric Claw" then
                 if not o["Electro"] then if b < 500000 then FarmChestHop30("Need 500K for Electro"); return end; EquipMelee("Electro", true); return end
                 if o["Electro"].Mastery < 400 then FarmMasteryRoutine("Electro"); return end
+                
+                -- Check trial start (bằng true thì là nộp ẩn)
                 if tostring(CommF_ and CommF_:InvokeServer("BuyElectricClaw", true)) == "4" then
                     if GetCurrentSea() ~= 3 then TravelToSea(3); task.wait(2.5); return end
                     SetLog("E-Claw Trial", "Tweening to Mansion..."); if TweenTo(CFrame.new(-12547.71, 320.14, -7487.06)) then task.wait(0.3); CommF_:InvokeServer("BuyElectricClaw", "Start") end
@@ -876,7 +958,7 @@ local function RunAutoGodhumanStep()
                 
                 local bp = LocalPlayer:FindFirstChild("Backpack")
                 local char = GetChar()
-                -- 1. Nộp Key từ xa bất cứ đâu (Không cần Tween)
+                -- Nộp Key từ xa nhưng chỉ để hoàn thành điều kiện
                 if (char and char:FindFirstChild("Water Key")) or (bp and bp:FindFirstChild("Water Key")) then
                     pcall(function() CommF_:InvokeServer("BuySharkmanKarate", true) end)
                     WaterKeyDelivered = true
@@ -894,7 +976,8 @@ local function RunAutoGodhumanStep()
 
                 if f < 5000 then FarmTyrantRealtime(GetAnyUnmaxedOwnedMelee(o)); return end
                 if b < 2500000 then FarmChestHop30("Need 2.5M for Sharkman"); return end
-                -- 2. Đã đủ điều kiện -> Mua và EquipMelee sẽ tự động Tween tới NPC
+                
+                -- Đã xong hết điều kiện -> Bây giờ mới gọi EquipMelee để TWEEN về NPC lấy võ
                 EquipMelee("Sharkman Karate", true); return
             end
             if tV2 == "Death Step" then
@@ -903,7 +986,7 @@ local function RunAutoGodhumanStep()
                 
                 local bp = LocalPlayer:FindFirstChild("Backpack")
                 local char = GetChar()
-                -- 1. Nộp Key từ xa bất cứ đâu (Không cần Tween)
+                -- Nộp Key từ xa để Unlock
                 if (char and char:FindFirstChild("Library Key")) or (bp and bp:FindFirstChild("Library Key")) then
                     pcall(function() CommF_:InvokeServer("BuyDeathStep", true) end)
                     LibraryKeyDelivered = true
@@ -921,7 +1004,8 @@ local function RunAutoGodhumanStep()
 
                 if f < 5000 then FarmTyrantRealtime(GetAnyUnmaxedOwnedMelee(o)); return end
                 if b < 2500000 then FarmChestHop30("Need 2.5M for Death Step"); return end
-                -- 2. Đã đủ điều kiện -> Mua và EquipMelee sẽ tự động Tween tới NPC
+                
+                -- Đã Unlock -> Tween về chỗ NPC Death Step để Buy/Equip
                 EquipMelee("Death Step", true); return
             end
             if tV2 == "Superhuman" then
@@ -950,6 +1034,8 @@ local function RunAutoGodhumanStep()
         if f < 5000 then FarmTyrantRealtime(GetAnyUnmaxedOwnedMelee(o)); return end
         if b < 5000000 then FarmChestHop30("Need 5M for Godhuman"); return end
         if GetCurrentSea() ~= 3 then TravelToSea(3); task.wait(2.5); return end
+        
+        -- Mua Godhuman luôn dùng cơ chế Tween
         SetLog("Unlocking Godhuman", "Tweening to Ancient Monk...")
         if TweenTo(MeleeReg["Godhuman"].CF + Vector3.new(0, 3, 0)) then task.wait(0.5); if CommF_ then CommF_:InvokeServer("BuyGodhuman") end end
     end)
