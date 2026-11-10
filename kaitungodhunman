@@ -36,48 +36,37 @@ repeat task.wait(0.2) until GetChar() and GetHRP() and GetHum()
 -- ==============================================================================
 -- [1] GLOBAL STATE & CONFIG
 -- ==============================================================================
-_G.AxiomHopConfig = _G.AxiomHopConfig or {
-    UseNightApi = false,
-    UseRealKidHop = true,
-    BossDestination = "Tyrant of Skies"
-}
+_G.AxiomHopConfig = { UseNightApi = false, UseRealKidHop = true, BossDestination = "Tyrant of Skies" }
 _G.AxiomGodhumanLoaded = true
 _G.AutoGodhuman = true
 
 local REALKID_PREMIUM_KEY = "TRAU_PREMIUM_306B4DB2D52F3D14BAB7247D2CC4B53D8E3C8EC77B572154"
 local UzothStatus, GodhumanStatus = "2", nil
 local GodhumanUnlocked, GodhumanMaterialsDelivered = false, false
-local FireEssenceDelivered, WaterKeyDelivered = false, false
+local FireEssenceDelivered, WaterKeyDelivered, LibraryKeyDelivered = false, false, false
 local IsHopping, IsTyrantHopping, isWaitingTyrantHop, isAutoGodhumanStepBusy = false, false, false, false
 
 Axiom = {
-    Running = true,
-    AutoGodhuman = true,
-    IsTweening = false,
-    HuntingTyrant = false,
-    MainLog = "Initializing...",
-    SubLog = "Starting Engine...",
-    Connections = {},
-    Cards = {},
-    PersistentOwnedMelees = {},
-    TweenInstance = nil,
-    ScreenGui = nil
+    Running = true, AutoGodhuman = true, IsTweening = false, HuntingTyrant = false,
+    MainLog = "Initializing...", SubLog = "Starting Engine...",
+    Connections = {}, Cards = {}, PersistentOwnedMelees = {}, TweenInstance = nil, ScreenGui = nil,
+    BossCache = {}
 }
 
-local function SetLog(mainText, subText)
-    if mainText and mainText ~= "" then Axiom.MainLog = tostring(mainText) end
-    if subText and subText ~= "" then Axiom.SubLog = tostring(subText) end
+local function SetLog(main, sub)
+    if main then Axiom.MainLog = tostring(main) end
+    if sub then Axiom.SubLog = tostring(sub) end
     if Axiom.MainLogLabel then Axiom.MainLogLabel.Text = "🎯 " .. Axiom.MainLog end
     if Axiom.SubLogLabel then Axiom.SubLogLabel.Text = "⚡ " .. Axiom.SubLog end
 end
 
 -- ==============================================================================
--- [2] SEA ROUTER & LOW SERVER HOP (ANTI-COLLISION TTL 60S)
+-- [2] SEA ROUTER & HYPER-FAST LOW SERVER HOP (CONCURRENT THREADING)
 -- ==============================================================================
 local SeaPlaceConfig = {
-    [1] = { PlaceIds = { 2753915549 }, TravelCmd = "TravelMain" },
-    [2] = { PlaceIds = { 4442272183, 79091703265657 }, TravelCmd = "TravelDressrosa" },
-    [3] = { PlaceIds = { 100117331123089, 7449423635 }, TravelCmd = "TravelZou" }
+    [1] = { PlaceIds = { 2753915549 }, Cmd = "TravelMain" },
+    [2] = { PlaceIds = { 4442272183, 79091703265657 }, Cmd = "TravelDressrosa" },
+    [3] = { PlaceIds = { 100117331123089, 7449423635 }, Cmd = "TravelZou" }
 }
 
 local function GetCurrentSea()
@@ -85,84 +74,141 @@ local function GetCurrentSea()
     for s, cfg in pairs(SeaPlaceConfig) do
         for _, id in ipairs(cfg.PlaceIds) do if pId == id then return s end end
     end
-    local attr = workspace:GetAttribute("MAP")
-    return (attr == "Sea1" and 1) or (attr == "Sea2" and 2) or 3
+    return (workspace:GetAttribute("MAP") == "Sea1" and 1) or (workspace:GetAttribute("MAP") == "Sea2" and 2) or 3
 end
 
-local function TravelToSea(targetSea)
-    if GetCurrentSea() == targetSea then return true end
-    SetLog("Travel Sea " .. targetSea, "Teleporting...")
-    if CommF_ and SeaPlaceConfig[targetSea] then
-        pcall(function() CommF_:InvokeServer(SeaPlaceConfig[targetSea].TravelCmd) end)
-        task.wait(1.5)
-    end
-    pcall(function() TeleportService:Teleport(SeaPlaceConfig[targetSea].PlaceIds[1], LocalPlayer) end)
+local function TravelToSea(tgt)
+    if GetCurrentSea() == tgt then return true end
+    SetLog("Travel Sea " .. tgt, "Teleporting...")
+    if CommF_ and SeaPlaceConfig[tgt] then pcall(function() CommF_:InvokeServer(SeaPlaceConfig[tgt].Cmd) end); task.wait(1.5) end
+    pcall(function() TeleportService:Teleport(SeaPlaceConfig[tgt].PlaceIds[1], LocalPlayer) end)
     return false
 end
 
-local SESSION_FILE, SESSION_TTL = "godhumansession", 60
-local VisitedServers = {}
-
+local SESSION_FILE, SESSION_TTL, VisitedServers = "godhumansession", 60, {}
 local function GetActiveSessions()
     local s = {}
     if isfile and isfile(SESSION_FILE) then
         pcall(function()
-            local d = HttpService:JSONDecode(readfile(SESSION_FILE))
-            local now = os.time()
-            for jId, info in pairs(d or {}) do
+            for jId, info in pairs(HttpService:JSONDecode(readfile(SESSION_FILE)) or {}) do
                 local t = (type(info) == "table" and info.time) or tonumber(info)
-                if t and (now - t < SESSION_TTL) then s[tostring(jId)] = info end
+                if t and (os.time() - t < SESSION_TTL) then s[tostring(jId)] = info end
             end
         end)
     end
     return s
 end
 
-local function IsServerOccupiedByClone(jobId)
+local function IsServerOccupied(jobId)
     local occ = GetActiveSessions()[tostring(jobId)]
     if occ then
-        local t = (type(occ) == "table" and occ.time) or tonumber(occ)
-        local p = type(occ) == "table" and occ.player or ""
+        local t, p = (type(occ) == "table" and occ.time) or tonumber(occ), type(occ) == "table" and occ.player or ""
         if t and (os.time() - t < SESSION_TTL) and p ~= LocalPlayer.Name then return true end
     end
     return false
 end
 
-local function AttemptServerJoin(jobId)
-    if not jobId or jobId == "" or jobId == tostring(game.JobId) or IsServerOccupiedByClone(jobId) then return end
-    table.insert(VisitedServers, jobId)
-    pcall(function()
-        local s = GetActiveSessions()
-        s[jobId] = { time = os.time(), player = LocalPlayer.Name, jobId = jobId }
-        if writefile then writefile(SESSION_FILE, HttpService:JSONEncode(s)) end
-    end)
-    SetLog("Hopping Server", "Job: " .. tostring(jobId):sub(1, 8))
-    local sb = ReplicatedStorage:FindFirstChild("__ServerBrowser")
-    if not (sb and pcall(function() sb:InvokeServer("teleport", jobId) end)) then
-        TeleportService:TeleportToPlaceInstance(game.PlaceId, jobId, LocalPlayer)
-    end
-    task.wait(5)
-end
-
 local function HopLowServer()
     if IsHopping then return end
-    IsHopping = true
-    SetLog("Hop Low Server", "Scanning low-player servers...")
+    IsHopping = true; SetLog("Hop Low Server", "Scanning for least populated server...")
+    
     task.spawn(function()
         while Axiom.Running and IsHopping do
             local sb = ReplicatedStorage:FindFirstChild("__ServerBrowser")
+            local rawServers = {}
+            local pagesCompleted = 0
+            local targetPages = 150
+            local startScrape = os.clock()
+
             if sb then
-                for page = 1, 50 do
-                    local ok, res = pcall(function() return sb:InvokeServer(page) end)
-                    if ok and type(res) == "table" then
-                        for jId, data in pairs(res) do
-                            local c = (type(data) == "table" and tonumber(data.Count)) or 99
-                            if c <= 8 and tostring(jId) ~= tostring(game.JobId) and not table.find(VisitedServers, tostring(jId)) then
-                                AttemptServerJoin(tostring(jId))
+                for page = 1, targetPages do
+                    task.spawn(function()
+                        for attempt = 1, 2 do
+                            local ok, res = pcall(function() return sb:InvokeServer(page) end)
+                            if ok and type(res) == "table" then
+                                for jId, data in pairs(res) do
+                                    local c = (type(data) == "table" and tonumber(data.Count)) or tonumber(data) or 99
+                                    local jStr = tostring(jId)
+                                    if c <= 5 and jStr ~= tostring(game.JobId) and not table.find(VisitedServers, jStr) then
+                                        rawServers[jStr] = c
+                                    end
+                                end
+                                break
                             end
+                            task.wait(0.04)
                         end
+                        pagesCompleted = pagesCompleted + 1
+                    end)
+                end
+                
+                repeat task.wait(0.05) until pagesCompleted >= targetPages or (os.clock() - startScrape >= 3.5)
+
+                -- Thuật toán tìm server vắng nhất <= 5 người
+                local bestJob, minP = nil, 6
+                for jStr, c in pairs(rawServers) do
+                    if c < minP and not IsServerOccupied(jStr) then
+                        bestJob = jStr
+                        minP = c
                     end
                 end
+                
+                if bestJob then
+                    table.insert(VisitedServers, bestJob)
+                    pcall(function()
+                        local s = GetActiveSessions()
+                        s[bestJob] = { time = os.time(), player = LocalPlayer.Name, jobId = bestJob }
+                        if writefile then writefile(SESSION_FILE, HttpService:JSONEncode(s)) end
+                    end)
+                    SetLog("Hopping", string.format("Job: %s | P: %d", bestJob:sub(1,8), minP))
+                    
+                    if not pcall(function() sb:InvokeServer("teleport", bestJob) end) then
+                        TeleportService:TeleportToPlaceInstance(game.PlaceId, bestJob, LocalPlayer)
+                    end
+                    task.wait(6)
+                end
+            end
+            
+            -- API Fallback tìm người ít nhất
+            local cursor = ""
+            local loopCount = 0
+            local bestApiJob, minApiP = nil, 6
+            while cursor and loopCount < 5 do
+                loopCount = loopCount + 1
+                local url = string.format("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100%s", game.PlaceId, (cursor ~= "" and "&cursor=" .. cursor or ""))
+                local ok, res = pcall(function() return game:HttpGet(url) end)
+                if ok and res then
+                    local okJson, data = pcall(function() return HttpService:JSONDecode(res) end)
+                    if okJson and data and data.data then
+                        for _, s in ipairs(data.data) do
+                            local sId = tostring(s.id)
+                            local sCount = tonumber(s.playing) or 0
+                            if sCount <= 5 and sId ~= tostring(game.JobId) and not table.find(VisitedServers, sId) and not IsServerOccupied(sId) then
+                                if sCount < minApiP then
+                                    minApiP = sCount
+                                    bestApiJob = sId
+                                end
+                            end
+                        end
+                        cursor = data.nextPageCursor
+                        if not cursor or cursor == "" then break end
+                    else
+                        break
+                    end
+                else
+                    break
+                end
+            end
+            
+            if bestApiJob then
+                table.insert(VisitedServers, bestApiJob)
+                pcall(function()
+                    local sData = GetActiveSessions()
+                    sData[bestApiJob] = { time = os.time(), player = LocalPlayer.Name, jobId = bestApiJob }
+                    if writefile then writefile(SESSION_FILE, HttpService:JSONEncode(sData)) end
+                end)
+                SetLog("Hopping (API)", string.format("Job: %s | P: %d", bestApiJob:sub(1,8), minApiP))
+                TeleportService:TeleportToPlaceInstance(game.PlaceId, bestApiJob, LocalPlayer)
+                task.wait(6)
             end
             task.wait(1)
         end
@@ -173,17 +219,16 @@ task.spawn(function()
     while task.wait(10) do
         if Axiom.Running and writefile and game.JobId ~= "" then
             pcall(function()
-                local s = GetActiveSessions()
-                s[tostring(game.JobId)] = { time = os.time(), player = LocalPlayer.Name, jobId = tostring(game.JobId) }
+                local s = GetActiveSessions(); s[tostring(game.JobId)] = { time = os.time(), player = LocalPlayer.Name, jobId = tostring(game.JobId) }
                 writefile(SESSION_FILE, HttpService:JSONEncode(s))
             end)
-            if IsServerOccupiedByClone(game.JobId) and not IsHopping then HopLowServer() end
+            if IsServerOccupied(game.JobId) and not IsHopping then HopLowServer() end
         end
     end
 end)
 
 -- ==============================================================================
--- [3] ANTI-GRAVITY, NOCLIP & TWEEN ENGINE (REALKID HOP GUARD)
+-- [3] ANTI-GRAVITY & TWEEN
 -- ==============================================================================
 local function SetAntiGravity(enable)
     local hrp = GetHRP()
@@ -192,8 +237,7 @@ local function SetAntiGravity(enable)
         if hrp then
             local bv = hrp:FindFirstChild("__AxiomHoverStabilizer") or Instance.new("BodyVelocity")
             bv.Name = "__AxiomHoverStabilizer"; bv.Parent = hrp
-            bv.MaxForce = Axiom.IsTweening and Vector3.zero or Vector3.new(1e9, 1e9, 1e9)
-            bv.Velocity = Vector3.zero
+            bv.MaxForce = Axiom.IsTweening and Vector3.zero or Vector3.new(1e9, 1e9, 1e9); bv.Velocity = Vector3.zero
         end
     else
         workspace.Gravity = 196.2
@@ -205,18 +249,13 @@ table.insert(Axiom.Connections, RunService.Stepped:Connect(function()
     if Axiom.Running and Axiom.AutoGodhuman then
         SetAntiGravity(true)
         local c = GetChar()
-        if c then
-            for _, p in ipairs(c:GetDescendants()) do if p:IsA("BasePart") then p.CanCollide = false end end
-        end
+        if c then for _, p in ipairs(c:GetDescendants()) do if p:IsA("BasePart") then p.CanCollide = false end end end
     end
 end))
 
-local function TweenTo(targetCF, allowWhenRealKidActive)
-    -- [QUY TẮC BẮT BUỘC]: RealKid đang chạy mà cần Tween (trừ khi nộp khẩn cấp Fire Essence) -> Phải Hop Low Server!
-    if not allowWhenRealKidActive and (_G.RealKidMainActive or _G.RealKidMainLoaded or _G.RealKidHopLoaded) then
-        SetLog("Refreshing Server", "RealKid active -> Hopping before Tween...")
-        task.spawn(HopLowServer)
-        return false
+local function TweenTo(targetCF, allowRealKid)
+    if not allowRealKid and (_G.RealKidMainActive or _G.RealKidMainLoaded or _G.RealKidHopLoaded) then
+        SetLog("Refreshing Server", "RealKid active -> Hopping before Tween..."); task.spawn(HopLowServer); return false
     end
     local hrp = GetHRP()
     if not hrp or not Axiom.Running or not Axiom.AutoGodhuman then return false end
@@ -238,10 +277,7 @@ local function TweenTo(targetCF, allowWhenRealKidActive)
         if curDist <= 5 then pcall(function() Axiom.TweenInstance:Cancel() end); break end
         if curDist > lastDist + 5 then
             strikes = strikes + 1
-            if strikes >= 5 then
-                pcall(function() Axiom.TweenInstance:Cancel() end)
-                Axiom.IsTweening = false; task.wait(1); return false
-            end
+            if strikes >= 5 then pcall(function() Axiom.TweenInstance:Cancel() end); Axiom.IsTweening = false; task.wait(1); return false end
         end
         lastDist = curDist
     end
@@ -250,188 +286,134 @@ local function TweenTo(targetCF, allowWhenRealKidActive)
 end
 
 -- ==============================================================================
--- [4] DATA REGISTRY, INVENTORY & MASTERY RADAR
+-- [4] REGISTRY & MASTERY
 -- ==============================================================================
-local MeleeRegistry = {
-    ["Black Leg"]       = { ID = 1456, Req = 400, NPC = "Dark Step Teacher",     CFrame = CFrame.new(-5045.60, 370.01, -3182.30),  BuyRemote = "BuyBlackLeg",       Beli = 150000,  Frags = 0 },
-    ["Electro"]         = { ID = 1129, Req = 400, NPC = "Mad Scientist",         CFrame = CFrame.new(-4996.05, 313.21, -3201.82),  BuyRemote = "BuyElectro",        Beli = 500000,  Frags = 0 },
-    ["Fishman Karate"]  = { ID = 1134, Req = 400, NPC = "Water Kung-fu Teacher", CFrame = CFrame.new(-5023.91, 371.03, -3191.46),  BuyRemote = "BuyFishmanKarate",  Beli = 750000,  Frags = 0 },
-    ["Dragon Claw"]     = { ID = 1144, Req = 400, NPC = "Sabi",                  CFrame = CFrame.new(-4981.16, 370.01, -3208.34),  BuyRemote = "BlackbeardReward",  Beli = 0,       Frags = 1500 },
-    ["Superhuman"]      = { ID = 1162, Req = 400, NPC = "Martial Arts Master",   CFrame = CFrame.new(-5004.72, 370.42, -3198.92),  BuyRemote = "BuySuperhuman",     Beli = 3000000, Frags = 0 },
-    ["Death Step"]      = { ID = 1184, Req = 400, NPC = "Phoeyu, the Reformed",  CFrame = CFrame.new(-4999.23, 314.01, -3221.57),  BuyRemote = "BuyDeathStep",      Beli = 2500000, Frags = 5000 },
-    ["Sharkman Karate"] = { ID = 1194, Req = 400, NPC = "Sharkman Teacher",      CFrame = CFrame.new(-4971.21, 313.89, -3223.08),  BuyRemote = "BuySharkmanKarate", Beli = 2500000, Frags = 5000 },
-    ["Electric Claw"]   = { ID = 1198, Req = 400, NPC = "Previous Hero",         CFrame = CFrame.new(-10371.47, 330.76, -10131.42),BuyRemote = "BuyElectricClaw",   Beli = 3000000, Frags = 5000 },
-    ["Dragon Talon"]    = { ID = 1225, Req = 400, NPC = "Uzoth",                 CFrame = CFrame.new(5661.90, 1210.88, 863.18),    BuyRemote = "BuyDragonTalon",    Beli = 3000000, Frags = 5000 },
-    ["Godhuman"]        = { ID = 1240, Req = 600, NPC = "Ancient Monk",          CFrame = CFrame.new(-13774.09, 333.73, -9879.91), BuyRemote = "BuyGodhuman",       Beli = 5000000, Frags = 5000 }
+local MeleeReg = {
+    ["Black Leg"]       = { ID = 1456, Req = 400, CF = CFrame.new(-5045.60, 370.01, -3182.30),  Buy = "BuyBlackLeg",       B = 150000,  F = 0 },
+    ["Electro"]         = { ID = 1129, Req = 400, CF = CFrame.new(-4996.05, 313.21, -3201.82),  Buy = "BuyElectro",        B = 500000,  F = 0 },
+    ["Fishman Karate"]  = { ID = 1134, Req = 400, CF = CFrame.new(-5023.91, 371.03, -3191.46),  Buy = "BuyFishmanKarate",  B = 750000,  F = 0 },
+    ["Dragon Claw"]     = { ID = 1144, Req = 400, CF = CFrame.new(-4981.16, 370.01, -3208.34),  Buy = "BlackbeardReward",  B = 0,       F = 1500 },
+    ["Superhuman"]      = { ID = 1162, Req = 400, CF = CFrame.new(-5004.72, 370.42, -3198.92),  Buy = "BuySuperhuman",     B = 3000000, F = 0 },
+    ["Death Step"]      = { ID = 1184, Req = 400, CF = CFrame.new(-4999.23, 314.01, -3221.57),  Buy = "BuyDeathStep",      B = 2500000, F = 5000 },
+    ["Sharkman Karate"] = { ID = 1194, Req = 400, CF = CFrame.new(-4971.21, 313.89, -3223.08),  Buy = "BuySharkmanKarate", B = 2500000, F = 5000 },
+    ["Electric Claw"]   = { ID = 1198, Req = 400, CF = CFrame.new(-10371.47, 330.76, -10131.42),Buy = "BuyElectricClaw",   B = 3000000, F = 5000 },
+    ["Dragon Talon"]    = { ID = 1225, Req = 400, CF = CFrame.new(5661.90, 1210.88, 863.18),    Buy = "BuyDragonTalon",    B = 3000000, F = 5000 },
+    ["Godhuman"]        = { ID = 1240, Req = 600, CF = CFrame.new(-13774.09, 333.73, -9879.91), Buy = "BuyGodhuman",       B = 5000000, F = 5000 }
 }
 
-local MaterialFarmTargets = {
-    ["Dragon Scale"]   = { Required = 10, ItemId = 584, TargetSea = 3, Quest = "DragonCrewQuest",   QuestId = 2, Mob = "Dragon Crew Archer" },
-    ["Fish Tail"]      = { Required = 20, ItemId = 548, TargetSea = 3, Quest = "DeepForestIsland3", QuestId = 2, Mob = "Fishman Captain" },
-    ["Mystic Droplet"] = { Required = 10, ItemId = 551, TargetSea = 2, Quest = "ForgottenQuest",    QuestId = 1, Mob = "Sea Soldier" },
-    ["Magma Ore"]      = { Required = 20, ItemId = 581, TargetSea = 2, Quest = "FireQuest",         QuestId = 2, Mob = "Lava Pirate" }
+local MatTargets = {
+    ["Dragon Scale"]   = { Req = 10, ID = 584, Sea = 3, Q = "DragonCrewQuest",   QID = 2, Mob = "Dragon Crew Archer" },
+    ["Fish Tail"]      = { Req = 20, ID = 548, Sea = 3, Q = "DeepForestIsland3", QID = 2, Mob = "Fishman Captain" },
+    ["Mystic Droplet"] = { Req = 10, ID = 551, Sea = 2, Q = "ForgottenQuest",    QID = 1, Mob = "Sea Soldier" },
+    ["Magma Ore"]      = { Req = 20, ID = 581, Sea = 2, Q = "FireQuest",         QID = 2, Mob = "Lava Pirate" }
 }
 
-local MeleeAliases = {
-    ["Dragon Claw"] = { "dragonclaw", "dragonbreath" },
-    ["Black Leg"] = { "blackleg", "darkstep" },
-    ["Fishman Karate"] = { "fishmankarate", "waterkungfu" },
-    ["Electro"] = { "electro" },
-    ["Superhuman"] = { "superhuman" },
-    ["Death Step"] = { "deathstep" },
-    ["Sharkman Karate"] = { "sharkman", "sharkmankarate" },
-    ["Electric Claw"] = { "electricclaw", "eclaw" },
-    ["Dragon Talon"] = { "dragontalon", "talon" },
-    ["Godhuman"] = { "godhuman" }
+local MeleeAlias = {
+    ["Dragon Claw"] = {"dragonclaw", "dragonbreath"}, ["Black Leg"] = {"blackleg", "darkstep"}, ["Fishman Karate"] = {"fishmankarate", "waterkungfu"},
+    ["Electro"] = {"electro"}, ["Superhuman"] = {"superhuman"}, ["Death Step"] = {"deathstep"}, ["Sharkman Karate"] = {"sharkman"},
+    ["Electric Claw"] = {"electricclaw", "eclaw"}, ["Dragon Talon"] = {"dragontalon", "talon"}, ["Godhuman"] = {"godhuman"}
 }
 
-local function MatchMeleeName(toolName, targetName)
-    if not toolName or not targetName then return false end
-    local t = toolName:lower():gsub("[%s%-_]", "")
-    local tg = targetName:lower():gsub("[%s%-_]", "")
+local function MatchMelee(tName, tgtName)
+    if not tName or not tgtName then return false end
+    local t, tg = tName:lower():gsub("[%s%-_]", ""), tgtName:lower():gsub("[%s%-_]", "")
     if tg == "electro" and t:find("claw") then return false end
     if tg == "dragonclaw" and t:find("talon") then return false end
     if tg == "fishmankarate" and t:find("sharkman") then return false end
     if tg == "blackleg" and t:find("death") then return false end
     if t == tg or t:find(tg, 1, true) then return true end
-    for _, a in ipairs(MeleeAliases[targetName] or {}) do
-        if t:find(a, 1, true) then return true end
-    end
+    for _, a in ipairs(MeleeAlias[tgtName] or {}) do if t:find(a, 1, true) then return true end end
     return false
 end
 
-local CachedMastery, LastMasteryTick = nil, 0
+local CachedMast, LastMastTick = nil, 0
 local function FetchOwnedMastery()
-    if CachedMastery and (os.clock() - LastMasteryTick < 1.0) then return CachedMastery end
-    LastMasteryTick = os.clock()
-    local owned, raw = {}, {}
+    if CachedMast and (os.clock() - LastMastTick < 1.0) then return CachedMast end
+    LastMastTick = os.clock(); local owned, raw = {}, {}
     pcall(function()
         local rf = ReplicatedStorage:FindFirstChild("RF/GetAllItemValues", true)
         if rf then
-            for _, item in pairs(rf:InvokeServer() or {}) do
-                if type(item) == "table" and item.ItemId and (item.Key == "Mastery" or item.Key == "CombatData") then
-                    raw[tonumber(item.ItemId)] = tonumber(item.Value)
-                end
+            for _, i in pairs(rf:InvokeServer() or {}) do
+                if type(i) == "table" and i.ItemId and (i.Key == "Mastery" or i.Key == "CombatData") then raw[tonumber(i.ItemId)] = tonumber(i.Value) end
             end
         end
     end)
-    for name, reg in pairs(MeleeRegistry) do
-        local m = reg.ID and raw[reg.ID]
-        if m and m > 0 then
-            owned[name] = { Name = name, Mastery = m, Req = reg.Req }
-            Axiom.PersistentOwnedMelees[name] = m
-        end
+    for n, r in pairs(MeleeReg) do
+        local m = r.ID and raw[r.ID]
+        if m and m > 0 then owned[n] = { Name = n, Mastery = m, Req = r.Req }; Axiom.PersistentOwnedMelees[n] = m end
     end
     pcall(function()
-        local tool = GetChar() and GetChar():FindFirstChildOfClass("Tool")
-        if tool then
-            for name, reg in pairs(MeleeRegistry) do
-                if MatchMeleeName(tool.Name, name) then
-                    local lvl = tool:FindFirstChild("Level") and tonumber(tool.Level.Value)
+        local t = GetChar() and GetChar():FindFirstChildOfClass("Tool")
+        if t then
+            for n, r in pairs(MeleeReg) do
+                if MatchMelee(t.Name, n) then
+                    local lvl = t:FindFirstChild("Level") and tonumber(t.Level.Value)
                     if lvl and lvl > 0 then
-                        owned[name] = { Name = name, Mastery = math.max(lvl, (owned[name] and owned[name].Mastery) or 0), Req = reg.Req }
-                        Axiom.PersistentOwnedMelees[name] = owned[name].Mastery
+                        owned[n] = { Name = n, Mastery = math.max(lvl, (owned[n] and owned[n].Mastery) or 0), Req = r.Req }
+                        Axiom.PersistentOwnedMelees[n] = owned[n].Mastery
                     end
                 end
             end
         end
     end)
-    for pName, pVal in pairs(Axiom.PersistentOwnedMelees) do
-        if not owned[pName] and MeleeRegistry[pName] then
-            owned[pName] = { Name = pName, Mastery = pVal, Req = MeleeRegistry[pName].Req }
-        end
-    end
-    CachedMastery = owned
-    return owned
+    for pN, pV in pairs(Axiom.PersistentOwnedMelees) do if not owned[pN] and MeleeReg[pN] then owned[pN] = { Name = pN, Mastery = pV, Req = MeleeReg[pN].Req } end end
+    CachedMast = owned; return owned
 end
 
-local function GetMaterialCount(matName, matId)
+local function GetMatCount(mName, mId)
     local c = 0
     pcall(function()
         local rf = ReplicatedStorage:FindFirstChild("RF/GetAllItemValues", true)
-        if rf and matId and matId > 0 then
-            for _, item in pairs(rf:InvokeServer() or {}) do
-                if type(item) == "table" and tonumber(item.ItemId) == matId and tonumber(item.Value) then
-                    c = tonumber(item.Value); return
-                end
+        if rf and mId > 0 then
+            for _, i in pairs(rf:InvokeServer() or {}) do
+                if type(i) == "table" and tonumber(i.ItemId) == mId and tonumber(i.Value) then c = tonumber(i.Value); return end
             end
         end
         if CommF_ then
             for _, v in pairs(CommF_:InvokeServer("getInventory") or {}) do
-                if type(v) == "table" and (v.Name == matName or v.StorageKey == matName) then
-                    c = v.Count or v.Value or 0; return
-                end
+                if type(v) == "table" and (v.Name == mName or v.StorageKey == mName) then c = v.Count or v.Value or 0; return end
             end
         end
     end)
     return c
 end
 
-local function GetCurrency(name)
-    local d = LocalPlayer:FindFirstChild("Data")
-    return (d and d:FindFirstChild(name) and d[name].Value) or 0
-end
+local function GetCurrency(n) local d = LocalPlayer:FindFirstChild("Data"); return (d and d:FindFirstChild(n) and d[n].Value) or 0 end
+local function GetPlayerLevel() local d = LocalPlayer:FindFirstChild("Data"); return (d and d:FindFirstChild("Level") and tonumber(d.Level.Value)) or 1 end
+local function EquipBuso() if GetChar() and not GetChar():FindFirstChild("HasBuso") and CommF_ then pcall(function() CommF_:InvokeServer("Buso") end) end end
 
-local function GetPlayerLevel()
-    local d = LocalPlayer:FindFirstChild("Data")
-    return (d and d:FindFirstChild("Level") and tonumber(d.Level.Value)) or 1
-end
-
-local function EquipBuso()
-    if GetChar() and not GetChar():FindFirstChild("HasBuso") and CommF_ then
-        pcall(function() CommF_:InvokeServer("Buso") end)
-    end
-end
-
-local function EquipMelee(meleeName, allowNpcTravel)
-    local char = GetChar()
-    if not char or not meleeName then return false end
-    local held = char:FindFirstChildOfClass("Tool")
-    if held and (MatchMeleeName(held.Name, meleeName) or held.Name:lower():find(meleeName:lower(), 1, true)) then return true end
+local function EquipMelee(mName, allowTravel)
+    local c = GetChar()
+    if not c or not mName then return false end
+    local h = c:FindFirstChildOfClass("Tool")
+    if h and (MatchMelee(h.Name, mName) or h.Name:lower():find(mName:lower(), 1, true)) then return true end
 
     local bp = LocalPlayer:FindFirstChild("Backpack")
     if bp then
         for _, t in ipairs(bp:GetChildren()) do
-            if t:IsA("Tool") and (MatchMeleeName(t.Name, meleeName) or t.Name:lower():find(meleeName:lower(), 1, true)) then
+            if t:IsA("Tool") and (MatchMelee(t.Name, mName) or t.Name:lower():find(mName:lower(), 1, true)) then
                 if GetHum() then GetHum():EquipTool(t); return true end
             end
         end
     end
-
-    if (meleeName == "Yama" or meleeName == "Tushita") and CommF_ then
-        pcall(function() CommF_:InvokeServer("LoadItem", meleeName) end)
-        task.wait(0.2)
-        if bp then
-            for _, t in ipairs(bp:GetChildren()) do
-                if t:IsA("Tool") and t.Name:lower():find(meleeName:lower(), 1, true) then
-                    if GetHum() then GetHum():EquipTool(t); return true end
-                end
-            end
-        end
-    end
-
-    if allowNpcTravel ~= false and MeleeRegistry[meleeName] then
-        local reg = MeleeRegistry[meleeName]
+    -- Chức năng Buy / Equip: Bắt buộc Tween tới NPC
+    if allowTravel ~= false and MeleeReg[mName] then
+        local r = MeleeReg[mName]
         if GetCurrentSea() ~= 3 then TravelToSea(3); task.wait(2.5); return false end
-        SetLog("Equip/Buy " .. meleeName, "Tweening to " .. reg.NPC)
-        if TweenTo(reg.CFrame + Vector3.new(0, 4, 0)) then
+        SetLog("Equip/Buy " .. mName, "Tweening to NPC")
+        if TweenTo(r.CF + Vector3.new(0, 4, 0)) then
             task.wait(0.3)
             if GetHum() then pcall(function() GetHum():UnequipTools() end) end
-            if reg.BuyRemote == "BlackbeardReward" then
-                CommF_:InvokeServer("BlackbeardReward", "DragonClaw", "1")
-                CommF_:InvokeServer("BlackbeardReward", "DragonClaw", "2")
-            elseif reg.BuyRemote then
-                CommF_:InvokeServer(reg.BuyRemote)
-            end
-            task.wait(0.4)
-            return EquipMelee(meleeName, false)
+            if r.Buy == "BlackbeardReward" then CommF_:InvokeServer("BlackbeardReward", "DragonClaw", "1"); CommF_:InvokeServer("BlackbeardReward", "DragonClaw", "2")
+            elseif r.Buy then CommF_:InvokeServer(r.Buy) end
+            task.wait(0.4); return EquipMelee(mName, false)
         end
     end
     return false
 end
 
 -- ==============================================================================
--- [5] FAST ATTACK, BONES & FIRE ESSENCE DELIVERY (IMMEDIATE SUBMIT)
+-- [5] FAST ATTACK & BONES
 -- ==============================================================================
 local lastFaTick = 0
 table.insert(Axiom.Connections, RunService.Heartbeat:Connect(function()
@@ -439,109 +421,78 @@ table.insert(Axiom.Connections, RunService.Heartbeat:Connect(function()
     if os.clock() - lastFaTick < 0.08 then return end
     lastFaTick = os.clock()
     pcall(function()
-        local hrp = GetHRP()
-        if not hrp then return end
-        local enemies = workspace:FindFirstChild("Enemies")
-        if not enemies then return end
-        local hitParts, primary = {}, nil
-        for _, mob in ipairs(enemies:GetChildren()) do
-            local hum = mob:FindFirstChildOfClass("Humanoid")
-            local mRoot = mob:FindFirstChild("HumanoidRootPart")
-            if hum and hum.Health > 0 and mRoot and (hrp.Position - mRoot.Position).Magnitude <= 80 then
-                table.insert(hitParts, { mob, mRoot })
-                if not primary then primary = mRoot end
+        local hrp = GetHRP(); local e = workspace:FindFirstChild("Enemies")
+        if not hrp or not e then return end
+        local hp, pri = {}, nil
+        for _, m in ipairs(e:GetChildren()) do
+            local h, mr = m:FindFirstChildOfClass("Humanoid"), m:FindFirstChild("HumanoidRootPart")
+            if h and h.Health > 0 and mr and (hrp.Position - mr.Position).Magnitude <= 80 then
+                table.insert(hp, { m, mr }); if not pri then pri = mr end
             end
         end
-        if not primary then return end
-        local net = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("Net")
-        if net then
-            local ra = net:FindFirstChild("RE/RegisterAttack")
-            local rh = net:FindFirstChild("RE/RegisterHit")
-            if ra then ra:FireServer() end
-            if rh then rh:FireServer(primary, hitParts) end
+        if not pri then return end
+        local n = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("Net")
+        if n then
+            local ra, rh = n:FindFirstChild("RE/RegisterAttack"), n:FindFirstChild("RE/RegisterHit")
+            if ra then ra:FireServer() end; if rh then rh:FireServer(pri, hp) end
         end
-        VirtualUser:CaptureController()
-        VirtualUser:Button1Down(Vector2.new(100, 100))
+        VirtualUser:CaptureController(); VirtualUser:Button1Down(Vector2.new(100, 100))
     end)
 end))
 
-local isBoneOnCooldown, boneCooldownString, lastBoneCdCheckTick = false, nil, 0
-local CurrentBonesCount, lastBonesCheckTick, lastBoneRollTick = 0, 0, 0
+local isBoneCd, cdStr, lastCdTk = false, nil, 0
+local bCount, lastBCheck, lastRoll = 0, 0, 0
 
 local function CheckHasFireEssence()
     local c, bp = GetChar(), LocalPlayer:FindFirstChild("Backpack")
     if (c and c:FindFirstChild("Fire Essence")) or (bp and bp:FindFirstChild("Fire Essence")) then return true end
-    return GetMaterialCount("Fire Essence", 0) > 0
+    return GetMatCount("Fire Essence", 0) > 0
 end
 
--- [LƯU Ý QUAN TRỌNG]: Ra Fire Essence là phải nộp ngay, KHÔNG ĐƯỢC HOP SERVER kẻo mất!
 local function DeliverFireEssenceToUzoth()
-    if GetCurrentSea() ~= 3 then return false end
-    SetLog("🔥 FIRE ESSENCE FOUND!", "Delivering immediately to Uzoth...")
-    local bp = LocalPlayer:FindFirstChild("Backpack")
-    local fe = (bp and bp:FindFirstChild("Fire Essence")) or (GetChar() and GetChar():FindFirstChild("Fire Essence"))
+    -- Giao nộp từ xa không cần Tween
+    SetLog("🔥 FIRE ESSENCE FOUND!", "Submitting to Uzoth remotely...")
+    local bp, c = LocalPlayer:FindFirstChild("Backpack"), GetChar()
+    local fe = (bp and bp:FindFirstChild("Fire Essence")) or (c and c:FindFirstChild("Fire Essence"))
     if fe and GetHum() then pcall(function() GetHum():EquipTool(fe) end); task.wait(0.2) end
-
-    -- Gọi thẳng Remote nộp trước, sau đó dùng allowWhenRealKidActive = true để bay thẳng tới Uzoth mà không Hop
-    if CommF_ then
-        pcall(function() CommF_:InvokeServer("BuyDragonTalon", true) end)
-        pcall(function() CommF_:InvokeServer("BuyDragonTalon") end)
-    end
-    local uzothCF = MeleeRegistry["Dragon Talon"].CFrame
-    if TweenTo(uzothCF + Vector3.new(0, 4, 0), true) then
-        task.wait(0.3)
-        if CommF_ then
-            pcall(function() CommF_:InvokeServer("BuyDragonTalon", true) end)
-            pcall(function() CommF_:InvokeServer("BuyDragonTalon") end)
-        end
-        FireEssenceDelivered = true
-        UzothStatus = "0"
-        return true
-    end
-    return false
+    if CommF_ then pcall(function() CommF_:InvokeServer("BuyDragonTalon", true) end) end
+    FireEssenceDelivered, UzothStatus = true, "0"
+    return true
 end
 
 local function CheckBoneCooldown()
-    if os.clock() - lastBoneCdCheckTick < 5.0 then return isBoneOnCooldown, boneCooldownString end
-    lastBoneCdCheckTick = os.clock()
+    if os.clock() - lastCdTk < 5.0 then return isBoneCd, cdStr end
+    lastCdTk = os.clock()
     task.spawn(function()
         pcall(function()
             if CommF_ then
                 local r1, r2, r3 = CommF_:InvokeServer("Bones", "Buy", 1, 1)
                 local s = string.format("%s %s %s", tostring(r1), tostring(r2), tostring(r3))
                 local cd = s:match("(%d+:%d+)")
-                isBoneOnCooldown = (cd ~= nil)
-                boneCooldownString = cd
+                isBoneCd, cdStr = (cd ~= nil), cd
                 if s:find("Fire Essence") or CheckHasFireEssence() then DeliverFireEssenceToUzoth() end
             end
         end)
     end)
-    return isBoneOnCooldown, boneCooldownString
+    return isBoneCd, cdStr
 end
 
 local function GetBonesCount()
-    if os.clock() - lastBonesCheckTick < 3.0 then return CurrentBonesCount end
-    lastBonesCheckTick = os.clock()
-    task.spawn(function()
-        pcall(function()
-            local res = CommF_ and CommF_:InvokeServer("Bones", "Check")
-            CurrentBonesCount = tonumber(res) or tonumber(tostring(res):match("(%d+)")) or CurrentBonesCount
-        end)
-    end)
-    return CurrentBonesCount
+    if os.clock() - lastBCheck < 3.0 then return bCount end
+    lastBCheck = os.clock()
+    task.spawn(function() pcall(function() local r = CommF_ and CommF_:InvokeServer("Bones", "Check"); bCount = tonumber(r) or tonumber(tostring(r):match("(%d+)")) or bCount end) end)
+    return bCount
 end
 
 local function TryRollBone()
-    if os.clock() - lastBoneRollTick < 3.0 then return end
-    lastBoneRollTick = os.clock()
+    if os.clock() - lastRoll < 3.0 then return end
+    lastRoll = os.clock()
     task.spawn(function()
         pcall(function()
             if CommF_ then
                 local r1, r2, r3 = CommF_:InvokeServer("Bones", "Buy", 1, 1)
                 local s = string.format("%s %s %s", tostring(r1), tostring(r2), tostring(r3))
-                local cd = s:match("(%d+:%d+)")
-                isBoneOnCooldown = (cd ~= nil)
-                boneCooldownString = cd
+                isBoneCd, cdStr = (s:match("(%d+:%d+)") ~= nil), s:match("(%d+:%d+)")
                 if (s:find("Fire Essence") or CheckHasFireEssence()) and not FireEssenceDelivered and UzothStatus ~= "0" and UzothStatus ~= "1" then
                     DeliverFireEssenceToUzoth()
                 end
@@ -550,15 +501,15 @@ local function TryRollBone()
     end)
 end
 
-local lastUzothTick, lastGhTick = 0, 0
-local function CheckDragonTalonUzothStatus()
-    if os.clock() - lastUzothTick >= 4.0 and CommF_ then
-        lastUzothTick = os.clock()
+local lastUzothTk, lastGhTk = 0, 0
+local function CheckUzothStatus()
+    if os.clock() - lastUzothTk >= 4.0 and CommF_ then
+        lastUzothTk = os.clock()
         task.spawn(function()
-            local ok, res = pcall(function() return CommF_:InvokeServer("BuyDragonTalon", true) end)
-            if ok and res ~= nil then
-                local s = tostring(res)
-                if s == "1" or res == true then UzothStatus = "1"; FireEssenceDelivered = true
+            local ok, r = pcall(function() return CommF_:InvokeServer("BuyDragonTalon", true) end)
+            if ok and r ~= nil then
+                local s = tostring(r)
+                if s == "1" or r == true then UzothStatus = "1"; FireEssenceDelivered = true
                 elseif s == "0" or s == "3" then UzothStatus = s; FireEssenceDelivered = true
                 else UzothStatus = "2" end
             end
@@ -569,13 +520,13 @@ end
 
 local function CheckGodhumanStatus()
     if GodhumanUnlocked or GodhumanStatus == "1" then return "1" end
-    if os.clock() - lastGhTick >= 4.0 and CommF_ then
-        lastGhTick = os.clock()
+    if os.clock() - lastGhTk >= 4.0 and CommF_ then
+        lastGhTk = os.clock()
         task.spawn(function()
-            local ok, res = pcall(function() return CommF_:InvokeServer("BuyGodhuman", true) end)
-            if ok and res ~= nil then
-                GodhumanStatus = tostring(res)
-                if GodhumanStatus == "1" or res == true then GodhumanUnlocked = true; GodhumanMaterialsDelivered = true
+            local ok, r = pcall(function() return CommF_:InvokeServer("BuyGodhuman", true) end)
+            if ok and r ~= nil then
+                GodhumanStatus = tostring(r)
+                if GodhumanStatus == "1" or r == true then GodhumanUnlocked, GodhumanMaterialsDelivered = true, true
                 elseif GodhumanStatus == "0" then GodhumanMaterialsDelivered = true end
             end
         end)
@@ -584,689 +535,506 @@ local function CheckGodhumanStatus()
 end
 
 -- ==============================================================================
--- [6] REALKID MAIN, REALKID HOP & NIGHT API TYRANT ENGINE
+-- [6] REALKID ENGINE
 -- ==============================================================================
-local lastRealKidMainTarget = nil
+local lastRk = nil
 TriggerRealKidMain = function(mode, target)
     _G.RealKidMainActive = true
-    local userId = tostring(LocalPlayer.UserId or "0")
-    local mainConfigFileName = "RealKid_" .. userId .. ".json"
-    local targetKey = string.format("%s_%s", tostring(mode), tostring(target))
+    local uid = tostring(LocalPlayer.UserId or "0")
+    local tKey = string.format("%s_%s", tostring(mode), tostring(target))
 
-    if lastRealKidMainTarget ~= targetKey then
-        lastRealKidMainTarget = targetKey
-        SetLog("RealKid Main", string.format("Mode: %s | Target: %s", mode:upper(), tostring(target)))
+    if lastRk ~= tKey then
+        lastRk = tKey; SetLog("RealKid Main", string.format("Mode: %s | Tgt: %s", mode:upper(), tostring(target)))
         pcall(function()
-            local baseJsonStr = [[{"EspSeaEventIsland":false,"UpgradeDragonTalon":false,"global_skill_weapons":["Melee","Sword","Blox Fruit","Gun"],"LeviathanMultiCannon":false,"GoToSharkmanNPC":false,"ValueDamageMultiSegments":60000,"AutoStartRaid":false,"AutoTrainV4":false,"auto_mastery_fruits":false,"WaitForHeartIce":false,"AutoMelee":false,"SelectBoatTarget":"My Boat","farm_m1_gun_sea":false,"DungeonAccountStart":false,"global_skill_hold_c":10,"AutoV3Target_Toggle":false,"selected_fighting_style":"Black Leg","ResetAfterTrial":false,"AutoFindKitsuneIsland":false,"AutoCollectGear":false,"HalloweenDoors":false,"AutoTpAncientClock":false,"selected_team":"Marines","AutoSwords":false,"discord_notice_spy":false,"FastAttackPlayers":true,"EspIslandLocation":false,"discord_notice_mirage":false,"AutoEliteQuest":false,"AutoDojoTrainer":false,"AutoDracoFully":false,"AutoDragoV3":false,"BaitSelection":"Basic Bait","auto_pirate_raid":false,"ChooseBoats":"MarineGrandBrigade","MasterySword":false,"auto_farm_sea_event":false,"discord_notice_stored_fruit":false,"discord_notice_profile":false,"AutoAwakening":false,"AutoSlapDodgeAABB":false,"EspChests":false,"ChooseSeaLevel":"Lv 1","AzureEmberToTrade":1,"discord_ping_mode":"Không ping","DisableNotify":false,"RemoveDeathRespawnVFX":false,"RemoveHitVFX":false,"AutoTpAncientOne":false,"HalloweenCandyPotion":false,"Berry":false,"AutoHopChest":false,"AntiAFK":true,"AutoLookAtMoon":false,"card_selection":[],"SafeMode":false,"EspAdvancedFruitsDealer":false,"autotwfruits":false,"selected_farm_target":"Bones","AutoCollectDragonEggs":false,"AutoYamaCDK":false,"HalloweenSummonJack":false,"JumpPowerSliderV2":50,"RandomAround":false,"AutoCraftEnchantScroll":false,"Initialize":true,"RaceV3Aura":true,"auto_zou_quest":false,"AutoFarmObservationHop":false,"auto_dragon_hunter":false,"AutoChooseV4Gear":false,"SwapDragoRace":false,"BusuAura":true,"autoshootgun":true,"global_skill_hold_z":10,"AutoPhoenixDungeon":false,"Select_Boss_Farm":"","HalloweenPumpkins":false,"MagicFruits":false,"AutoPickDungeonCards":false,"EspAuraColourDealers":false,"SelectedV4Gear2":"Alpha","RaceV4Aura":false,"Bringmob":true,"ignore_cake_prince":false,"ResetVolcanoAfterCollectingLoot":false,"AutoResetWhenCompleteVolcano":false,"AutoRemoveSkyFog":false,"AutoValkyrie":false,"AutoRelicDragoTrial":false,"auto_low_cpu_once":false,"AutoCollectDinoBones":false,"BringMobMax":"6","mastery_health_percent":30,"AutoTrainDragoV4":false,"auto_load_script":false,"EspGears":false,"AutoTushitaSword":false,"global_skill_keys":["Z","X","C"],"AutoDriveToHydraIsland":false,"auto_buy_style":false,"auto_farm_materials":false,"JumpPower":false,"auto_destroy_lava":true,"TweenSpeedV4":190,"InterfaceLanguage":"Tiếng Việt","AutoBuyV4Gear":false,"farm_m1_fruit_sea":false,"DungeonAutoJoin":false,"HalloweenHellfire":false,"AutoEscapeRoughSea":false,"AutoHydraLantern":false,"SelectedV4GearSlot":"Auto","AutoCollectAzureEmber":false,"AutoDriveToTikiOutport":false,"HalloweenOniChoice":"Celestial (Right)","EspBerries":false,"AutoFireShootHeartLeviathan":false,"auto_farm_general":false,"AttackMultiSegmentsLeviathan":false,"auto_farm_leviathan":false,"SpectatePlayer":false,"WalkSpeed":false,"AutoDefense":false,"HopBerry":false,"AutoHiddenQuest":false,"TweenToDragoTrials":false,"FarmMastery_G":false,"auto_patch_prehistoric":false,"AutoFindPrehistoricIsland":false,"AutoFindLeviathan":false,"accept_quests":false,"Chest":false,"auto_citizen_quest":false,"AutoTravel":false,"AutoBuyHakiRecipes":false,"EnchantScrollType":"CommonScroll","AutoTweenHighestPoint":false,"AutoCraftVolcanicMagnet":false,"AutoTradeAzureEmber":false,"selected_sea_events":[],"discord_fruit_rarities":["Common","Uncommon","Rare","Legendary","Mythical"],"AutoFindMirageIsland":false,"AutoPrayGravestone":false,"BoatSpeedV7":"220","discord_notice_prehistoric":false,"auto_farm_nearest":false,"AutoDragoV2":false,"multi_raid_players":[],"StopWhenChalice":false,"global_skill_hold_v":10,"BringMode":"400","auto_farm_tyrant":false,"AutoSellFish":false,"prehistoric_skull_guitar":false,"auto_factory_raid":false,"global_skill_hold_f":10,"AutoBuyChipFruit":false,"attack_method_golem":"Kill Aura","AutoGetCDK":false,"HalloweenSeedHop":false,"weapon_choice":"Melee","WalkSpeedSliderV2":100,"discord_notice_frozen":false,"auto_training_dummy":false,"AutoRedeemCodes":false,"EspFruits":false,"AutoSelectDungeon":false,"auto_sea_event_friend":false,"AutoSpawnPrehistoricIsland":true,"AutoSpawnRipIndra":false,"AutoRainbowColors":false,"AcceptRainbowQuest":false,"AutoSoulReaper":false,"AutoUnlockedPuzzle":false,"AutoCompleteTrialRace":false,"AutoYamaSword":false,"AutoHopSecretHint":false,"KenAura2":false,"AutoTeleportToShrineActived":false,"HalloweenAutoHat":false,"AutoPullLever":false,"tyrant_skull_guitar":false,"AutoStoreFruitFlag":false,"MaxChestHop":45,"HalloweenRandom":false,"AutoTweenAdvancedFruitDealer":false,"DungeonMinPlayers":2,"AutoBigmom":false,"ChangeTransparencyCanSee":false,"AutoSailBoat":false,"AutoBloxFruit":false,"AutoGun":false,"DungeonDifficulty":"Normal","account_pick_slot_raid":false,"AutoRandomBones":false,"AutoCanvendishSword":false,"raidnew":false,"AutoTeleportFrozenDimension":false,"AutoUnlockDoughDungeon":false,"AutoFarmMaterialSkullGuitar":false,"HalloweenWerewolf":false,"AutoSerpentBow":false,"AutoTryLuck":false,"AutoDragoV1":false,"auto_multi_raid":false,"global_skill_delay":100,"PvPAimRadius":150,"AutoTushitaCDK":false,"AutoStackDarkbeard":false,"EspPlayers":false,"AutoObservationV2":false,"auto_travel_dressrosa":false,"TeleportToPlayer":false,"AutoMirror":false,"AutoCollectMirageChest":false,"AutoBossToggle":false,"HalloweenJack":false,"AutoFarmObservation":false,"AutoSkullGuitar":false,"auto_farm_nearest_range":500,"farm_height_2":30,"AutoBuyFruitsFlag":false,"hopantirs":false,"AutoTwinHooks":false,"auto_break_bottle":false,"RodSelection":"Fishing Rod","AutoLeiAccessory":false,"AutoTweenEventFishingSpot":false,"AutoKillPlayerAfterTrial":false,"AutoOpenMenuHopFarm":false,"AutoTeleportBarista":false,"global_skill_hold_x":10,"AutoResetLostBoat":false,"AutoPrehistoricFully":false,"AutoQuestBoss":false}]]
-            local cfg = HttpService:JSONDecode(baseJsonStr)
+            local cfg = HttpService:JSONDecode([[{"EspSeaEventIsland":false,"UpgradeDragonTalon":false,"global_skill_weapons":["Melee","Sword","Blox Fruit","Gun"],"LeviathanMultiCannon":false,"GoToSharkmanNPC":false,"ValueDamageMultiSegments":60000,"AutoStartRaid":false,"AutoTrainV4":false,"auto_mastery_fruits":false,"WaitForHeartIce":false,"AutoMelee":false,"SelectBoatTarget":"My Boat","farm_m1_gun_sea":false,"DungeonAccountStart":false,"global_skill_hold_c":10,"AutoV3Target_Toggle":false,"selected_fighting_style":"Black Leg","ResetAfterTrial":false,"AutoFindKitsuneIsland":false,"AutoCollectGear":false,"HalloweenDoors":false,"AutoTpAncientClock":false,"selected_team":"Marines","AutoSwords":false,"discord_notice_spy":false,"FastAttackPlayers":true,"EspIslandLocation":false,"discord_notice_mirage":false,"AutoEliteQuest":false,"AutoDojoTrainer":false,"AutoDracoFully":false,"AutoDragoV3":false,"BaitSelection":"Basic Bait","auto_pirate_raid":false,"ChooseBoats":"MarineGrandBrigade","MasterySword":false,"auto_farm_sea_event":false,"discord_notice_stored_fruit":false,"discord_notice_profile":false,"AutoAwakening":false,"AutoSlapDodgeAABB":false,"EspChests":false,"ChooseSeaLevel":"Lv 1","AzureEmberToTrade":1,"discord_ping_mode":"Không ping","DisableNotify":false,"RemoveDeathRespawnVFX":false,"RemoveHitVFX":false,"AutoTpAncientOne":false,"HalloweenCandyPotion":false,"Berry":false,"AutoHopChest":false,"AntiAFK":true,"AutoLookAtMoon":false,"card_selection":[],"SafeMode":false,"EspAdvancedFruitsDealer":false,"autotwfruits":false,"selected_farm_target":"Bones","AutoCollectDragonEggs":false,"AutoYamaCDK":false,"HalloweenSummonJack":false,"JumpPowerSliderV2":50,"RandomAround":false,"AutoCraftEnchantScroll":false,"Initialize":true,"RaceV3Aura":true,"auto_zou_quest":false,"AutoFarmObservationHop":false,"auto_dragon_hunter":false,"AutoChooseV4Gear":false,"SwapDragoRace":false,"BusuAura":true,"autoshootgun":true,"global_skill_hold_z":10,"AutoPhoenixDungeon":false,"Select_Boss_Farm":"","HalloweenPumpkins":false,"MagicFruits":false,"AutoPickDungeonCards":false,"EspAuraColourDealers":false,"SelectedV4Gear2":"Alpha","RaceV4Aura":false,"Bringmob":true,"ignore_cake_prince":false,"ResetVolcanoAfterCollectingLoot":false,"AutoResetWhenCompleteVolcano":false,"AutoRemoveSkyFog":false,"AutoValkyrie":false,"AutoRelicDragoTrial":false,"auto_low_cpu_once":false,"AutoCollectDinoBones":false,"BringMobMax":"6","mastery_health_percent":30,"AutoTrainDragoV4":false,"auto_load_script":false,"EspGears":false,"AutoTushitaSword":false,"global_skill_keys":["Z","X","C"],"AutoDriveToHydraIsland":false,"auto_buy_style":false,"auto_farm_materials":false,"JumpPower":false,"auto_destroy_lava":true,"TweenSpeedV4":190,"InterfaceLanguage":"Tiếng Việt","AutoBuyV4Gear":false,"farm_m1_fruit_sea":false,"DungeonAutoJoin":false,"HalloweenHellfire":false,"AutoEscapeRoughSea":false,"AutoHydraLantern":false,"SelectedV4GearSlot":"Auto","AutoCollectAzureEmber":false,"AutoDriveToTikiOutport":false,"HalloweenOniChoice":"Celestial (Right)","EspBerries":false,"AutoFireShootHeartLeviathan":false,"auto_farm_general":false,"AttackMultiSegmentsLeviathan":false,"auto_farm_leviathan":false,"SpectatePlayer":false,"WalkSpeed":false,"AutoDefense":false,"HopBerry":false,"AutoHiddenQuest":false,"TweenToDragoTrials":false,"FarmMastery_G":false,"auto_patch_prehistoric":false,"AutoFindPrehistoricIsland":false,"AutoFindLeviathan":false,"accept_quests":false,"Chest":false,"auto_citizen_quest":false,"AutoTravel":false,"AutoBuyHakiRecipes":false,"EnchantScrollType":"CommonScroll","AutoTweenHighestPoint":false,"AutoCraftVolcanicMagnet":false,"AutoTradeAzureEmber":false,"selected_sea_events":[],"discord_fruit_rarities":["Common","Uncommon","Rare","Legendary","Mythical"],"AutoFindMirageIsland":false,"AutoPrayGravestone":false,"BoatSpeedV7":"220","discord_notice_prehistoric":false,"auto_farm_nearest":false,"AutoDragoV2":false,"multi_raid_players":[],"StopWhenChalice":false,"global_skill_hold_v":10,"BringMode":"400","auto_farm_tyrant":false,"AutoSellFish":false,"prehistoric_skull_guitar":false,"auto_factory_raid":false,"global_skill_hold_f":10,"AutoBuyChipFruit":false,"attack_method_golem":"Kill Aura","AutoGetCDK":false,"HalloweenSeedHop":false,"weapon_choice":"Melee","WalkSpeedSliderV2":100,"discord_notice_frozen":false,"auto_training_dummy":false,"AutoRedeemCodes":false,"EspFruits":false,"AutoSelectDungeon":false,"auto_sea_event_friend":false,"AutoSpawnPrehistoricIsland":true,"AutoSpawnRipIndra":false,"AutoRainbowColors":false,"AcceptRainbowQuest":false,"AutoSoulReaper":false,"AutoUnlockedPuzzle":false,"AutoCompleteTrialRace":false,"AutoYamaSword":false,"AutoHopSecretHint":false,"KenAura2":false,"AutoTeleportToShrineActived":false,"HalloweenAutoHat":false,"AutoPullLever":false,"tyrant_skull_guitar":false,"AutoStoreFruitFlag":false,"MaxChestHop":45,"HalloweenRandom":false,"AutoTweenAdvancedFruitDealer":false,"DungeonMinPlayers":2,"AutoBigmom":false,"ChangeTransparencyCanSee":false,"AutoSailBoat":false,"AutoBloxFruit":false,"AutoGun":false,"DungeonDifficulty":"Normal","account_pick_slot_raid":false,"AutoRandomBones":false,"AutoCanvendishSword":false,"raidnew":false,"AutoTeleportFrozenDimension":false,"AutoUnlockDoughDungeon":false,"AutoFarmMaterialSkullGuitar":false,"HalloweenWerewolf":false,"AutoSerpentBow":false,"AutoTryLuck":false,"AutoDragoV1":false,"auto_multi_raid":false,"global_skill_delay":100,"PvPAimRadius":150,"AutoTushitaCDK":false,"AutoStackDarkbeard":false,"EspPlayers":false,"AutoObservationV2":false,"auto_travel_dressrosa":false,"TeleportToPlayer":false,"AutoMirror":false,"AutoCollectMirageChest":false,"AutoBossToggle":false,"HalloweenJack":false,"AutoFarmObservation":false,"AutoSkullGuitar":false,"auto_farm_nearest_range":500,"farm_height_2":30,"AutoBuyFruitsFlag":false,"hopantirs":false,"AutoTwinHooks":false,"auto_break_bottle":false,"RodSelection":"Fishing Rod","AutoLeiAccessory":false,"AutoTweenEventFishingSpot":false,"AutoKillPlayerAfterTrial":false,"AutoOpenMenuHopFarm":false,"AutoTeleportBarista":false,"global_skill_hold_x":10,"AutoResetLostBoat":false,"AutoPrehistoricFully":false,"AutoQuestBoss":false}]])
             cfg.auto_farm_general = (mode == "bones")
             cfg.selected_farm_target = "Bones"
             cfg.auto_farm_materials = (mode == "material")
             if mode == "material" then cfg.material_choice = target end
-            cfg.Chest = (mode == "chest")
-            cfg.AutoHopChest = (mode == "chest")
-            cfg.MaxChestHop = 30
-            cfg.TweenSpeedV4 = 190
-            cfg.auto_load_script = false
-            local encoded = HttpService:JSONEncode(cfg)
-            if writefile then
-                writefile(mainConfigFileName, encoded)
-                pcall(function() writefile("RealKid.json", encoded) end)
-            end
+            cfg.Chest = (mode == "chest"); cfg.AutoHopChest = (mode == "chest"); cfg.MaxChestHop = 30
+            cfg.TweenSpeedV4 = 190; cfg.auto_load_script = false
+            local e = HttpService:JSONEncode(cfg)
+            if writefile then writefile(mainConfigFileName, e); pcall(function() writefile("RealKid.json", e) end) end
             if getgenv then getgenv().RealKidConfig = cfg end
         end)
     end
-
     if not _G.RealKidMainLoaded then
-        _G.RealKidMainLoaded = true
-        _G.RealKidMainStartTime = os.clock()
+        _G.RealKidMainLoaded = true; _G.RealKidMainStartTime = os.clock()
         getgenv().Key = REALKID_PREMIUM_KEY; _G.Key = REALKID_PREMIUM_KEY
-        task.spawn(function()
-            pcall(function() loadstring(game:HttpGet("https://raw.githubusercontent.com/realkidhub/realkid/refs/heads/main/main.lua"))() end)
-        end)
+        task.spawn(function() pcall(function() loadstring(game:HttpGet("https://raw.githubusercontent.com/realkidhub/realkid/refs/heads/main/main.lua"))() end) end)
     end
 end
 
 TriggerRealKidHop = function()
     if _G.RealKidHopLoaded and _G.RealKidHopLoadTime and (os.clock() - _G.RealKidHopLoadTime < 45.0) then return end
-    if _G.RealKidMainStartTime and (os.clock() - _G.RealKidMainStartTime < 7.0) then
-        task.wait(7.0 - (os.clock() - _G.RealKidMainStartTime))
-    end
-    _G.RealKidHopLoaded = true
-    _G.RealKidHopLoadTime = os.clock()
-
-    local userId = tostring(LocalPlayer.UserId or "0")
-    local configFileName = "RealKidHop_" .. userId .. ".json"
-    local destBoss = (_G.AxiomHopConfig and _G.AxiomHopConfig.BossDestination) or "Tyrant of Skies"
-
+    if _G.RealKidMainStartTime and (os.clock() - _G.RealKidMainStartTime < 7.0) then task.wait(7.0 - (os.clock() - _G.RealKidMainStartTime)) end
+    _G.RealKidHopLoaded = true; _G.RealKidHopLoadTime = os.clock()
+    local uid = tostring(LocalPlayer.UserId or "0")
     pcall(function()
-        local baseCfg = {
-            RaceV4Enabled = false, RaceV3Enabled = false, SearchEnabled = true, TushitaEnabled = false,
-            AttackEnabled = true, PullLeverEnabled = false, DebugEnabled = false, GhostFruitEnabled = false,
-            SearchPause = 10, RaidEnabled = false, BerryEnabled = false, GuitarEnabled = false,
-            AuraEnabled = true, KenEnabled = false, WebhookAddress = "", PortalEnabled = true,
-            AutoLoadEnabled = false, CyborgEnabled = false, MovementSpeed = 200, TTKEnabled = false,
-            RandomEnabled = false, Destination = destBoss, Language = "Tiếng Việt",
-            GunHeight = 35, YamaEnabled = false, VisitedJobs = {},
-            FruitWebhookEnabled = false, BossEnabled = false, StoreEnabled = true, GhoulEnabled = false,
-            WebhookEnabled = false, AttackHeight = 30, WeaponCategory = "Melee", InitialSide = "Marines",
-            ChestEnabled = false, BuyLegendaryEnabled = false, FruitEnabled = false
-        }
-        local encoded = HttpService:JSONEncode(baseCfg)
-        if writefile then
-            writefile(configFileName, encoded)
-            pcall(function() writefile("RealKidHop.json", encoded) end)
-        end
-        if getgenv then getgenv().RealKidHopConfig = baseCfg end
+        local c = { RaceV4Enabled=false, SearchEnabled=true, BossEnabled=false, Destination=(_G.AxiomHopConfig.BossDestination or "Tyrant of Skies") }
+        local e = HttpService:JSONEncode(c)
+        if writefile then writefile("RealKidHop_"..uid..".json", e); pcall(function() writefile("RealKidHop.json", e) end) end
+        if getgenv then getgenv().RealKidHopConfig = c end
     end)
-
     getgenv().Key = REALKID_PREMIUM_KEY; _G.Key = REALKID_PREMIUM_KEY
-    task.spawn(function()
-        local ok = pcall(function() loadstring(game:HttpGet("https://raw.githubusercontent.com/realkidhub/realkid/refs/heads/main/RealKidHop.lua"))() end)
-        if not ok then _G.RealKidHopLoaded = false end
+    task.spawn(function() local ok = pcall(function() loadstring(game:HttpGet("https://raw.githubusercontent.com/realkidhub/realkid/refs/heads/main/RealKidHop.lua"))() end); if not ok then _G.RealKidHopLoaded = false end end)
+end
+
+-- ==============================================================================
+-- [7] FULL-MAP DEEP BOSS SCANNER (STREAMING BYPASS) & BOSS HUNTING
+-- ==============================================================================
+local function ExpandStreamingRadius()
+    pcall(function()
+        if sethiddenproperty then
+            sethiddenproperty(workspace, "StreamingTargetRadius", 100000)
+            sethiddenproperty(workspace, "StreamingMinRadius", 100000)
+            if LocalPlayer then
+                sethiddenproperty(LocalPlayer, "MaximumSimulationRadius", math.huge)
+                sethiddenproperty(LocalPlayer, "SimulationRadius", 100000)
+            end
+        end
     end)
 end
 
--- Night API ChaCha20 Stream Decryption for Tyrant Hop
-local TYRANT_CONFIG = {
-    BaseUrl = "http://163.223.9.144/boss",
-    Endpoints = { "TyrantOfTheSkies", "TyrantoftheSkies", "Tyrant" },
-    CipherPrefix = "NIGHTHUB|",
-    MasterKeyHex = "8992d555ed7846a562b058523100fbd0e59b5f6f28e98003230ffb4d9db60411"
-}
-local bxor, band, lshift, rshift, lrotate = bit32.bxor, bit32.band, bit32.lshift, bit32.rshift, bit32.lrotate
-local MasterKeyBytes = {}
-for i = 1, #TYRANT_CONFIG.MasterKeyHex, 2 do MasterKeyBytes[#MasterKeyBytes + 1] = tonumber(TYRANT_CONFIG.MasterKeyHex:sub(i, i + 1), 16) end
-local function U32LE(b, o) return b[o] + b[o+1]*256 + b[o+2]*65536 + b[o+3]*16777216 end
-local function QR(s, a, b, c, d)
-    s[a] = (s[a]+s[b])%4294967296; s[d] = lrotate(bxor(s[d],s[a]),16)
-    s[c] = (s[c]+s[d])%4294967296; s[b] = lrotate(bxor(s[b],s[c]),12)
-    s[a] = (s[a]+s[b])%4294967296; s[d] = lrotate(bxor(s[d],s[a]),8)
-    s[c] = (s[c]+s[d])%4294967296; s[b] = lrotate(bxor(s[b],s[c]),7)
-end
-local function Permute(s)
-    for _ = 1, 10 do
-        QR(s,1,5,9,13); QR(s,2,6,10,14); QR(s,3,7,11,15); QR(s,4,8,12,16)
-        QR(s,1,6,11,16); QR(s,2,7,12,13); QR(s,3,8,9,14); QR(s,4,5,10,15)
-    end
-end
-local function InitState(k, c, n)
-    local s = { 1634760805, 857760878, 2036477234, 1797285236 }
-    for i = 0, 7 do s[5+i] = U32LE(k, 1+4*i) end
-    s[13] = c % 4294967296
-    for i = 0, 2 do s[14+i] = U32LE(n, 1+4*i) end
-    return s
-end
-local function Keystream(k, n, c, len)
-    local out, tot = {}, 0
-    while tot < len do
-        local init = InitState(k, c, n)
-        local st = { unpack(init) }
-        Permute(st)
-        for i = 1, 16 do
-            local sum = (st[i] + init[i]) % 4294967296
-            local b = { band(sum,255), band(rshift(sum,8),255), band(rshift(sum,16),255), band(rshift(sum,24),255) }
-            for j = 1, 4 do if tot < len then tot = tot + 1; out[tot] = b[j] end end
-        end
-        c = c + 1
-    end
-    return out
-end
-local function DecryptTyrantJobId(enc)
-    if type(enc) ~= "string" or enc:sub(1, #TYRANT_CONFIG.CipherPrefix) ~= TYRANT_CONFIG.CipherPrefix then return enc end
-    local stream = Keystream(MasterKeyBytes, {0,0,0,0,0,0,0,0,0,0,0,0}, 11259375, 128)
-    local chars = {}
-    for i = 1, 64 do chars[i] = ("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"):sub(i,i) end
-    for i = 64, 2, -1 do
-        local t = (stream[2*(i-1)+1]*256 + stream[2*(i-1)+2]) % i + 1
-        chars[i], chars[t] = chars[t], chars[i]
-    end
-    local alpha = table.concat(chars)
-    local map, idx, raw = {}, {}, {}
-    for i = 1, 64 do map[alpha:sub(i,i)] = i - 1 end
-    local body = enc:sub(#TYRANT_CONFIG.CipherPrefix + 1)
-    for i = 1, #body do idx[#idx+1] = map[body:sub(i,i)] end
-    for i = 1, #idx, 4 do
-        local c1, c2, c3, c4 = idx[i], idx[i+1], idx[i+2], idx[i+3]
-        if not c2 then break end
-        raw[#raw+1] = band(lshift(c1,2)+rshift(c2,4),255)
-        if c3 then raw[#raw+1] = band(lshift(band(c2,15),4)+rshift(c3,2),255) end
-        if c4 then raw[#raw+1] = band(lshift(band(c3,3),6)+c4,255) end
-    end
-    if #raw < 13 then return nil end
-    local nonce, cipher = {0,0,0,0,0,0,0,0,0,0,0,0}, {}
-    for i = 1, 8 do nonce[i] = raw[i] end
-    for i = 13, #raw do cipher[#cipher+1] = raw[i] end
-    local ks = Keystream(MasterKeyBytes, nonce, 1, #cipher)
-    local out = {}
-    for i = 1, #cipher do out[i] = string.char(bxor(cipher[i], ks[i])) end
-    return table.concat(out)
-end
-
-local function FindTyrantBoss()
-    for _, folder in ipairs({ workspace:FindFirstChild("Enemies"), workspace:FindFirstChild("Characters"), workspace }) do
-        if folder then
-            for _, obj in ipairs(folder:GetChildren()) do
-                if obj:IsA("Model") and obj.Name:lower():find("tyrant") then
-                    local h, r = obj:FindFirstChildOfClass("Humanoid"), obj:FindFirstChild("HumanoidRootPart")
-                    if h and h.Health > 0 and r then return obj, h, r end
+local function FindBossDeepScan(targetName)
+    ExpandStreamingRadius()
+    local targetNameLower = targetName:lower()
+    
+    local dirs = { 
+        workspace:FindFirstChild("Enemies"), 
+        ReplicatedStorage, 
+        workspace:FindFirstChild("NPCs"),
+        workspace 
+    }
+    
+    for _, dir in ipairs(dirs) do
+        if dir then
+            for _, obj in ipairs(dir:GetDescendants()) do
+                if obj:IsA("Humanoid") and obj.Health > 0 then
+                    local model = obj.Parent
+                    if model and model:IsA("Model") and model.Name:lower():find(targetNameLower, 1, true) then
+                        local hrp = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Torso") or model:FindFirstChild("UpperTorso")
+                        if hrp then
+                            Axiom.BossCache[targetName] = { Model = model, Humanoid = obj, RootPart = hrp, Position = hrp.Position }
+                            return model, obj, hrp
+                        end
+                    end
                 end
             end
         end
     end
+
+    if getnilinstances then
+        pcall(function()
+            for _, inst in ipairs(getnilinstances()) do
+                if inst:IsA("Model") and inst.Name:lower():find(targetNameLower, 1, true) then
+                    local h = inst:FindFirstChildOfClass("Humanoid")
+                    local r = inst:FindFirstChild("HumanoidRootPart") or inst:FindFirstChild("Torso")
+                    if h and h.Health > 0 and r then
+                        Axiom.BossCache[targetName] = { Model = inst, Humanoid = h, RootPart = r, Position = r.Position }
+                    end
+                end
+            end
+        end)
+    end
+    
+    local cache = Axiom.BossCache[targetName]
+    if cache and cache.Humanoid and cache.Humanoid.Parent and cache.Humanoid.Health > 0 then
+        return cache.Model, cache.Humanoid, cache.RootPart
+    end
+
     return nil, nil, nil
 end
 
 local function HopTyrantServer()
     if IsTyrantHopping or IsHopping then return end
-    IsTyrantHopping = true
-    task.spawn(function()
-        if _G.AxiomHopConfig and _G.AxiomHopConfig.UseRealKidHop then
-            TriggerRealKidHop()
-            task.wait(10); IsTyrantHopping = false; return
-        end
-        for _, ep in ipairs(TYRANT_CONFIG.Endpoints) do
-            local ok, raw = pcall(function() return game:HttpGet(TYRANT_CONFIG.BaseUrl .. "/" .. ep) end)
-            if ok and raw then
-                local okJ, data = pcall(HttpService.JSONDecode, HttpService, raw)
-                local list = okJ and (data.data or data.servers or data)
-                if type(list) == "table" then
-                    for _, entry in ipairs(list) do
-                        local jId = DecryptTyrantJobId(entry.JobId or entry.job_id)
-                        if jId and jId ~= tostring(game.JobId) then AttemptServerJoin(jId); break end
-                    end
-                end
-            end
-        end
-        TriggerRealKidHop()
-        task.wait(10); IsTyrantHopping = false
-    end)
+    IsTyrantHopping = true; task.spawn(function() TriggerRealKidHop(); task.wait(10); IsTyrantHopping = false end)
 end
 
 local function FarmTyrantRealtime(meleeName)
     _G.RealKidMainActive = false
     if GetCurrentSea() ~= 3 then TravelToSea(3); task.wait(2.5); return end
-    if meleeName then EquipMelee(meleeName, false) end
-    EquipBuso()
+    if meleeName then EquipMelee(meleeName, false) end; EquipBuso()
 
-    local boss, bHum, bRoot = FindTyrantBoss()
-    if not boss then task.wait(0.8); boss, bHum, bRoot = FindTyrantBoss() end
+    local boss, bHum, bRoot = FindBossDeepScan("Tyrant")
+    if not boss then task.wait(0.8); boss, bHum, bRoot = FindBossDeepScan("Tyrant") end
+    
     if not boss or not bHum or bHum.Health <= 0 then
         Axiom.HuntingTyrant = false
+        SetLog("Target: Tyrant", "Tyrant not found in Deep Scan. Hopping...")
         HopTyrantServer()
         return
     end
 
     Axiom.HuntingTyrant = true
-    while boss and boss.Parent and bHum and bHum.Health > 0 and GetHRP() and Axiom.Running and Axiom.AutoGodhuman do
-        local safeY = math.max(bRoot.Position.Y + 30, 200)
-        local targetCF = CFrame.new(bRoot.Position.X, safeY, bRoot.Position.Z)
-        SetLog(string.format("🦅 Tyrant HP: %d/%d", math.floor(bHum.Health), math.floor(bHum.MaxHealth)), "Farming Level & Fragments...")
-        if (GetHRP().Position - targetCF.Position).Magnitude > 5 then
-            TweenTo(targetCF, true)
+    while boss and bHum and bHum.Health > 0 and GetHRP() and Axiom.Running and Axiom.AutoGodhuman do
+        local targetPos = bRoot and bRoot.Position or (Axiom.BossCache["Tyrant"] and Axiom.BossCache["Tyrant"].Position)
+        if targetPos then
+            local safeY = math.max(targetPos.Y + 30, 200)
+            local targetCF = CFrame.new(targetPos.X, safeY, targetPos.Z)
+            SetLog(string.format("🦅 Tyrant HP: %d/%d", math.floor(bHum.Health), math.floor(bHum.MaxHealth)), "Farming Level & Frags...")
+            if (GetHRP().Position - targetCF.Position).Magnitude > 5 then TweenTo(targetCF, true) end
         end
         task.wait(0.05)
     end
+    
     Axiom.HuntingTyrant = false
     if not bHum or bHum.Health <= 0 then
+        Axiom.BossCache["Tyrant"] = nil
         isWaitingTyrantHop = true
         for i = 8, 1, -1 do SetLog("Tyrant Defeated", "Collecting loot (" .. i .. "s)..."); task.wait(1) end
-        _G.AxiomPreTweenedTiki = false
-        isWaitingTyrantHop = false
-        HopTyrantServer()
+        _G.AxiomPreTweenedTiki = false; isWaitingTyrantHop = false; HopTyrantServer()
     end
 end
 
 -- ==============================================================================
--- [7] QUEST HELPER, BONE MASTERY, MATERIAL & CHEST HOP (30 CHESTS SEA 3)
+-- [8] QUEST HELPER, BONE MASTERY, MATERIAL & CHEST HOP
 -- ==============================================================================
 local lastQuestClaimTick = 0
-local function HasActiveQuest(keyword)
+local function HasActiveQuest()
     local pg = LocalPlayer:FindFirstChild("PlayerGui")
     if not pg then return false, "" end
     local t = pg:FindFirstChild("TrackedQuestFrame")
     if t and t.Enabled and t:FindFirstChild("Frame") and t.Frame.Visible then
-        local title = (t.Frame:FindFirstChild("header") and t.Frame.header:FindFirstChild("textLabel") and t.Frame.header.textLabel.Text) or ""
-        if title ~= "" then return true, title:lower() end
-    end
-    local m = pg:FindFirstChild("Main") and pg.Main:FindFirstChild("Quest")
-    if m and m.Visible then
-        local title = (m:FindFirstChild("Container") and m.Container:FindFirstChild("QuestTitle") and m.Container.QuestTitle.Title.Text) or ""
-        return true, title:lower()
+        local hd = t.Frame:FindFirstChild("header")
+        if hd and hd:FindFirstChild("textLabel") then return true, hd.textLabel.Text:lower() end
     end
     return false, ""
 end
 
-local function ClaimQuest(qName, qId, matchKeyword)
-    local hasQ, title = HasActiveQuest()
-    if hasQ then
-        if matchKeyword and not title:find(matchKeyword:lower(), 1, true) then
-            if CommF_ then pcall(function() CommF_:InvokeServer("AbandonQuest") end); task.wait(0.2) end
-        else
-            return
-        end
-    end
-    if os.clock() - lastQuestClaimTick >= 2.5 and CommF_ then
-        lastQuestClaimTick = os.clock()
-        pcall(function() CommF_:InvokeServer("StartQuest", qName, qId) end)
-    end
+local function ClaimQuest(qN, qI, kw)
+    local h, t = HasActiveQuest()
+    if h then if kw and not t:find(kw:lower(), 1, true) then pcall(function() CommF_:InvokeServer("AbandonQuest") end); task.wait(0.2) else return end end
+    if os.clock() - lastQuestClaimTick >= 2.5 and CommF_ then lastQuestClaimTick = os.clock(); pcall(function() CommF_:InvokeServer("StartQuest", qN, qI) end) end
 end
 
-local function GetAnyUnmaxedOwnedMelee(owned)
-    for _, name in ipairs({ "Dragon Claw", "Electro", "Fishman Karate", "Black Leg", "Dragon Talon", "Electric Claw", "Sharkman Karate", "Death Step", "Superhuman" }) do
-        if owned[name] and owned[name].Mastery < 400 then return name end
+local function GetAnyUnmaxedOwnedMelee(o)
+    for _, n in ipairs({ "Dragon Claw", "Electro", "Fishman Karate", "Black Leg", "Dragon Talon", "Electric Claw", "Sharkman Karate", "Death Step", "Superhuman" }) do
+        if o[n] and o[n].Mastery < 400 then return n end
     end
     return "Superhuman"
 end
 
-local function FarmBoneMastery(targetWeapon)
+local function NeedGodhumanMaterials()
+    for _, m in ipairs({ "Dragon Scale", "Fish Tail", "Mystic Droplet", "Magma Ore" }) do
+        if GetMatCount(m, MatTargets[m].ID) < MatTargets[m].Req then return m end
+    end
+    return nil
+end
+
+local function FarmMaterial(mName, w)
+    local c = MatTargets[mName]
+    if not c then return end
+    if GetCurrentSea() ~= c.Sea then TravelToSea(c.Sea); task.wait(2.5); return end
+    if w then EquipMelee(w, false) end; EquipBuso(); ClaimQuest(c.Q, c.QID, c.Mob)
+    SetLog("Mat: " .. mName, "Hold: " .. tostring(w))
+    TriggerRealKidMain("material", mName)
+end
+
+local function FarmBoneMastery(w)
     if GetCurrentSea() ~= 3 then TravelToSea(3); task.wait(2.5); return end
-    if targetWeapon and not EquipMelee(targetWeapon, true) then return end
-    EquipBuso()
-    TryRollBone()
-
-    local lvl = GetPlayerLevel()
-    local hasQ, qTitle = HasActiveQuest()
-    local isBoneQ = qTitle:find("skeleton") or qTitle:find("zombie") or qTitle:find("demonic") or qTitle:find("mummy")
-    if hasQ and not isBoneQ and CommF_ then
-        pcall(function() CommF_:InvokeServer("AbandonQuest") end); task.wait(0.2); hasQ = false
+    if w and not EquipMelee(w, true) then return end; EquipBuso(); TryRollBone()
+    local lvl, h, t = GetPlayerLevel(), HasActiveQuest()
+    local isB = t:find("skeleton") or t:find("zombie") or t:find("demonic") or t:find("mummy")
+    if h and not isB and CommF_ then pcall(function() CommF_:InvokeServer("AbandonQuest") end); task.wait(0.2); h = false end
+    if not h then
+        if lvl >= 2050 then ClaimQuest("HauntedQuest2", 2) elseif lvl >= 2025 then ClaimQuest("HauntedQuest2", 1)
+        elseif lvl >= 2000 then ClaimQuest("HauntedQuest1", 2) elseif lvl >= 1975 then ClaimQuest("HauntedQuest1", 1) end
     end
-    if not hasQ then
-        if lvl >= 2050 then ClaimQuest("HauntedQuest2", 2)
-        elseif lvl >= 2025 then ClaimQuest("HauntedQuest2", 1)
-        elseif lvl >= 2000 then ClaimQuest("HauntedQuest1", 2)
-        elseif lvl >= 1975 then ClaimQuest("HauntedQuest1", 1) end
-    end
-
-    local tool = GetChar() and GetChar():FindFirstChildOfClass("Tool")
-    local curM = (tool and tool:FindFirstChild("Level") and tool.Level.Value) or 0
-    SetLog("Haunted Castle (Bones)", string.format("Holding: %s (%d/400)", targetWeapon or "Melee", curM))
+    local tl = GetChar() and GetChar():FindFirstChildOfClass("Tool")
+    SetLog("Bones (Haunted)", string.format("Hold: %s (%d/400)", w or "Melee", tl and tl:FindFirstChild("Level") and tl.Level.Value or 0))
     TriggerRealKidMain("bones", "Bones")
 end
 
-local function FarmMaterial(matName, holdWeapon)
-    local cfg = MaterialFarmTargets[matName]
-    if not cfg then return end
-    if GetCurrentSea() ~= cfg.TargetSea then TravelToSea(cfg.TargetSea); task.wait(2.5); return end
-    if holdWeapon then EquipMelee(holdWeapon, false) end
-    EquipBuso()
-    ClaimQuest(cfg.Quest, cfg.QuestId, cfg.Mob)
-    SetLog("Farm Material: " .. matName, "Holding: " .. tostring(holdWeapon or "Weapon"))
-    TriggerRealKidMain("material", matName)
+-- ƯU TIÊN FARM MATERIAL TRƯỚC BONES
+local function FarmMasteryRoutine(w)
+    local mat = NeedGodhumanMaterials()
+    if mat then
+        FarmMaterial(mat, w)
+    else
+        FarmBoneMastery(w)
+    end
 end
 
--- [CƠ CHẾ CHEST HOP 30 RƯƠNG TẠI SEA 3 KHI THIẾU BELI MUA VÕ]
-local function FarmChestHop30(reasonText)
+local function FarmChestHop30(msg)
     if GetCurrentSea() ~= 3 then TravelToSea(3); task.wait(2.5); return end
-    SetLog("💰 Chest Hop (30 Chests)", reasonText or "Farming Beli in Sea 3...")
-    TriggerRealKidMain("chest", "Chest")
+    SetLog("💰 Chest Hop", msg or "Farming Beli..."); TriggerRealKidMain("chest", "Chest")
 end
 
-local function FarmTideKeeper(holdWeapon)
+local function FarmTideKeeper(w)
     _G.RealKidMainActive = false
     if GetCurrentSea() ~= 2 then TravelToSea(2); task.wait(2.5); return end
-    if holdWeapon then EquipMelee(holdWeapon, false) end
-    EquipBuso()
-    for _, folder in ipairs({ workspace:FindFirstChild("Enemies"), workspace:FindFirstChild("Characters") }) do
-        if folder then
-            for _, m in ipairs(folder:GetChildren()) do
-                if m.Name:find("Tide Keeper") and m:FindFirstChildOfClass("Humanoid") and m.Humanoid.Health > 0 and m:FindFirstChild("HumanoidRootPart") then
-                    SetLog("🌊 Tide Keeper", "Hunting Water Key...")
-                    TweenTo(m.HumanoidRootPart.CFrame * CFrame.new(0, 14, 0), true)
-                    return
-                end
-            end
+    if w then EquipMelee(w, false) end; EquipBuso()
+    
+    local boss, hum, hrp = FindBossDeepScan("Tide Keeper")
+    if boss and hum and hum.Health > 0 then
+        local targetPos = hrp and hrp.Position or (Axiom.BossCache["Tide Keeper"] and Axiom.BossCache["Tide Keeper"].Position)
+        if targetPos then
+            SetLog("🌊 Tide Keeper", "Hunting Water Key...")
+            TweenTo(CFrame.new(targetPos) * CFrame.new(0, 14, 0), true)
+            return
         end
     end
-    SetLog("Target: Water Key", "Waiting/Hopping for Tide Keeper...")
-    TweenTo(CFrame.new(-3800, 100, -10600), true)
+    SetLog("Target: Water Key", "Tide Keeper not found. Hopping low server...")
+    HopLowServer()
+end
+
+local function FarmAwakenedIceAdmiral(w)
+    _G.RealKidMainActive = false
+    if GetCurrentSea() ~= 2 then TravelToSea(2); task.wait(2.5); return end
+    if w then EquipMelee(w, false) end; EquipBuso()
+    
+    local boss, hum, hrp = FindBossDeepScan("Awakened Ice Admiral")
+    if boss and hum and hum.Health > 0 then
+        local targetPos = hrp and hrp.Position or (Axiom.BossCache["Awakened Ice Admiral"] and Axiom.BossCache["Awakened Ice Admiral"].Position)
+        if targetPos then
+            SetLog("❄️ Ice Admiral", "Hunting Library Key...")
+            TweenTo(CFrame.new(targetPos) * CFrame.new(0, 14, 0), true)
+            return
+        end
+    end
+    SetLog("Target: Library Key", "Ice Admiral not found. Hopping low server...")
+    HopLowServer()
 end
 
 -- ==============================================================================
--- [8] CORE LOGIC ORCHESTRATOR (THE OPTIMAL GODHUMAN ROUTE)
+-- [9] ORCHESTRATOR
 -- ==============================================================================
 local function RunAutoGodhumanStep()
     if not Axiom.Running or not Axiom.AutoGodhuman or isAutoGodhumanStepBusy or Axiom.IsTweening or IsHopping or IsTyrantHopping or isWaitingTyrantHop then return end
     isAutoGodhumanStepBusy = true
-
     pcall(function()
         if not GetChar() or not GetHRP() then EnsureTeamSelected(); return end
-        local owned = FetchOwnedMastery()
-        local beli = GetCurrency("Beli")
-        local frags = GetCurrency("Fragments")
-        local lvl = GetPlayerLevel()
+        local o, b, f, l = FetchOwnedMastery(), GetCurrency("Beli"), GetCurrency("Fragments"), GetPlayerLevel()
 
-        -- [ƯU TIÊN KHẨN CẤP]: NẾU ĐANG CẦM FIRE ESSENCE TRONG NGƯỜI -> NỘP NGAY LẬP TỨC, CẤM HOP!
-        if CheckHasFireEssence() and not owned["Dragon Talon"] and not FireEssenceDelivered and UzothStatus ~= "0" and UzothStatus ~= "1" then
-            DeliverFireEssenceToUzoth()
-            return
+        if CheckHasFireEssence() and not o["Dragon Talon"] and not FireEssenceDelivered and UzothStatus ~= "0" and UzothStatus ~= "1" then
+            DeliverFireEssenceToUzoth(); return
         end
 
-        -- ======================================================================
-        -- GIAI ĐOẠN 1: LEVEL < 1975 -> CHỈ SĂN TYRANT OF THE SKIES LẤY CẤP & FRAGS
-        -- ======================================================================
-        if lvl < 1975 then
+        if l < 1975 then
             _G.RealKidMainActive = false
             if GetCurrentSea() ~= 3 then TravelToSea(3); task.wait(2.5); return end
             if not _G.AxiomPreTweenedTiki then
-                local b, h = FindTyrantBoss()
-                if not (b and h and h.Health > 0) then
-                    local tikiCF = CFrame.new(-16204, 30, 479)
-                    if (GetHRP().Position - tikiCF.Position).Magnitude > 80 then
-                        SetLog("Pre-Tween Tiki (1x)", string.format("Lv %d/1975 | Moving to Tiki...", lvl))
-                        TweenTo(tikiCF, true)
-                    end
+                local bo, hu = FindBossDeepScan("Tyrant")
+                if not (bo and hu and hu.Health > 0) then
+                    local tkCF = CFrame.new(-16204, 30, 479)
+                    if (GetHRP().Position - tkCF.Position).Magnitude > 80 then SetLog("Pre-Tween Tiki", "Lv " .. l .. " | Moving..."); TweenTo(tkCF, true) end
                 end
                 _G.AxiomPreTweenedTiki = true
             end
-            local tBoss, tHum = FindTyrantBoss()
-            if tBoss and tHum and tHum.Health > 0 then
-                FarmTyrantRealtime(GetAnyUnmaxedOwnedMelee(owned))
-            else
-                SetLog("Tyrant Hop", string.format("Lv %d/1975 | Finding Tyrant...", lvl))
-                TriggerRealKidHop()
-            end
+            local tB, tH = FindBossDeepScan("Tyrant")
+            if tB and tH and tH.Health > 0 then FarmTyrantRealtime(GetAnyUnmaxedOwnedMelee(o))
+            else SetLog("Tyrant Hop", "Lv " .. l .. " | Finding Tyrant..."); TriggerRealKidHop() end
             return
         end
 
-        -- ======================================================================
-        -- BƯỚC 0: ĐÃ CÓ GODHUMAN -> CÀY LÊN 600 MASTERY
-        -- ======================================================================
-        if owned["Godhuman"] or GodhumanUnlocked or CheckGodhumanStatus() == "1" then
+        if o["Godhuman"] or GodhumanUnlocked or CheckGodhumanStatus() == "1" then
             GodhumanUnlocked = true
-            local gMast = (owned["Godhuman"] and owned["Godhuman"].Mastery) or 1
-            if gMast < 600 then
-                FarmBoneMastery("Godhuman")
-            else
-                SetLog("🎉 GODHUMAN MAXED", "600/600 Mastery Complete!")
-            end
+            if (o["Godhuman"] and o["Godhuman"].Mastery or 1) < 600 then FarmBoneMastery("Godhuman") else SetLog("🎉 GODHUMAN MAXED", "Complete!") end
             return
         end
 
-        -- ======================================================================
-        -- BƯỚC 1: SỞ HỮU MELEE V2 THEO THỨ TỰ ƯU TIÊN:
-        -- Dragon Talon -> Electric Claw -> Sharkman Karate -> Death Step -> Superhuman
-        -- ======================================================================
-        local v2Order = { "Dragon Talon", "Electric Claw", "Sharkman Karate", "Death Step", "Superhuman" }
-        local targetV2 = nil
-        local isBonesOnCD, cdStr = CheckBoneCooldown()
-        local uStat = CheckDragonTalonUzothStatus()
-
-        for _, v2Name in ipairs(v2Order) do
-            local isOwned = owned[v2Name] or (v2Name == "Dragon Talon" and tostring(uStat) == "1")
-            if not isOwned then
-                if v2Name == "Dragon Talon" then
-                    local submitted = FireEssenceDelivered or tostring(uStat) == "0"
-                    -- Nếu Dragon Claw đã đủ 400 Mastery, chưa nộp Fire Essence mà Bones đang dính CD -> Tạm Skip sang V2 tiếp theo!
-                    if not submitted and not CheckHasFireEssence() and owned["Dragon Claw"] and owned["Dragon Claw"].Mastery >= 400 and isBonesOnCD then
-                        continue
-                    end
+        local uStat, isBOnCd = CheckUzothStatus(), CheckBoneCooldown()
+        local tV2 = nil
+        for _, v in ipairs({ "Dragon Talon", "Electric Claw", "Sharkman Karate", "Death Step", "Superhuman" }) do
+            local isO = o[v] or (v == "Dragon Talon" and tostring(uStat) == "1")
+            if not isO then
+                if v == "Dragon Talon" and not (FireEssenceDelivered or tostring(uStat) == "0") and not CheckHasFireEssence() and o["Dragon Claw"] and o["Dragon Claw"].Mastery >= 400 and isBOnCd then
+                    continue
                 end
-                targetV2 = v2Name
-                break
+                tV2 = v; break
             end
         end
 
-        if targetV2 then
-            -- 1.1: DRAGON TALON
-            if targetV2 == "Dragon Talon" then
-                local dc = owned["Dragon Claw"]
-                if not dc then
-                    if frags < 1500 then FarmTyrantRealtime(GetAnyUnmaxedOwnedMelee(owned)); return end
+        if tV2 then
+            if tV2 == "Dragon Talon" then
+                if not o["Dragon Claw"] then
+                    if f < 1500 then FarmTyrantRealtime(GetAnyUnmaxedOwnedMelee(o)); return end
                     EquipMelee("Dragon Claw", true); return
                 end
-                if dc.Mastery < 400 then FarmBoneMastery("Dragon Claw"); return end
-
-                local submitted = FireEssenceDelivered or tostring(uStat) == "0"
-                if not submitted then
-                    -- Chưa nộp Essence và Bones đang không CD -> Cắm cọc Haunted Castle cày Mastery V2 sẵn có + Roll Bones 3s
-                    FarmBoneMastery(GetAnyUnmaxedOwnedMelee(owned))
-                    return
-                end
-
-                -- Đã nộp Fire Essence cho Uzoth -> Check Frags (Tyrant) & Beli (Chest Hop) rồi mua ngay
-                if frags < 5000 then FarmTyrantRealtime(GetAnyUnmaxedOwnedMelee(owned)); return end
-                if beli < 3000000 then FarmChestHop30("Need 3M Beli for Dragon Talon"); return end
-                EquipMelee("Dragon Talon", true)
-                return
+                if o["Dragon Claw"].Mastery < 400 then FarmMasteryRoutine("Dragon Claw"); return end
+                if not (FireEssenceDelivered or tostring(uStat) == "0") then FarmMasteryRoutine(GetAnyUnmaxedOwnedMelee(o)); return end
+                if f < 5000 then FarmTyrantRealtime(GetAnyUnmaxedOwnedMelee(o)); return end
+                if b < 3000000 then FarmChestHop30("Need 3M for DT"); return end
+                EquipMelee("Dragon Talon", true); return
             end
-
-            -- 1.2: ELECTRIC CLAW
-            if targetV2 == "Electric Claw" then
-                local el = owned["Electro"]
-                if not el then
-                    if beli < 500000 then FarmChestHop30("Need 500K Beli for Electro"); return end
-                    EquipMelee("Electro", true); return
-                end
-                if el.Mastery < 400 then FarmBoneMastery("Electro"); return end
-
-                local ecStat = CommF_ and CommF_:InvokeServer("BuyElectricClaw", true)
-                if tostring(ecStat) == "4" then
+            if tV2 == "Electric Claw" then
+                if not o["Electro"] then if b < 500000 then FarmChestHop30("Need 500K for Electro"); return end; EquipMelee("Electro", true); return end
+                if o["Electro"].Mastery < 400 then FarmMasteryRoutine("Electro"); return end
+                if tostring(CommF_ and CommF_:InvokeServer("BuyElectricClaw", true)) == "4" then
                     if GetCurrentSea() ~= 3 then TravelToSea(3); task.wait(2.5); return end
-                    SetLog("Electric Claw Trial", "Tweening to Mansion...")
-                    if TweenTo(CFrame.new(-12547.71, 320.14, -7487.06)) then
-                        task.wait(0.3); CommF_:InvokeServer("BuyElectricClaw", "Start")
-                    end
+                    SetLog("E-Claw Trial", "Tweening to Mansion..."); if TweenTo(CFrame.new(-12547.71, 320.14, -7487.06)) then task.wait(0.3); CommF_:InvokeServer("BuyElectricClaw", "Start") end
                     return
                 end
-                if frags < 5000 then FarmTyrantRealtime(GetAnyUnmaxedOwnedMelee(owned)); return end
-                if beli < 3000000 then FarmChestHop30("Need 3M Beli for Electric Claw"); return end
-                EquipMelee("Electric Claw", true)
-                return
+                if f < 5000 then FarmTyrantRealtime(GetAnyUnmaxedOwnedMelee(o)); return end
+                if b < 3000000 then FarmChestHop30("Need 3M for EC"); return end
+                EquipMelee("Electric Claw", true); return
             end
-
-            -- 1.3: SHARKMAN KARATE
-            if targetV2 == "Sharkman Karate" then
-                local fk = owned["Fishman Karate"]
-                if not fk then
-                    if beli < 750000 then FarmChestHop30("Need 750K Beli for Fishman Karate"); return end
-                    EquipMelee("Fishman Karate", true); return
-                end
-                if fk.Mastery < 400 then FarmBoneMastery("Fishman Karate"); return end
-
+            if tV2 == "Sharkman Karate" then
+                if not o["Fishman Karate"] then if b < 750000 then FarmChestHop30("Need 750K for Fishman Karate"); return end; EquipMelee("Fishman Karate", true); return end
+                if o["Fishman Karate"].Mastery < 400 then FarmMasteryRoutine("Fishman Karate"); return end
+                
                 local bp = LocalPlayer:FindFirstChild("Backpack")
-                local hasWK = (GetChar() and GetChar():FindFirstChild("Water Key")) or (bp and bp:FindFirstChild("Water Key"))
-                if hasWK then
-                    if TweenTo(MeleeRegistry["Sharkman Karate"].CFrame + Vector3.new(0, 4, 0)) then
-                        CommF_:InvokeServer("BuySharkmanKarate", true); WaterKeyDelivered = true
-                    end
-                    return
+                local char = GetChar()
+                -- 1. Nộp Key từ xa bất cứ đâu (Không cần Tween)
+                if (char and char:FindFirstChild("Water Key")) or (bp and bp:FindFirstChild("Water Key")) then
+                    pcall(function() CommF_:InvokeServer("BuySharkmanKarate", true) end)
+                    WaterKeyDelivered = true
                 end
+                
                 if not WaterKeyDelivered then
                     local ok, res = pcall(function() return CommF_:InvokeServer("BuySharkmanKarate", true) end)
-                    if ok and tostring(res):lower():find("key") then FarmTideKeeper(GetAnyUnmaxedOwnedMelee(owned)); return
-                    else WaterKeyDelivered = true end
-                end
-                if frags < 5000 then FarmTyrantRealtime(GetAnyUnmaxedOwnedMelee(owned)); return end
-                if beli < 2500000 then FarmChestHop30("Need 2.5M Beli for Sharkman Karate"); return end
-                EquipMelee("Sharkman Karate", true)
-                return
-            end
-
-            -- 1.4: DEATH STEP
-            if targetV2 == "Death Step" then
-                local bl = owned["Black Leg"]
-                if not bl then
-                    if beli < 150000 then FarmChestHop30("Need 150K Beli for Black Leg"); return end
-                    EquipMelee("Black Leg", true); return
-                end
-                if bl.Mastery < 400 then FarmBoneMastery("Black Leg"); return end
-                if frags < 5000 then FarmTyrantRealtime(GetAnyUnmaxedOwnedMelee(owned)); return end
-                if beli < 2500000 then FarmChestHop30("Need 2.5M Beli for Death Step"); return end
-                EquipMelee("Death Step", true)
-                return
-            end
-
-            -- 1.5: SUPERHUMAN
-            if targetV2 == "Superhuman" then
-                for _, pName in ipairs({ "Black Leg", "Electro", "Fishman Karate", "Dragon Claw" }) do
-                    local pData = owned[pName]
-                    local reg = MeleeRegistry[pName]
-                    if not pData then
-                        if reg.Frags > 0 and frags < reg.Frags then FarmTyrantRealtime(GetAnyUnmaxedOwnedMelee(owned)); return end
-                        if reg.Beli > 0 and beli < reg.Beli then FarmChestHop30("Need Beli for " .. pName); return end
-                        EquipMelee(pName, true); return
-                    elseif pData.Mastery < 300 then
-                        FarmBoneMastery(pName); return
+                    if ok and (tostring(res) == "2" or tostring(res):lower():find("lost")) then 
+                        FarmTideKeeper(GetAnyUnmaxedOwnedMelee(o))
+                        return
+                    else 
+                        WaterKeyDelivered = true 
                     end
                 end
-                if beli < 3000000 then FarmChestHop30("Need 3M Beli for Superhuman"); return end
-                EquipMelee("Superhuman", true)
-                return
+
+                if f < 5000 then FarmTyrantRealtime(GetAnyUnmaxedOwnedMelee(o)); return end
+                if b < 2500000 then FarmChestHop30("Need 2.5M for Sharkman"); return end
+                -- 2. Đã đủ điều kiện -> Mua và EquipMelee sẽ tự động Tween tới NPC
+                EquipMelee("Sharkman Karate", true); return
             end
-        end
-
-        -- ======================================================================
-        -- BƯỚC 2: CÀY 400 MASTERY LẦN LƯỢT CÁC MELEE V2 ĐÃ CÓ (HOẶC TRONG LÚC ĐỢI CD BONES)
-        -- ======================================================================
-        for _, v2Name in ipairs(v2Order) do
-            if owned[v2Name] and owned[v2Name].Mastery < 400 then
-                FarmBoneMastery(v2Name)
-                return
-            end
-        end
-
-        -- Nếu vẫn chưa lấy được Dragon Talon (do đang đợi CD Bones) -> Tiếp tục cày Bones ở Haunted Castle để canh hết CD là Roll ngay
-        if not owned["Dragon Talon"] and tostring(uStat) ~= "1" then
-            FarmBoneMastery(GetAnyUnmaxedOwnedMelee(owned))
-            return
-        end
-
-        -- ======================================================================
-        -- BƯỚC 3: QUÉT NGUYÊN LIỆU GODHUMAN (KẾT HỢP CẦM VŨ KHÍ CHƯA MAX)
-        -- ======================================================================
-        if CheckGodhumanStatus() ~= "0" and not GodhumanMaterialsDelivered then
-            for _, matName in ipairs({ "Dragon Scale", "Fish Tail", "Mystic Droplet", "Magma Ore" }) do
-                local cfg = MaterialFarmTargets[matName]
-                if GetMaterialCount(matName, cfg.ItemId) < cfg.Required then
-                    FarmMaterial(matName, GetAnyUnmaxedOwnedMelee(owned))
-                    return
+            if tV2 == "Death Step" then
+                if not o["Black Leg"] then if b < 150000 then FarmChestHop30("Need 150K for Black Leg"); return end; EquipMelee("Black Leg", true); return end
+                if o["Black Leg"].Mastery < 400 then FarmMasteryRoutine("Black Leg"); return end
+                
+                local bp = LocalPlayer:FindFirstChild("Backpack")
+                local char = GetChar()
+                -- 1. Nộp Key từ xa bất cứ đâu (Không cần Tween)
+                if (char and char:FindFirstChild("Library Key")) or (bp and bp:FindFirstChild("Library Key")) then
+                    pcall(function() CommF_:InvokeServer("BuyDeathStep", true) end)
+                    LibraryKeyDelivered = true
                 end
+
+                if not LibraryKeyDelivered then
+                    local ok, res = pcall(function() return CommF_:InvokeServer("BuyDeathStep", true) end)
+                    if ok and (tostring(res) == "2" or tostring(res):lower():find("library") or tostring(res):lower():find("key")) then 
+                        FarmAwakenedIceAdmiral(GetAnyUnmaxedOwnedMelee(o))
+                        return
+                    else
+                        LibraryKeyDelivered = true
+                    end
+                end
+
+                if f < 5000 then FarmTyrantRealtime(GetAnyUnmaxedOwnedMelee(o)); return end
+                if b < 2500000 then FarmChestHop30("Need 2.5M for Death Step"); return end
+                -- 2. Đã đủ điều kiện -> Mua và EquipMelee sẽ tự động Tween tới NPC
+                EquipMelee("Death Step", true); return
+            end
+            if tV2 == "Superhuman" then
+                for _, pN in ipairs({ "Black Leg", "Electro", "Fishman Karate", "Dragon Claw" }) do
+                    if not o[pN] then
+                        if MeleeReg[pN].F > 0 and f < MeleeReg[pN].F then FarmTyrantRealtime(GetAnyUnmaxedOwnedMelee(o)); return end
+                        if MeleeReg[pN].B > 0 and b < MeleeReg[pN].B then FarmChestHop30("Need Beli for " .. pN); return end
+                        EquipMelee(pN, true); return
+                    elseif o[pN].Mastery < 300 then FarmMasteryRoutine(pN); return end
+                end
+                if b < 3000000 then FarmChestHop30("Need 3M for Superhuman"); return end
+                EquipMelee("Superhuman", true); return
             end
         end
 
-        -- ======================================================================
-        -- BƯỚC 4: KIỂM TRA TÀI NGUYÊN CUỐI CÙNG & MUA GODHUMAN
-        -- ======================================================================
-        if frags < 5000 then FarmTyrantRealtime(GetAnyUnmaxedOwnedMelee(owned)); return end
-        if beli < 5000000 then FarmChestHop30("Need 5M Beli for Godhuman"); return end
+        for _, v in ipairs({ "Dragon Talon", "Electric Claw", "Sharkman Karate", "Death Step", "Superhuman" }) do
+            if o[v] and o[v].Mastery < 400 then FarmMasteryRoutine(v); return end
+        end
+        if not o["Dragon Talon"] and tostring(uStat) ~= "1" then FarmMasteryRoutine(GetAnyUnmaxedOwnedMelee(o)); return end
 
+        if CheckGodhumanStatus() ~= "0" and not GodhumanMaterialsDelivered then
+            local mat = NeedGodhumanMaterials()
+            if mat then FarmMaterial(mat, GetAnyUnmaxedOwnedMelee(o)); return end
+        end
+
+        if f < 5000 then FarmTyrantRealtime(GetAnyUnmaxedOwnedMelee(o)); return end
+        if b < 5000000 then FarmChestHop30("Need 5M for Godhuman"); return end
         if GetCurrentSea() ~= 3 then TravelToSea(3); task.wait(2.5); return end
         SetLog("Unlocking Godhuman", "Tweening to Ancient Monk...")
-        if TweenTo(MeleeRegistry["Godhuman"].CFrame + Vector3.new(0, 3, 0)) then
-            task.wait(0.5)
-            if CommF_ then CommF_:InvokeServer("BuyGodhuman") end
-        end
+        if TweenTo(MeleeReg["Godhuman"].CF + Vector3.new(0, 3, 0)) then task.wait(0.5); if CommF_ then CommF_:InvokeServer("BuyGodhuman") end end
     end)
-
     isAutoGodhumanStepBusy = false
 end
 
 -- ==============================================================================
--- [9] MINIMALIST COMPACT HUD (CHỈ HIỂN THỊ MASTERY MELEE & RANDOM BONES)
+-- [10] MINIMALIST HUD
 -- ==============================================================================
 local function CreateMinimalUI()
-    local parent = (gethui and gethui()) or game:GetService("CoreGui"):FindFirstChild("RobloxGui") or LocalPlayer:WaitForChild("PlayerGui")
-    local sg = Instance.new("ScreenGui", parent)
-    sg.Name = "Axiom_Minimal_HUD"; sg.ResetOnSpawn = false
-    Axiom.ScreenGui = sg
+    local sg = Instance.new("ScreenGui", (gethui and gethui()) or game:GetService("CoreGui"):FindFirstChild("RobloxGui") or LocalPlayer:WaitForChild("PlayerGui"))
+    sg.Name = "Axiom_Minimal_HUD"; sg.ResetOnSpawn = false; Axiom.ScreenGui = sg
 
-    local main = Instance.new("Frame", sg)
-    main.Size = UDim2.new(0, 320, 0, 290)
-    main.Position = UDim2.new(0.5, -160, 0.5, -145)
-    main.BackgroundColor3 = Color3.fromRGB(16, 18, 25)
-    main.Active = true; main.Draggable = true
-    Instance.new("UICorner", main).CornerRadius = UDim.new(0, 8)
+    local m = Instance.new("Frame", sg)
+    m.Size = UDim2.new(0, 320, 0, 290); m.Position = UDim2.new(0.5, -160, 0.5, -145)
+    m.BackgroundColor3 = Color3.fromRGB(16, 18, 25); m.Active = true; m.Draggable = true
+    Instance.new("UICorner", m).CornerRadius = UDim.new(0, 8)
 
-    local title = Instance.new("TextLabel", main)
-    title.Size = UDim2.new(1, -140, 0, 28); title.Position = UDim2.new(0, 10, 0, 4)
-    title.Text = "⚡ AXIOM GODHUMAN"; title.Font = Enum.Font.GothamBold; title.TextSize = 11
-    title.TextColor3 = Color3.fromRGB(255, 215, 0); title.BackgroundTransparency = 1
-    title.TextXAlignment = Enum.TextXAlignment.Left
+    local tl = Instance.new("TextLabel", m)
+    tl.Size = UDim2.new(1, -140, 0, 28); tl.Position = UDim2.new(0, 10, 0, 4)
+    tl.Text = "⚡ AXIOM GODHUMAN"; tl.Font = Enum.Font.GothamBold; tl.TextSize = 11; tl.TextColor3 = Color3.fromRGB(255, 215, 0)
+    tl.BackgroundTransparency = 1; tl.TextXAlignment = Enum.TextXAlignment.Left
 
-    local toggleBtn = Instance.new("TextButton", main)
-    toggleBtn.Size = UDim2.new(0, 60, 0, 22); toggleBtn.Position = UDim2.new(1, -130, 0, 7)
-    toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 95); toggleBtn.Text = "ON"
-    toggleBtn.Font = Enum.Font.GothamBold; toggleBtn.TextSize = 10; toggleBtn.TextColor3 = Color3.new(1, 1, 1)
-    Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 4)
+    local tBtn = Instance.new("TextButton", m)
+    tBtn.Size = UDim2.new(0, 60, 0, 22); tBtn.Position = UDim2.new(1, -130, 0, 7)
+    tBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 95); tBtn.Text = "ON"
+    tBtn.Font = Enum.Font.GothamBold; tBtn.TextSize = 10; tBtn.TextColor3 = Color3.new(1, 1, 1); Instance.new("UICorner", tBtn).CornerRadius = UDim.new(0, 4)
 
-    local unloadBtn = Instance.new("TextButton", main)
-    unloadBtn.Size = UDim2.new(0, 58, 0, 22); unloadBtn.Position = UDim2.new(1, -65, 0, 7)
-    unloadBtn.BackgroundColor3 = Color3.fromRGB(180, 45, 55); unloadBtn.Text = "UNLOAD"
-    unloadBtn.Font = Enum.Font.GothamBold; unloadBtn.TextSize = 10; unloadBtn.TextColor3 = Color3.new(1, 1, 1)
-    Instance.new("UICorner", unloadBtn).CornerRadius = UDim.new(0, 4)
+    local uBtn = Instance.new("TextButton", m)
+    uBtn.Size = UDim2.new(0, 58, 0, 22); uBtn.Position = UDim2.new(1, -65, 0, 7)
+    uBtn.BackgroundColor3 = Color3.fromRGB(180, 45, 55); uBtn.Text = "UNLOAD"
+    uBtn.Font = Enum.Font.GothamBold; uBtn.TextSize = 10; uBtn.TextColor3 = Color3.new(1, 1, 1); Instance.new("UICorner", uBtn).CornerRadius = UDim.new(0, 4)
 
-    local mainLog = Instance.new("TextLabel", main)
-    mainLog.Size = UDim2.new(1, -20, 0, 18); mainLog.Position = UDim2.new(0, 10, 0, 34)
-    mainLog.Font = Enum.Font.GothamBold; mainLog.TextSize = 10; mainLog.TextColor3 = Color3.fromRGB(255, 215, 0)
-    mainLog.BackgroundTransparency = 1; mainLog.TextXAlignment = Enum.TextXAlignment.Left
-    Axiom.MainLogLabel = mainLog
+    local mLbl = Instance.new("TextLabel", m)
+    mLbl.Size = UDim2.new(1, -20, 0, 18); mLbl.Position = UDim2.new(0, 10, 0, 34); mLbl.Font = Enum.Font.GothamBold; mLbl.TextSize = 10
+    mLbl.TextColor3 = Color3.fromRGB(255, 215, 0); mLbl.BackgroundTransparency = 1; mLbl.TextXAlignment = Enum.TextXAlignment.Left; Axiom.MainLogLabel = mLbl
 
-    local subLog = Instance.new("TextLabel", main)
-    subLog.Size = UDim2.new(1, -20, 0, 18); subLog.Position = UDim2.new(0, 10, 0, 52)
-    subLog.Font = Enum.Font.Gotham; subLog.TextSize = 10; subLog.TextColor3 = Color3.fromRGB(0, 215, 255)
-    subLog.BackgroundTransparency = 1; subLog.TextXAlignment = Enum.TextXAlignment.Left
-    Axiom.SubLogLabel = subLog
+    local sLbl = Instance.new("TextLabel", m)
+    sLbl.Size = UDim2.new(1, -20, 0, 18); sLbl.Position = UDim2.new(0, 10, 0, 52); sLbl.Font = Enum.Font.Gotham; sLbl.TextSize = 10
+    sLbl.TextColor3 = Color3.fromRGB(0, 215, 255); sLbl.BackgroundTransparency = 1; sLbl.TextXAlignment = Enum.TextXAlignment.Left; Axiom.SubLogLabel = sLbl
 
-    local boneLbl = Instance.new("TextLabel", main)
-    boneLbl.Size = UDim2.new(1, -20, 0, 20); boneLbl.Position = UDim2.new(0, 10, 0, 72)
-    boneLbl.Font = Enum.Font.GothamBold; boneLbl.TextSize = 10; boneLbl.TextColor3 = Color3.fromRGB(0, 255, 150)
-    boneLbl.BackgroundTransparency = 1; boneLbl.TextXAlignment = Enum.TextXAlignment.Left
-    boneLbl.Text = "🦴 Bones: ... | CD: Ready"
+    local bLbl = Instance.new("TextLabel", m)
+    bLbl.Size = UDim2.new(1, -20, 0, 20); bLbl.Position = UDim2.new(0, 10, 0, 72); bLbl.Font = Enum.Font.GothamBold; bLbl.TextSize = 10
+    bLbl.TextColor3 = Color3.fromRGB(0, 255, 150); bLbl.BackgroundTransparency = 1; bLbl.TextXAlignment = Enum.TextXAlignment.Left
 
-    local scroll = Instance.new("ScrollingFrame", main)
-    scroll.Size = UDim2.new(1, -20, 0, 182); scroll.Position = UDim2.new(0, 10, 0, 96)
-    scroll.BackgroundColor3 = Color3.fromRGB(22, 25, 36); scroll.BorderSizePixel = 0; scroll.ScrollBarThickness = 3
-    Instance.new("UICorner", scroll).CornerRadius = UDim.new(0, 6)
-    local layout = Instance.new("UIListLayout", scroll); layout.Padding = UDim.new(0, 4)
+    local scr = Instance.new("ScrollingFrame", m)
+    scr.Size = UDim2.new(1, -20, 0, 182); scr.Position = UDim2.new(0, 10, 0, 96); scr.BackgroundColor3 = Color3.fromRGB(22, 25, 36)
+    scr.BorderSizePixel = 0; scr.ScrollBarThickness = 3; Instance.new("UICorner", scr).CornerRadius = UDim.new(0, 6)
+    local lay = Instance.new("UIListLayout", scr); lay.Padding = UDim.new(0, 4)
 
-    toggleBtn.MouseButton1Click:Connect(function()
-        Axiom.AutoGodhuman = not Axiom.AutoGodhuman
-        _G.AutoGodhuman = Axiom.AutoGodhuman
-        toggleBtn.Text = Axiom.AutoGodhuman and "ON" or "OFF"
-        toggleBtn.BackgroundColor3 = Axiom.AutoGodhuman and Color3.fromRGB(0, 170, 95) or Color3.fromRGB(70, 75, 90)
+    tBtn.MouseButton1Click:Connect(function()
+        Axiom.AutoGodhuman = not Axiom.AutoGodhuman; _G.AutoGodhuman = Axiom.AutoGodhuman
+        tBtn.Text = Axiom.AutoGodhuman and "ON" or "OFF"
+        tBtn.BackgroundColor3 = Axiom.AutoGodhuman and Color3.fromRGB(0, 170, 95) or Color3.fromRGB(70, 75, 90)
         if not Axiom.AutoGodhuman then SetAntiGravity(false) end
     end)
-
-    unloadBtn.MouseButton1Click:Connect(function() if _G.AxiomUnload then _G.AxiomUnload() end end)
+    uBtn.MouseButton1Click:Connect(function() if _G.AxiomUnload then _G.AxiomUnload() end end)
 
     task.spawn(function()
         while Axiom.Running do
-            local bCount = GetBonesCount()
             local onCd, cdTime = CheckBoneCooldown()
-            boneLbl.Text = string.format("🦴 Bones: %d | %s | GH: %s", bCount, onCd and ("CD: " .. tostring(cdTime)) or "CD: Ready", tostring(CheckGodhumanStatus()))
-            boneLbl.TextColor3 = onCd and Color3.fromRGB(255, 170, 60) or Color3.fromRGB(0, 255, 150)
-
-            local owned = FetchOwnedMastery()
-            for name, lbl in pairs(Axiom.Cards) do
-                if not owned[name] then pcall(function() lbl:Destroy() end); Axiom.Cards[name] = nil end
-            end
-            for name, d in pairs(owned) do
-                local lbl = Axiom.Cards[name]
-                if not lbl then
-                    lbl = Instance.new("TextLabel", scroll)
-                    lbl.Size = UDim2.new(1, -10, 0, 22); lbl.BackgroundTransparency = 1
-                    lbl.Font = Enum.Font.GothamBold; lbl.TextSize = 10
-                    lbl.TextXAlignment = Enum.TextXAlignment.Left
-                    Axiom.Cards[name] = lbl
+            bLbl.Text = string.format("🦴 Bones: %d | %s | GH: %s", GetBonesCount(), onCd and ("CD: " .. tostring(cdTime)) or "CD: Ready", tostring(CheckGodhumanStatus()))
+            bLbl.TextColor3 = onCd and Color3.fromRGB(255, 170, 60) or Color3.fromRGB(0, 255, 150)
+            local ow = FetchOwnedMastery()
+            for n, l in pairs(Axiom.Cards) do if not ow[n] then pcall(function() l:Destroy() end); Axiom.Cards[n] = nil end end
+            for n, d in pairs(ow) do
+                local l = Axiom.Cards[n]
+                if not l then
+                    l = Instance.new("TextLabel", scr); l.Size = UDim2.new(1, -10, 0, 22); l.BackgroundTransparency = 1
+                    l.Font = Enum.Font.GothamBold; l.TextSize = 10; l.TextXAlignment = Enum.TextXAlignment.Left; Axiom.Cards[n] = l
                 end
-                lbl.Text = string.format("  🥋 %s: %d / %d", name, d.Mastery, d.Req)
-                lbl.TextColor3 = (d.Mastery >= d.Req) and Color3.fromRGB(0, 255, 140) or Color3.fromRGB(255, 200, 70)
+                l.Text = string.format("  🥋 %s: %d / %d", n, d.Mastery, d.Req)
+                l.TextColor3 = (d.Mastery >= d.Req) and Color3.fromRGB(0, 255, 140) or Color3.fromRGB(255, 200, 70)
             end
-            scroll.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 8)
+            scr.CanvasSize = UDim2.new(0, 0, 0, lay.AbsoluteContentSize.Y + 8)
             task.wait(0.6)
         end
     end)
 end
 
 -- ==============================================================================
--- [10] UNLOAD & MAIN LOOP
+-- [11] UNLOAD & LAUNCH
 -- ==============================================================================
 _G.AxiomUnload = function()
-    Axiom.Running = false
-    Axiom.AutoGodhuman = false
-    _G.AutoGodhuman = false
-    _G.AxiomGodhumanLoaded = nil
+    Axiom.Running, Axiom.AutoGodhuman, _G.AutoGodhuman, _G.AxiomGodhumanLoaded = false, false, false, nil
     SetAntiGravity(false)
     if Axiom.TweenInstance then pcall(function() Axiom.TweenInstance:Cancel() end) end
     for _, c in ipairs(Axiom.Connections) do pcall(function() c:Disconnect() end) end
