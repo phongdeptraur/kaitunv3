@@ -25,6 +25,16 @@ local function Stopped()
     return getgenv()._AutoCyborgV3Stop == true
 end
 
+-- Vòng lặp ngầm Auto Buy Cyborg mỗi 10s (Không ảnh hưởng UI/Flow chính)
+task.spawn(function()
+    while not Stopped() do
+        task.wait(10)
+        pcall(function()
+            CommF:InvokeServer("CyborgTrainer", "Buy")
+        end)
+    end
+end)
+
 -- ============================================================================
 -- CẤU HÌNH & HẰNG SỐ + THƯ MỤC LOG CyborgProgress
 -- ============================================================================
