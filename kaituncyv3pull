@@ -25,13 +25,18 @@ local function Stopped()
     return getgenv()._AutoCyborgV3Stop == true
 end
 
--- Vòng lặp ngầm Auto Buy Cyborg mỗi 10s (Không ảnh hưởng UI/Flow chính)
+-- Vòng lặp ngầm Auto Buy Cyborg mỗi 10s (Tự ngắt ngay lập tức khi đã có tộc Cyborg)
 task.spawn(function()
     while not Stopped() do
-        task.wait(10)
+        local data = LocalPlayer:FindFirstChild("Data")
+        local race = data and data:FindFirstChild("Race")
+        if race and tostring(race.Value):lower() == "cyborg" then
+            break
+        end
         pcall(function()
             CommF:InvokeServer("CyborgTrainer", "Buy")
         end)
+        task.wait(10)
     end
 end)
 
