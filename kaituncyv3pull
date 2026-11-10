@@ -1,4 +1,4 @@
--- // AUTO CYBORG V3 + PULL LEVER (REALKID MAIN/HOP + NIGHT HUB API + AUTOCYSESSION + COOP LAW)
+-- // AUTO CYBORG V3 + PULL LEVER (REALKID MAIN/HOP + NIGHT HUB API + AUTOCYSESSION + COOP LAW + BACK HELP)
 repeat task.wait() until game:IsLoaded()
 if getgenv()._AutoCyborgV3PullLoaded then return end
 getgenv()._AutoCyborgV3PullLoaded = true
@@ -35,6 +35,7 @@ local CHEST_BLACKLIST_FILE = LOG_FOLDER .. "/chestcyblack.txt"
 local CHEST_BLACKLIST_TTL  = 1800 -- 30 phút (1800 giây)
 local COOP_LAW_FILE        = LOG_FOLDER .. "/killlawcoop.txt"
 local COOP_LAW_TTL         = 25
+local CORE_SUPPLY_FILE     = LOG_FOLDER .. "/coresupply.txt"
 local HOP_CACHE_FILE       = LOG_FOLDER .. "/AutoCyborgV3_HopCache.json"
 local NH_VISITED_FILE      = LOG_FOLDER .. "/Axiom_VisitedServers.json"
 
@@ -47,8 +48,9 @@ local POS_CAKE_LOAF    = Vector3.new(-1954.96, 37.83, -11875.87)
 local POS_SEA_CASTLE   = Vector3.new(-5021.44, 314.55, -3003.93)
 local POS_LAW_PEDESTAL = Vector3.new(-6473, 250, -4493)
 local POS_LAW_BUYER    = Vector3.new(-5530.50, 229.80, -5852.00)
+local POS_LAW_ARENA    = Vector3.new(-5543.50, 313.80, -5956.20)
 
--- 4 tọa độ buồng cố định cho các acc Clone (không mua chip)
+-- 4 tọa độ buồng cố định cho các acc Clone / Back Help (không mua chip)
 local LAW_CLONE_PODS = {
     Vector3.new(-5501.80, 229.76, -5856.19),
     Vector3.new(-5518.87, 229.81, -5858.89),
@@ -82,6 +84,59 @@ local function EnsureFolders()
     end
 end
 EnsureFolders()
+
+-- ============================================================================
+-- LƯU & ĐỌC TRẠNG THÁI SUPPLY CORE BRAIN (CyborgProgress/coresupply.txt)
+-- ============================================================================
+local function ReadCoreSupplyMap()
+    EnsureFolders()
+    local map = {}
+    if isfile and readfile and isfile(CORE_SUPPLY_FILE) then
+        local okR, raw = pcall(readfile, CORE_SUPPLY_FILE)
+        if okR and type(raw) == "string" and raw ~= "" then
+            local okD, data = pcall(function() return HttpService:JSONDecode(raw) end)
+            if okD and type(data) == "table" then
+                for k, v in pairs(data) do
+                    if v then map[tostring(k)] = v end
+                end
+            else
+                for line in raw:gmatch("[^\r\n]+") do
+                    local clean = line:match("^%s*(.-)%s*$")
+                    if clean ~= "" then map[clean] = true end
+                end
+            end
+        end
+    end
+    return map
+end
+
+local function WriteCoreSupplyMap(map)
+    EnsureFolders()
+    if writefile then
+        pcall(writefile, CORE_SUPPLY_FILE, HttpService:JSONEncode(map))
+    end
+end
+
+local function HasCoreSupplyRecorded()
+    local map = ReadCoreSupplyMap()
+    return map[LocalPlayer.Name] ~= nil
+end
+
+local function MarkCoreSupplyRecorded()
+    local map = ReadCoreSupplyMap()
+    if not map[LocalPlayer.Name] then
+        map[LocalPlayer.Name] = os.time()
+        WriteCoreSupplyMap(map)
+    end
+end
+
+local function UnmarkCoreSupplyRecorded()
+    local map = ReadCoreSupplyMap()
+    if map[LocalPlayer.Name] ~= nil then
+        map[LocalPlayer.Name] = nil
+        WriteCoreSupplyMap(map)
+    end
+end
 
 -- ============================================================================
 -- STATUS UI (TÁCH LUỒNG RENDER) + NÚT X UNLOAD TOÀN BỘ + AUTO-REQUEUE
@@ -364,15 +419,16 @@ local function DirectTeleport(jobId, placeId)
 end
 
 -- ============================================================================
--- HOP LOW (CÓ THAM SỐ maxAllowedPlayers ĐỂ HỖ TRỢ GROUP OWNER CHECK 5 NGƯỜI)
+-- HOP LOW (CÓ THAM SỐ maxAllowedPlayers & extraSkipJobs)
 -- ============================================================================
 local TriedJobs = LoadJobCache(HOP_CACHE_FILE, 180)
 TriedJobs[tostring(game.JobId)] = os.time()
 
-local function HopLow(maxAllowedPlayers)
+local function HopLow(maxAllowedPlayers, extraSkipJobs)
     if Stopped() or getgenv()._HoppingLow then return end
     getgenv()._HoppingLow = true
     local maxCnt = tonumber(maxAllowedPlayers) or 10
+    local skipMap = extraSkipJobs or {}
     CleanupMovement()
     SetStatus(("Đang tìm server low player (<= %d người) & né server log trong CyborgProgress..."):format(maxCnt))
 
@@ -392,7 +448,7 @@ local function HopLow(maxAllowedPlayers)
                         if ok and type(res) == "table" then
                             for jid, d in pairs(res) do
                                 local id = tostring(jid)
-                                if not TriedJobs[id] and not occupiedJobs[id] and not chestBlacklist[id] and not byJob[id] then
+                                if not TriedJobs[id] and not occupiedJobs[id] and not chestBlacklist[id] and not skipMap[id] and not byJob[id] then
                                     local cnt = (type(d) == "table" and tonumber(d.Count)) or tonumber(d) or 1
                                     local reg = (type(d) == "table" and tostring(d.Region or "")) or ""
                                     local ping = reg:find("Sing") and 40 or reg:find("Japan") and 95 or reg:find("Germ") and 190 or (reg:find("US") or reg:find("United States")) and 230 or 140
@@ -430,7 +486,7 @@ local function HopLow(maxAllowedPlayers)
                     local cnt = tonumber(s.playing) or 0
                     local maxP = tonumber(s.maxPlayers) or 12
                     local limitP = math.min(maxCnt, maxP - 1)
-                    if not TriedJobs[id] and not occupiedJobs[id] and not chestBlacklist[id] and cnt >= 1 and cnt <= limitP then
+                    if not TriedJobs[id] and not occupiedJobs[id] and not chestBlacklist[id] and not skipMap[id] and cnt >= 1 and cnt <= limitP then
                         table.insert(list, { id = id, playing = cnt, ping = tonumber(s.ping) or 999 })
                     end
                 end
@@ -463,7 +519,7 @@ local function HopLow(maxAllowedPlayers)
                 local target = pool[i]
                 local latestOccupied = GetOccupiedAutoCyJobs()
                 local latestChestBL  = ReadChestBlacklist()
-                if not latestOccupied[target.id] and not latestChestBL[target.id] then
+                if not latestOccupied[target.id] and not latestChestBL[target.id] and not skipMap[target.id] then
                     RecordJobCache(HOP_CACHE_FILE, TriedJobs, target.id)
                     if ActiveSea2Session then BroadcastAutoCySession(target.id) end
                     SetStatus(("Hop Low -> %s | Players: %d | Ping: %dms"):format(target.id:sub(1, 8), target.playing, target.ping))
@@ -719,7 +775,7 @@ local function TryNightHubHop(targetName, doneCheckFn)
 end
 
 -- ============================================================================
--- CHECK LIVE BOSS (DÙNG CHUNG CHO SEA 3 & ORDER/LAW Ở SEA 2)
+-- CHECK LIVE BOSS TỪ XA (HỖ TRỢ REPLICATEDSTORAGE CHO ORDER/LAW KHI CHƯA STREAM HRP)
 -- ============================================================================
 local function FindBossAlive(aliases)
     local folders = {
@@ -735,9 +791,14 @@ local function FindBossAlive(aliases)
                     for _, alias in ipairs(aliases) do
                         if child.Name == alias or ln:find(alias:lower(), 1, true) then
                             local hum = child:FindFirstChildOfClass("Humanoid")
-                            local hrp = child:FindFirstChild("HumanoidRootPart")
-                            if hum and hrp and hum.Health > 0 then
-                                return child, hum, hrp
+                            local hrp = child:FindFirstChild("HumanoidRootPart") or child:FindFirstChild("Head")
+                            if hum and hum.Health > 0 then
+                                local pos = (hrp and hrp.Position)
+                                if not pos then
+                                    local okP, piv = pcall(function() return child:GetPivot() end)
+                                    if okP and piv then pos = piv.Position end
+                                end
+                                return child, hum, hrp, (pos or POS_LAW_ARENA)
                             end
                         end
                     end
@@ -746,6 +807,11 @@ local function FindBossAlive(aliases)
         end
     end
     return nil
+end
+
+local function IsLawBossAliveRemote()
+    local boss, hum = FindBossAlive({ "Order" })
+    return (boss ~= nil and hum ~= nil and hum.Health > 0)
 end
 
 -- ============================================================================
@@ -872,7 +938,7 @@ local function ContinuousTweenStep(targetPos)
     return dist <= 10
 end
 
--- Hệ thống Fast Attack hỗ trợ Net RegisterAttack/RegisterHit + CombatFramework + VirtualUser
+-- Hệ thống Fast Attack hỗ trợ Net RegisterAttack/RegisterHit + ép trực tiếp targetModel + VirtualUser
 local NetRegisterAttack, NetRegisterHit
 pcall(function()
     local modules = ReplicatedStorage:FindFirstChild("Modules")
@@ -926,24 +992,39 @@ local function PerformFastAttack(targetModel)
     if not hrp then return end
 
     local tool = EquipCombatWeapon()
-    local enemyPart = targetModel and (targetModel:FindFirstChild("HumanoidRootPart") or targetModel:FindFirstChild("Head"))
+    local enemyPart = targetModel and (targetModel:FindFirstChild("HumanoidRootPart") or targetModel:FindFirstChild("Head") or targetModel:FindFirstChildOfClass("BasePart"))
 
-    if NetRegisterAttack and NetRegisterHit and enemyPart then
+    if NetRegisterAttack and NetRegisterHit then
         local targets = {}
-        local enemiesFolder = workspace:FindFirstChild("Enemies")
-        if enemiesFolder then
-            for _, mob in ipairs(enemiesFolder:GetChildren()) do
-                local mHum = mob:FindFirstChildOfClass("Humanoid")
-                local mPart = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Head")
-                if mHum and mPart and mHum.Health > 0 and (mPart.Position - hrp.Position).Magnitude <= 65 then
-                    table.insert(targets, { mob, mPart })
+        local addedModels = {}
+
+        if targetModel and enemyPart then
+            table.insert(targets, { targetModel, enemyPart })
+            addedModels[targetModel] = true
+        end
+
+        for _, folder in ipairs({ workspace:FindFirstChild("Enemies"), workspace:FindFirstChild("Characters") }) do
+            if folder then
+                for _, mob in ipairs(folder:GetChildren()) do
+                    if not addedModels[mob] and not Players:GetPlayerFromCharacter(mob) then
+                        local mHum = mob:FindFirstChildOfClass("Humanoid")
+                        local mPart = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Head")
+                        if mHum and mPart and mHum.Health > 0 and (mPart.Position - hrp.Position).Magnitude <= 85 then
+                            addedModels[mob] = true
+                            table.insert(targets, { mob, mPart })
+                            if not enemyPart then enemyPart = mPart end
+                        end
+                    end
                 end
             end
         end
-        pcall(function()
-            NetRegisterAttack:FireServer(0)
-            NetRegisterHit:FireServer(enemyPart, targets)
-        end)
+
+        if enemyPart and #targets > 0 then
+            pcall(function()
+                NetRegisterAttack:FireServer(0)
+                NetRegisterHit:FireServer(enemyPart, targets)
+            end)
+        end
     end
 
     pcall(function()
@@ -1167,7 +1248,7 @@ local function EnsureNoFruitInInventory()
     return #GetHeldFruits() == 0
 end
 
--- Check Microchip / Supply Core Brain tại bệ Law
+-- Check Microchip / Supply Core Brain tại bệ Law + lưu vào CyborgProgress/coresupply.txt
 local PedestalSignal = nil -- "CORE_BRAIN" | "MICROCHIP"
 
 local function ParseNotifText(txt)
@@ -1175,6 +1256,7 @@ local function ParseNotifText(txt)
     local low = txt:lower()
     if low:find("core brain", 1, true) then
         PedestalSignal = "CORE_BRAIN"
+        MarkCoreSupplyRecorded()
     elseif low:find("microchip", 1, true) or low:find("fist of darkness", 1, true) then
         if PedestalSignal ~= "CORE_BRAIN" then
             PedestalSignal = "MICROCHIP"
@@ -1226,29 +1308,52 @@ end
 
 local function CheckLawPedestalStatus()
     if Stopped() then return "MICROCHIP" end
+
+    -- 1. Kiểm tra file CyborgProgress/coresupply.txt trước tiên (đặc biệt khi có Boss Law không bấm bệ được)
+    if HasCoreSupplyRecorded() then
+        local lawAlive = IsLawBossAliveRemote()
+        SetStatus(("Đã có tên trong CyborgProgress/coresupply.txt%s -> Vào thẳng Supply Core Brain!"):format(
+            lawAlive and " (Phát hiện Boss Law từ xa qua ReplicatedStorage)" or ""
+        ))
+        return "CORE_BRAIN"
+    end
+
     local hasFist, itemName = HasFistOrCoreBrain()
     if hasFist then
-        SetStatus("Đang có " .. tostring(itemName) .. " -> Chuyển sang xử lý Supply Core Brain / Nạp Fist!")
+        MarkCoreSupplyRecorded()
+        SetStatus("Đang có " .. tostring(itemName) .. " -> Lưu coresupply.txt & chuyển sang Supply Core Brain!")
         return "CORE_BRAIN"
     end
 
     PedestalSignal = nil
     local attempt = 0
     while not Stopped() and not PedestalSignal do
+        if HasCoreSupplyRecorded() then
+            return "CORE_BRAIN"
+        end
         local hasFistNow, itemNow = HasFistOrCoreBrain()
         if hasFistNow then
-            SetStatus("Đang có " .. tostring(itemNow) .. " -> Chuyển sang xử lý Supply Core Brain / Nạp Fist!")
+            MarkCoreSupplyRecorded()
+            SetStatus("Đang có " .. tostring(itemNow) .. " -> Lưu coresupply.txt & chuyển sang Supply Core Brain!")
             return "CORE_BRAIN"
         end
         if IsCyborg() then return "CORE_BRAIN" end
 
+        -- Nếu chưa có trong coresupply.txt mà phát hiện Boss Law đang sống từ xa (không bấm bệ được) hoặc quá 25 lần click
         attempt = attempt + 1
+        if attempt > 25 then
+            SetStatus("Click bệ Law quá 25 lần không có kết quả (hoặc kẹt Boss Law) -> Hop Low...")
+            RecordJobCache(HOP_CACHE_FILE, TriedJobs, tostring(game.JobId))
+            HopLow()
+            return "HOPPED"
+        end
+
         pcall(function()
             local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
             if hum then hum:UnequipTools() end
         end)
 
-        SetStatus(("Đang FireClickDetector bệ Law chờ kết quả (Lần %d)..."):format(attempt))
+        SetStatus(("Đang FireClickDetector bệ Law chờ kết quả (Lần %d/25)..."):format(attempt))
         FireLawPedestal()
 
         local t0 = os.clock()
@@ -1268,7 +1373,8 @@ local function CheckLawPedestalStatus()
     end
 
     if PedestalSignal == "CORE_BRAIN" then
-        SetStatus("Bệ Law báo: Supply Core Brain -> Kích hoạt cơ chế Coop/Solo Kill Law (CyborgProgress/killlawcoop.txt)!")
+        MarkCoreSupplyRecorded()
+        SetStatus("Bệ Law báo: Supply Core Brain -> Đã lưu CyborgProgress/coresupply.txt & kích hoạt Coop/Solo Kill Law!")
         return "CORE_BRAIN"
     end
 
@@ -1277,7 +1383,7 @@ local function CheckLawPedestalStatus()
 end
 
 -- ============================================================================
--- CƠ CHẾ COOP & SOLO KILL LAW (CyborgProgress/killlawcoop.txt)
+-- CƠ CHẾ COOP, SOLO & BACK HELP KILL LAW (CyborgProgress/killlawcoop.txt)
 -- ============================================================================
 local CoopJoinOrder = os.time()
 
@@ -1327,8 +1433,11 @@ UnregisterCoopLaw = function()
     WriteCoopState(data)
 end
 
--- Đồng bộ, phân chia Group (max 5 acc), tự động gộp (merge) các Group chưa đầy để ưu tiên lấp đầy 1 Group
-local function SyncAndRebalanceCoop(myAtPos)
+-- Đồng bộ, phân chia Group (max 5 acc):
+-- 1. Ưu tiên tuyệt đối cho các acc chính/clone cần Supply Core Brain (IsBackHelp == false) gộp đầy 5 người/group.
+-- 2. Các acc Back Help (IsBackHelp == true) chỉ lấp vào các Group đã có ít nhất 1 acc chính và đang thiếu người (< 5).
+-- 3. Nếu có acc chính/clone mới vào khiến Group đủ người, acc Back Help tự động bị đẩy ra để nhường chỗ!
+local function SyncAndRebalanceCoop(myAtPos, isBackHelpMode)
     local data = ReadCoopState()
     local now = os.time()
     local myName = LocalPlayer.Name
@@ -1337,13 +1446,14 @@ local function SyncAndRebalanceCoop(myAtPos)
     -- 1. Cập nhật thông tin của bản thân
     local prevMe = data.Players[myName]
     data.Players[myName] = {
-        Name      = myName,
-        JobId     = curJob,
-        Fragments = GetFragments(),
-        HasChip   = (HasMicrochipItem() == true),
-        AtPos     = (myAtPos == true),
-        JoinOrder = (prevMe and tonumber(prevMe.JoinOrder)) or CoopJoinOrder,
-        Heartbeat = now,
+        Name       = myName,
+        JobId      = curJob,
+        Fragments  = GetFragments(),
+        HasChip    = (not isBackHelpMode) and (HasMicrochipItem() == true) or false,
+        IsBackHelp = (isBackHelpMode == true),
+        AtPos      = (myAtPos == true),
+        JoinOrder  = (prevMe and tonumber(prevMe.JoinOrder)) or CoopJoinOrder,
+        Heartbeat  = now,
     }
 
     -- 2. Xóa các acc hết hạn TTL
@@ -1353,24 +1463,25 @@ local function SyncAndRebalanceCoop(myAtPos)
         end
     end
 
-    -- 3. Làm sạch danh sách Members trong từng Group & loại bỏ trùng lặp
-    local assigned = {}
+    -- 3. Giữ lại các thành viên CHÍNH (IsBackHelp == false) trong các Group hiện có trước
+    local assignedNormal = {}
     local cleanGroups = {}
     for _, g in ipairs(data.Groups) do
         if type(g) == "table" and type(g.Members) == "table" then
-            local validMembers = {}
+            local normalMembers = {}
             for _, m in ipairs(g.Members) do
                 local mStr = tostring(m)
-                if data.Players[mStr] and not assigned[mStr] and #validMembers < 5 then
-                    assigned[mStr] = true
-                    table.insert(validMembers, mStr)
+                local pInfo = data.Players[mStr]
+                if pInfo and not pInfo.IsBackHelp and not assignedNormal[mStr] and #normalMembers < 5 then
+                    assignedNormal[mStr] = true
+                    table.insert(normalMembers, mStr)
                 end
             end
-            if #validMembers > 0 then
-                g.Members = validMembers
+            if #normalMembers > 0 then
+                g.Members = normalMembers
                 g.CreatedAt = tonumber(g.CreatedAt) or now
-                g.Id = tostring(g.Id or ("G_" .. validMembers[1]))
-                g.InitialOwner = (g.InitialOwner and data.Players[g.InitialOwner] and g.InitialOwner) or validMembers[1]
+                g.Id = tostring(g.Id or ("G_" .. normalMembers[1]))
+                g.InitialOwner = (g.InitialOwner and data.Players[g.InitialOwner] and not data.Players[g.InitialOwner].IsBackHelp and g.InitialOwner) or normalMembers[1]
                 g.TargetJobId = tostring(g.TargetJobId or data.Players[g.InitialOwner].JobId or curJob)
                 g.ServerLocked = (g.ServerLocked == true)
                 table.insert(cleanGroups, g)
@@ -1378,28 +1489,27 @@ local function SyncAndRebalanceCoop(myAtPos)
         end
     end
 
-    -- 4. Nếu còn bất kỳ Player nào chưa có Group, xếp vào Group chưa đầy (< 5) hoặc tạo Group mới
-    local unassignedList = {}
-    for acc, _ in pairs(data.Players) do
-        if not assigned[acc] then
-            table.insert(unassignedList, acc)
+    -- 4. Xếp các acc CHÍNH (IsBackHelp == false) chưa có Group vào các Group chưa đủ 5 acc chính hoặc tạo Group mới
+    local unassignedNormals = {}
+    for acc, pInfo in pairs(data.Players) do
+        if not pInfo.IsBackHelp and not assignedNormal[acc] then
+            table.insert(unassignedNormals, acc)
         end
     end
-    table.sort(unassignedList, function(a, b)
+    table.sort(unassignedNormals, function(a, b)
         local oa = tonumber(data.Players[a].JoinOrder) or 0
         local ob = tonumber(data.Players[b].JoinOrder) or 0
         if oa ~= ob then return oa < ob end
         return a < b
     end)
 
-    -- Sắp xếp các group hiện có trước khi nhét người mới
     table.sort(cleanGroups, function(a, b)
         if #a.Members ~= #b.Members then return #a.Members > #b.Members end
         if a.CreatedAt ~= b.CreatedAt then return a.CreatedAt < b.CreatedAt end
         return a.Id < b.Id
     end)
 
-    for _, acc in ipairs(unassignedList) do
+    for _, acc in ipairs(unassignedNormals) do
         local placed = false
         for _, g in ipairs(cleanGroups) do
             if #g.Members < 5 then
@@ -1421,20 +1531,18 @@ local function SyncAndRebalanceCoop(myAtPos)
         end
     end
 
-    -- 5. THUẬT TOÁN ƯU TIÊN LẤP ĐẦY 1 GROUP (GỘP GROUP):
-    -- Group có đông thành viên hơn (hoặc tạo trước) được ưu tiên giữ nguyên, rút người từ Group ít thành viên hơn ở cuối danh sách sang cho đủ 5 người.
+    -- 5. Gộp các Group của acc CHÍNH để ưu tiên lấp đầy 5 acc chính/group
     table.sort(cleanGroups, function(a, b)
         if #a.Members ~= #b.Members then return #a.Members > #b.Members end
         if a.CreatedAt ~= b.CreatedAt then return a.CreatedAt < b.CreatedAt end
         return a.Id < b.Id
     end)
 
-    local i = 1
-    while i < #cleanGroups do
-        local targetG = cleanGroups[i]
-        while #targetG.Members < 5 and #cleanGroups > i do
+    local idx = 1
+    while idx < #cleanGroups do
+        local targetG = cleanGroups[idx]
+        while #targetG.Members < 5 and #cleanGroups > idx do
             local donorG = cleanGroups[#cleanGroups]
-            -- Rút 1 thành viên từ donorG sang targetG
             local movedAcc = table.remove(donorG.Members)
             if movedAcc then
                 table.insert(targetG.Members, movedAcc)
@@ -1443,21 +1551,68 @@ local function SyncAndRebalanceCoop(myAtPos)
                 table.remove(cleanGroups, #cleanGroups)
             end
         end
-        i = i + 1
+        idx = idx + 1
     end
 
-    -- 6. Cập nhật trạng thái TargetJobId & ServerLocked cho từng Group
+    -- 6. Sau khi toàn bộ acc CHÍNH đã có chỗ (nhường chỗ xong), phân bổ các acc BACK HELP vào các Group còn thiếu (< 5 người)
+    local backHelpList = {}
+    for acc, pInfo in pairs(data.Players) do
+        if pInfo.IsBackHelp then
+            table.insert(backHelpList, acc)
+        end
+    end
+    table.sort(backHelpList, function(a, b)
+        local oa = tonumber(data.Players[a].JoinOrder) or 0
+        local ob = tonumber(data.Players[b].JoinOrder) or 0
+        if oa ~= ob then return oa < ob end
+        return a < b
+    end)
+
+    local assignedBackHelp = {}
+    -- Ưu tiên giữ Back Help ở lại Group mà họ đang đứng cùng TargetJobId nếu Group đó vẫn còn slot trống (< 5)
+    for _, bhAcc in ipairs(backHelpList) do
+        local bhJob = tostring(data.Players[bhAcc].JobId or "")
+        for _, g in ipairs(cleanGroups) do
+            if #g.Members < 5 and bhJob ~= "" and tostring(g.TargetJobId) == bhJob then
+                table.insert(g.Members, bhAcc)
+                assignedBackHelp[bhAcc] = true
+                break
+            end
+        end
+    end
+    -- Các Back Help còn lại lấp vào bất kỳ Group nào còn thiếu người (< 5)
+    for _, bhAcc in ipairs(backHelpList) do
+        if not assignedBackHelp[bhAcc] then
+            for _, g in ipairs(cleanGroups) do
+                if #g.Members < 5 then
+                    table.insert(g.Members, bhAcc)
+                    assignedBackHelp[bhAcc] = true
+                    break
+                end
+            end
+        end
+    end
+
+    -- 7. Cập nhật trạng thái TargetJobId & ServerLocked cho từng Group (InitialOwner luôn là acc chính cần Core Brain)
     for _, g in ipairs(cleanGroups) do
-        -- Đảm bảo InitialOwner vẫn nằm trong g.Members
         local ownerStillInGroup = false
         for _, m in ipairs(g.Members) do
-            if m == g.InitialOwner then ownerStillInGroup = true; break end
+            local pInfo = data.Players[m]
+            if m == g.InitialOwner and pInfo and not pInfo.IsBackHelp then
+                ownerStillInGroup = true
+                break
+            end
         end
         if not ownerStillInGroup then
-            g.InitialOwner = g.Members[1]
+            for _, m in ipairs(g.Members) do
+                local pInfo = data.Players[m]
+                if pInfo and not pInfo.IsBackHelp then
+                    g.InitialOwner = m
+                    break
+                end
+            end
         end
 
-        -- Nếu chưa khóa server (chưa có ít nhất 1 member thứ 2 vào cùng server), TargetJobId đi theo InitialOwner
         if not g.ServerLocked then
             local ownerInfo = data.Players[g.InitialOwner]
             if ownerInfo and ownerInfo.JobId and ownerInfo.JobId ~= "" then
@@ -1465,22 +1620,22 @@ local function SyncAndRebalanceCoop(myAtPos)
             end
         end
 
-        -- Đếm số thành viên của Group đang thực sự ở trong TargetJobId
         local inTargetCount = 0
+        local normalInTargetCount = 0
         for _, m in ipairs(g.Members) do
             local pInfo = data.Players[m]
             if pInfo and tostring(pInfo.JobId) == tostring(g.TargetJobId) then
                 inTargetCount = inTargetCount + 1
+                if not pInfo.IsBackHelp then
+                    normalInTargetCount = normalInTargetCount + 1
+                end
             end
         end
 
-        -- Ngay khi có từ 2 người trở lên trong cùng server (tức đã có ít nhất 1 member vào cùng), khóa ServerLocked = true!
-        if inTargetCount >= 2 then
+        if inTargetCount >= 2 and normalInTargetCount >= 1 then
             g.ServerLocked = true
-        elseif inTargetCount == 0 then
-            -- Nếu không còn ai ở TargetJobId cũ, mở khóa và lấy theo người đầu tiên hiện tại
+        elseif normalInTargetCount == 0 then
             g.ServerLocked = false
-            g.InitialOwner = g.Members[1]
             local firstInfo = data.Players[g.InitialOwner]
             if firstInfo then g.TargetJobId = tostring(firstInfo.JobId) end
         end
@@ -1513,6 +1668,35 @@ local function IsPlayerNearPos(playerName, targetPos, threshold)
     return (hrp.Position - targetPos).Magnitude <= (threshold or 12)
 end
 
+-- Hàm đánh Boss Law (Order) dùng chung cho cả Buyer, Clone và Back Help
+local function FightLawBossLoop(inServerCount, groupTotalCount, isBackHelpMode)
+    while not Stopped() do
+        if not isBackHelpMode and (HasCoreBrainItem() or IsCyborg()) then break end
+        local lawBoss, lawHum, lawHrp, lawPos = FindBossAlive({ "Order" })
+        if not (lawBoss and lawHum and lawHum.Health > 0) then
+            break
+        end
+
+        if not lawHrp then
+            pcall(function() LocalPlayer:RequestStreamAroundAsync(lawPos or POS_LAW_ARENA, 5) end)
+        end
+
+        local attackPos = ((lawHrp and lawHrp.Position) or lawPos or POS_LAW_ARENA) + Vector3.new(0, 12, 0)
+        ContinuousTweenStep(attackPos)
+        PerformFastAttack(lawBoss)
+
+        SetStatus(("%sĐang đánh Order (Law) [HP: %d/%d] | Group: %d/%d acc"):format(
+            isBackHelpMode and "[BackHelp] " or "",
+            math.floor(lawHum.Health),
+            math.floor(lawHum.MaxHealth),
+            inServerCount or 1,
+            groupTotalCount or 1
+        ))
+        task.wait(0.05)
+    end
+    CleanupMovement()
+end
+
 -- Hủy đăng ký Coop và hoàn tất Supply Core Brain tại bệ Raid
 local function SupplyCoreBrainAndFinish()
     UnregisterCoopLaw()
@@ -1521,6 +1705,7 @@ local function SupplyCoreBrainAndFinish()
 
     while not Stopped() do
         if IsCyborg() then
+            UnmarkCoreSupplyRecorded()
             SetStatus("Đã lấy được tộc Cyborg! Hop Low để refresh sang V2/V3...")
             HopLow()
             return
@@ -1528,9 +1713,9 @@ local function SupplyCoreBrainAndFinish()
 
         local hasCB = HasCoreBrainItem()
         if not hasCB then
-            -- Đã nộp Core Brain vào bệ -> mua Cyborg hoặc bật RealKid Main auto_cyborg để mua ở tầng hầm
             pcall(function() CommF:InvokeServer("CyborgTrainer", "Buy") end)
             if IsCyborg() then
+                UnmarkCoreSupplyRecorded()
                 SetStatus("Đã mua thành công tộc Cyborg! Hop Low để refresh...")
                 HopLow()
                 return
@@ -1539,6 +1724,7 @@ local function SupplyCoreBrainAndFinish()
                 while not Stopped() and task.wait(1.5) do
                     pcall(function() CommF:InvokeServer("CyborgTrainer", "Buy") end)
                     if IsCyborg() then
+                        UnmarkCoreSupplyRecorded()
                         SetStatus("Đã lấy được tộc Cyborg! Hop Low để refresh sang V2/V3...")
                         HopLow()
                         return
@@ -1570,8 +1756,8 @@ end
 
 -- Luồng chính điều phối Coop & Solo đánh Law khi ở trạng thái Supply Core Brain
 local function RunCoopSupplyCoreBrain(TravelToSeaFn)
-    -- Tắt chống trùng server Sea 2 để các acc Coop có thể join chung 1 server
     UnregisterAutoCySession()
+    MarkCoreSupplyRecorded()
 
     -- Nếu đang cầm Fist of Darkness trên tay/balo thì nộp vào bệ trước
     if HasFistItem() and not HasCoreBrainItem() then
@@ -1583,9 +1769,9 @@ local function RunCoopSupplyCoreBrain(TravelToSeaFn)
             FireLawPedestal()
             task.wait(0.3)
         end
+        MarkCoreSupplyRecorded()
     end
 
-    -- Nếu đã có sẵn Core Brain trong túi thì đi nộp ngay
     if HasCoreBrainItem() then
         SupplyCoreBrainAndFinish()
         return
@@ -1598,6 +1784,7 @@ local function RunCoopSupplyCoreBrain(TravelToSeaFn)
 
     while not Stopped() do
         if IsCyborg() then
+            UnmarkCoreSupplyRecorded()
             UnregisterCoopLaw()
             CleanupMovement()
             SetStatus("Đã có tộc Cyborg! Hop Low để refresh...")
@@ -1618,14 +1805,13 @@ local function RunCoopSupplyCoreBrain(TravelToSeaFn)
             return
         end
 
-        local coopData, myGroup = SyncAndRebalanceCoop(myAtPosFlag)
+        local coopData, myGroup = SyncAndRebalanceCoop(myAtPosFlag, false)
         local myName = LocalPlayer.Name
         local curJob = tostring(game.JobId)
 
         if myGroup then
             local targetJob = tostring(myGroup.TargetJobId or curJob)
 
-            -- 1. Nếu bản thân đang ở server khác với TargetJobId của Group (do mới vào group hoặc vừa gộp từ Group 2 sang Group 1)
             if targetJob ~= "" and targetJob ~= curJob then
                 myAtPosFlag = false
                 CleanupMovement()
@@ -1638,30 +1824,27 @@ local function RunCoopSupplyCoreBrain(TravelToSeaFn)
                 end
                 task.wait(1)
             else
-                -- 2. Đang ở đúng server của Group -> Kiểm tra những thành viên nào của Group đã vào trong server này
                 local inServerMembers = {}
                 for _, mName in ipairs(myGroup.Members) do
                     local plr = Players:FindFirstChild(mName)
                     local pInfo = coopData.Players[mName]
                     if plr and pInfo and tostring(pInfo.JobId) == curJob then
                         table.insert(inServerMembers, {
-                            Name      = mName,
-                            Fragments = (mName == myName and GetFragments()) or (tonumber(pInfo.Fragments) or 0),
-                            HasChip   = (mName == myName and (HasMicrochipItem() == true)) or (pInfo.HasChip == true),
-                            AtPos     = (pInfo.AtPos == true),
+                            Name       = mName,
+                            Fragments  = (mName == myName and GetFragments()) or (tonumber(pInfo.Fragments) or 0),
+                            HasChip    = (not pInfo.IsBackHelp) and ((mName == myName and (HasMicrochipItem() == true)) or (pInfo.HasChip == true)) or false,
+                            IsBackHelp = (pInfo.IsBackHelp == true),
+                            AtPos      = (pInfo.AtPos == true),
                         })
                     end
                 end
 
-                -- Nếu đã có ít nhất 1 member khác vào cùng server (#inServerMembers >= 2), khóa server vĩnh viễn cho group
                 local hasAtLeastOneMemberJoined = myGroup.ServerLocked or (#inServerMembers >= 2)
 
-                -- Check lần đầu của Group Owner: Khi chưa có member thứ 2 nào vào server, đảm bảo server đủ chỗ cho 5 người (tính cả mình)
                 if not hasAtLeastOneMemberJoined and myGroup.InitialOwner == myName then
                     if not checkedInitialServerCapacity or checkedJobId ~= curJob then
                         local maxP = tonumber(Players.MaxPlayers) or 12
                         local curP = #Players:GetPlayers()
-                        -- Cần đủ chỗ cho 5 người tính cả mình => cần trống ít nhất 4 slot (curP <= maxP - 4)
                         if curP > (maxP - 4) then
                             SetStatus(("Group Owner check lần đầu: Server %d/%d không đủ 5 chỗ -> Hop Low tìm server <= %d người..."):format(
                                 curP, maxP, maxP - 4
@@ -1676,36 +1859,17 @@ local function RunCoopSupplyCoreBrain(TravelToSeaFn)
                     end
                 end
 
-                -- 3. Kiểm tra xem Boss Law (Order) có đang xuất hiện không
-                local lawBoss, lawHum, lawHrp = FindBossAlive({ "Order" })
-                if lawBoss and lawHum and lawHrp and lawHum.Health > 0 then
-                    -- КОHI CÓ LAW (ORDER): TẤT CẢ CÙNG TWEEN LIÊN TỤC 0.05S & FAST ATTACK
+                -- Kiểm tra xem Boss Law (Order) có đang xuất hiện không (kể cả trong ReplicatedStorage)
+                local lawBoss, lawHum = FindBossAlive({ "Order" })
+                if lawBoss and lawHum and lawHum.Health > 0 then
                     myAtPosFlag = false
-                    while not Stopped() do
-                        if HasCoreBrainItem() or IsCyborg() then break end
-                        lawBoss, lawHum, lawHrp = FindBossAlive({ "Order" })
-                        if not (lawBoss and lawHum and lawHrp and lawHum.Health > 0) then
-                            break
-                        end
-
-                        local attackPos = lawHrp.Position + Vector3.new(0, 12, 0)
-                        ContinuousTweenStep(attackPos)
-                        PerformFastAttack(lawBoss)
-
-                        SetStatus(("Đang đánh Order (Law) [HP: %d/%d] | Group: %d/%d acc trong server"):format(
-                            math.floor(lawHum.Health), math.floor(lawHum.MaxHealth), #inServerMembers, #myGroup.Members
-                        ))
-                        task.wait(0.05)
-                    end
-                    CleanupMovement()
-                    -- Chờ ngắn để nhận Core Brain & cập nhật Fragment sau khi Law chết
+                    FightLawBossLoop(#inServerMembers, #myGroup.Members, false)
                     SleepCheck(1.2)
                     if HasCoreBrainItem() then
                         SupplyCoreBrainAndFinish()
                         return
                     end
                 else
-                    -- 4. KHI CHƯA CÓ LAW (ORDER): TÍNH TOÁN FRAGMENT CHỌN NGƯỜI MUA CHIP & CHIA BUỒNG
                     if #inServerMembers <= 1 then
                         -- CƠ CHẾ SOLO (Khi trong server chỉ có 1 mình)
                         myAtPosFlag = true
@@ -1731,10 +1895,17 @@ local function RunCoopSupplyCoreBrain(TravelToSeaFn)
                         end
                         task.wait(0.4)
                     else
-                        -- CƠ CHẾ COOP (>= 2 acc trong cùng server, tất cả ngang hàng nhau)
-                        -- Sắp xếp tìm người mua chip (Buyer): Ưu tiên người đang có sẵn Microchip, sau đó đến người nhiều Fragment nhất
+                        -- CƠ CHẾ COOP (>= 2 acc trong cùng server): Chỉ chọn Buyer từ các acc KHÔNG PHẢI BackHelp
                         local sortedForBuyer = {}
-                        for _, m in ipairs(inServerMembers) do table.insert(sortedForBuyer, m) end
+                        for _, m in ipairs(inServerMembers) do
+                            if not m.IsBackHelp then
+                                table.insert(sortedForBuyer, m)
+                            end
+                        end
+                        if #sortedForBuyer == 0 then
+                            for _, m in ipairs(inServerMembers) do table.insert(sortedForBuyer, m) end
+                        end
+
                         table.sort(sortedForBuyer, function(a, b)
                             if a.HasChip ~= b.HasChip then return a.HasChip end
                             if a.Fragments ~= b.Fragments then return a.Fragments > b.Fragments end
@@ -1743,7 +1914,6 @@ local function RunCoopSupplyCoreBrain(TravelToSeaFn)
 
                         local buyerAcc = sortedForBuyer[1].Name
 
-                        -- Danh sách các acc Clone (không mua chip), sắp xếp theo tên để chia 4 buồng cố định không trùng nhau
                         local cloneList = {}
                         for _, m in ipairs(inServerMembers) do
                             if m.Name ~= buyerAcc then
@@ -1759,7 +1929,6 @@ local function RunCoopSupplyCoreBrain(TravelToSeaFn)
                         end
 
                         if myName == buyerAcc then
-                            -- MÌNH LÀ NGƯỜI NHIỀU FRAGMENT NHẤT (MUA CHIP & START)
                             if not HasMicrochipItem() then
                                 SetStatus(("Coop (%d acc) | Mình nhiều Frag nhất (%d) -> Đang mua Microchip..."):format(
                                     #inServerMembers, GetFragments()
@@ -1773,7 +1942,6 @@ local function RunCoopSupplyCoreBrain(TravelToSeaFn)
                             local arrivedBuyer = ContinuousTweenStep(buyerPos)
                             myAtPosFlag = arrivedBuyer
 
-                            -- Kiểm tra tất cả các acc Clone trong server đã vào đúng tọa độ buồng của họ chưa
                             local allClonesReady = true
                             local readyCount = 0
                             for _, cName in ipairs(cloneList) do
@@ -1786,7 +1954,7 @@ local function RunCoopSupplyCoreBrain(TravelToSeaFn)
                             end
 
                             if arrivedBuyer and allClonesReady then
-                                SetStatus(("Coop: Tất cả %d/%d Clone đã vào buồng -> Bấm Start Law Raid!"):format(
+                                SetStatus(("Coop: Tất cả %d/%d Clone/BackHelp đã vào buồng -> Bấm Start Law Raid!"):format(
                                     readyCount, #cloneList
                                 ))
                                 pcall(function()
@@ -1796,13 +1964,12 @@ local function RunCoopSupplyCoreBrain(TravelToSeaFn)
                                 FireLawPedestal()
                                 task.wait(0.5)
                             else
-                                SetStatus(("Coop Buyer (%d Frag) | Đang chờ Clone vào buồng (%d/%d sẵn sàng)..."):format(
+                                SetStatus(("Coop Buyer (%d Frag) | Đang chờ Clone/BackHelp vào buồng (%d/%d sẵn sàng)..."):format(
                                     GetFragments(), readyCount, #cloneList
                                 ))
                                 task.wait(0.25)
                             end
                         else
-                            -- MÌNH LÀ ACC CLONE -> TWEEN ĐẾN BUỒNG ĐƯỢC PHÂN CHIA
                             local myPodPos = clonePodAssignment[myName] or LAW_CLONE_PODS[1]
                             local arrivedPod = ContinuousTweenStep(myPodPos)
                             myAtPosFlag = arrivedPod
@@ -1816,6 +1983,149 @@ local function RunCoopSupplyCoreBrain(TravelToSeaFn)
             end
         else
             task.wait(0.5)
+        end
+    end
+end
+
+-- ============================================================================
+-- CƠ CHẾ BACK HELP SAU KHI PULL LEVER CYBORG V3 (KHÔNG MUA CHIP, NHƯỜNG CHỖ KHI ĐẦY)
+-- ============================================================================
+local function RunBackHelpCoopLaw(TravelToSeaFn)
+    UnregisterAutoCySession()
+    UnmarkCoreSupplyRecorded()
+
+    if GetSea() ~= 2 then
+        SetStatus("[BackHelp] Đã xong Cyborg V3 + Pull Lever! Quay về Sea 2 phụ các Group thiếu người đánh Law...")
+        TravelToSeaFn(2)
+    end
+    if Stopped() then return end
+
+    local lastTeleportAttempt = 0
+    local myAtPosFlag = false
+
+    while not Stopped() do
+        if GetSea() ~= 2 then
+            TravelToSeaFn(2)
+            if Stopped() then return end
+        end
+
+        local coopData, myGroup = SyncAndRebalanceCoop(myAtPosFlag, true)
+        local myName = LocalPlayer.Name
+        local curJob = tostring(game.JobId)
+
+        if myGroup then
+            local targetJob = tostring(myGroup.TargetJobId or curJob)
+
+            if targetJob ~= "" and targetJob ~= curJob then
+                myAtPosFlag = false
+                CleanupMovement()
+                SetStatus(("[BackHelp] Sang phụ Group [%s] (%d/5 acc) tại server %s..."):format(
+                    tostring(myGroup.Id):sub(1, 10), #myGroup.Members, targetJob:sub(1, 8)
+                ))
+                if (os.clock() - lastTeleportAttempt) >= 4 then
+                    lastTeleportAttempt = os.clock()
+                    DirectTeleport(targetJob, game.PlaceId)
+                end
+                task.wait(1)
+            else
+                local inServerMembers = {}
+                for _, mName in ipairs(myGroup.Members) do
+                    local plr = Players:FindFirstChild(mName)
+                    local pInfo = coopData.Players[mName]
+                    if plr and pInfo and tostring(pInfo.JobId) == curJob then
+                        table.insert(inServerMembers, {
+                            Name       = mName,
+                            Fragments  = tonumber(pInfo.Fragments) or 0,
+                            HasChip    = (not pInfo.IsBackHelp) and (pInfo.HasChip == true) or false,
+                            IsBackHelp = (pInfo.IsBackHelp == true),
+                            AtPos      = (pInfo.AtPos == true),
+                        })
+                    end
+                end
+
+                -- Nếu có Boss Law đang sống (kể cả phát hiện qua ReplicatedStorage), bay lên đánh phụ ngay
+                local lawBoss, lawHum = FindBossAlive({ "Order" })
+                if lawBoss and lawHum and lawHum.Health > 0 then
+                    myAtPosFlag = false
+                    FightLawBossLoop(#inServerMembers, #myGroup.Members, true)
+                    task.wait(0.3)
+                else
+                    -- Chọn Buyer trong các acc chính (không bao giờ chọn BackHelp mua chip)
+                    local normalCandidates = {}
+                    for _, m in ipairs(inServerMembers) do
+                        if not m.IsBackHelp then
+                            table.insert(normalCandidates, m)
+                        end
+                    end
+
+                    if #normalCandidates == 0 then
+                        myAtPosFlag = false
+                        CleanupMovement()
+                        SetStatus(("[BackHelp] Đang chờ chủ nhóm (%s) vào server..."):format(tostring(myGroup.InitialOwner)))
+                        task.wait(0.5)
+                    else
+                        table.sort(normalCandidates, function(a, b)
+                            if a.HasChip ~= b.HasChip then return a.HasChip end
+                            if a.Fragments ~= b.Fragments then return a.Fragments > b.Fragments end
+                            return a.Name < b.Name
+                        end)
+                        local buyerAcc = normalCandidates[1].Name
+
+                        local cloneList = {}
+                        for _, m in ipairs(inServerMembers) do
+                            if m.Name ~= buyerAcc then
+                                table.insert(cloneList, m.Name)
+                            end
+                        end
+                        table.sort(cloneList)
+
+                        local clonePodAssignment = {}
+                        for idx, cName in ipairs(cloneList) do
+                            local podIdx = ((idx - 1) % #LAW_CLONE_PODS) + 1
+                            clonePodAssignment[cName] = LAW_CLONE_PODS[podIdx]
+                        end
+
+                        local myPodPos = clonePodAssignment[myName] or LAW_CLONE_PODS[1]
+                        local arrivedPod = ContinuousTweenStep(myPodPos)
+                        myAtPosFlag = arrivedPod
+                        SetStatus(("[BackHelp] Đứng buồng phụ Group (%d/5) | Buyer: %s (%s)"):format(
+                            #myGroup.Members, buyerAcc, arrivedPod and "Đã vào buồng" or "Đang tween"
+                        ))
+                        task.wait(0.2)
+                    end
+                end
+            end
+        else
+            -- Không nằm trong Group nào (do chưa có Group thiếu người, hoặc vừa nhường chỗ cho acc chính thứ 5 vào Group đầy)
+            myAtPosFlag = false
+            CleanupMovement()
+
+            local fullGroupJobs = {}
+            local standingInFullGroupServer = false
+            for _, g in ipairs(coopData.Groups) do
+                if g.TargetJobId and g.TargetJobId ~= "" then
+                    fullGroupJobs[tostring(g.TargetJobId)] = true
+                    if tostring(g.TargetJobId) == curJob then
+                        standingInFullGroupServer = true
+                    end
+                end
+            end
+
+            if standingInFullGroupServer then
+                SetStatus("[BackHelp] Group hiện tại đã đủ 5/5 acc cần Core Brain -> Nhường chỗ & Hop Low rời server!")
+                RecordJobCache(HOP_CACHE_FILE, TriedJobs, curJob)
+                HopLow(10, fullGroupJobs)
+                return
+            end
+
+            -- Nếu tình cờ có sẵn Boss Law trong server đang đứng thì vẫn bay lên đánh phụ
+            local lawBoss, lawHum = FindBossAlive({ "Order" })
+            if lawBoss and lawHum and lawHum.Health > 0 then
+                FightLawBossLoop(1, 1, true)
+            else
+                SetStatus("[BackHelp] Đã xong Cyborg V3 + Pull Lever | Đang trực chờ Group thiếu người (< 5) để phụ Kill Law...")
+                task.wait(1.5)
+            end
         end
     end
 end
@@ -2024,7 +2334,7 @@ if not IsCyborg() then
     if Stopped() then return end
 
     local state = CheckLawPedestalStatus()
-    if Stopped() then return end
+    if Stopped() or state == "HOPPED" then return end
 
     if state == "CORE_BRAIN" then
         -- Trạng thái Supply Core Brain -> Chạy cơ chế Coop/Solo qua CyborgProgress/killlawcoop.txt
@@ -2040,6 +2350,7 @@ if not IsCyborg() then
         local chestCount = 0
         while not Stopped() do
             if IsCyborg() then
+                UnmarkCoreSupplyRecorded()
                 SetStatus("Đã có tộc Cyborg! Hop Low để refresh...")
                 HopLow()
                 return
@@ -2053,7 +2364,8 @@ if not IsCyborg() then
             local hasFist, itemName = HasFistOrCoreBrain()
             if hasFist then
                 CleanupMovement()
-                SetStatus(("Nhặt được %s! Chuyển sang nộp Fist & chạy Coop Kill Law..."):format(tostring(itemName)))
+                MarkCoreSupplyRecorded()
+                SetStatus(("Nhặt được %s! Đã lưu coresupply.txt & chuyển sang nộp Fist / Coop Kill Law..."):format(tostring(itemName)))
                 RunCoopSupplyCoreBrain(TravelToSea)
                 return
             end
@@ -2109,12 +2421,13 @@ if not IsCyborg() then
 end
 if Stopped() then return end
 
--- 2. ĐÃ LÀ TỘC CYBORG -> DỌN LOG COOP, CHECK V2, V3 & BELI, FRAGMENT
-UnregisterCoopLaw()
+-- 2. ĐÃ LÀ TỘC CYBORG -> XÓA LOG CORESUPPLY, CHECK V2, V3 & BELI, FRAGMENT
+UnmarkCoreSupplyRecorded()
 local hasV3 = HasRaceV3()
 local hasV2 = HasRaceV2()
 
 if not hasV3 then
+    UnregisterCoopLaw()
     local reqBeli = hasV2 and 2000000 or 2500000 -- 500k cho V2 (nếu chưa V2) + 2M cho V3
 
     if GetBeli() < reqBeli then
@@ -2195,8 +2508,15 @@ if not hasV3 then
 end
 if Stopped() then return end
 
--- 3. ĐÃ ĐỦ CYBORG V3 -> CẤT HẾT FRUIT TRONG TÚI (NẾU CÒN) & ĐẢM BẢO ĐỦ 10K FRAGMENT Ở SEA 3
+-- 3. NẾU ĐÃ PULL LEVER RỒI -> VÀO THẲNG CHẾ ĐỘ BACK HELP Ở SEA 2 (KHÔNG CẦN TỚI SEA 3 CHECK LẠI)
+if IsLeverPulled() then
+    RunBackHelpCoopLaw(TravelToSea)
+    return
+end
+
+-- 4. ĐÃ ĐỦ CYBORG V3 NHƯNG CHƯA PULL LEVER -> CẤT HẾT FRUIT TRONG TÚI & ĐẢM BẢO ĐỦ 10K FRAGMENT Ở SEA 3
 UnregisterAutoCySession()
+UnregisterCoopLaw()
 EnsureNoFruitInInventory()
 if Stopped() then return end
 
@@ -2221,7 +2541,12 @@ if Stopped() then return end
 if GetSea() ~= 3 then TravelToSea(3) end
 if Stopped() then return end
 
--- 4. CHECK INVENTORY: VALKYRIE HELM & MIRROR FRACTAL
+if IsLeverPulled() then
+    RunBackHelpCoopLaw(TravelToSea)
+    return
+end
+
+-- 5. CHECK INVENTORY: VALKYRIE HELM & MIRROR FRACTAL
 local hasHelm, hasMirror = CheckInvItems()
 if Stopped() then return end
 
@@ -2261,9 +2586,9 @@ if not hasMirror then
     return
 end
 
--- 5. ĐỦ CYBORG V3 + 10K FRAG + MŨ + MẢNH -> CHECK & AUTO PULL LEVER
+-- 6. ĐỦ CYBORG V3 + 10K FRAG + MŨ + MẢNH -> AUTO PULL LEVER XONG QUAY LẠI SEA 2 BACK HELP KILL LAW
 if IsLeverPulled() then
-    SetStatus("CHÚC MỪNG! Đã hoàn thành Auto Cyborg V3 + Pull Lever!")
+    RunBackHelpCoopLaw(TravelToSea)
     return
 end
 
@@ -2271,8 +2596,12 @@ if LaunchRealKidMain({ AutoPullLever = true }, "Auto Pull Lever (Temple of Time)
     while not Stopped() and task.wait(2) do
         SetStatus("Đang chạy Auto Pull Lever...")
         if IsLeverPulled() then
-            SetStatus("CHÚC MỪNG! Đã hoàn thành Auto Cyborg V3 + Pull Lever!")
+            SetStatus("Đã hoàn thành Pull Lever! Chuyển về Sea 2 chạy Back Help phụ các Group thiếu người Kill Law...")
+            TravelToSea(2)
             break
         end
     end
+end
+if not Stopped() and IsLeverPulled() then
+    RunBackHelpCoopLaw(TravelToSea)
 end
