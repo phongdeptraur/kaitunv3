@@ -1331,8 +1331,6 @@ local function EquipMelee(meleeName, allowNpcTravel)
                         task.wait(0.2)
                         CommF_:InvokeServer("BlackbeardReward", "DragonClaw", "2")
                     elseif reg.BuyRemote == "BuyElectricClaw" then
-                        CommF_:InvokeServer("BuyElectricClaw", "Start")
-                        task.wait(0.2)
                         CommF_:InvokeServer("BuyElectricClaw")
                     elseif reg.BuyRemote then
                         CommF_:InvokeServer(reg.BuyRemote)
@@ -2914,6 +2912,7 @@ TriggerRealKidMain = function(mode, target)
                 cfg.material_choice = matName
             end
             cfg.TweenSpeedV4 = 190
+            cfg.auto_load_script = false -- [AXIOM MANDATE] Khóa cứng ép buộc auto_load_script thành false
 
             local encoded = HttpService:JSONEncode(cfg)
             if writefile then
@@ -4254,6 +4253,40 @@ local function RunAutoGodhumanStep()
                 FarmBoneMastery("Electro"); return
             end
 
+            -- [AXIOM UPDATE] KIỂM TRA TRẠNG THÁI TRIAL ELECTRIC CLAW
+            local comm = CommF_ or (ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_"))
+            local ecStatus = nil
+            if comm then
+                pcall(function()
+                    ecStatus = comm:InvokeServer("BuyElectricClaw", true)
+                end)
+            end
+
+            -- Nếu ra 4: Chưa start trial -> Tween đến Mansion (-12547.71, 320.14, -7487.06) rồi chạy remote Start Trial
+            if ecStatus == 4 or tostring(ecStatus) == "4" then
+                if _G.RealKidMainActive or _G.RealKidMainLoaded or _G.RealKidHopLoaded then
+                    SetLog("Refresh RealKid", "Cần làm Trial Electric Claw -> Đang Hop Low để tắt RealKid...")
+                    task.spawn(HopLowServer)
+                    task.wait(4)
+                    return
+                end
+                if GetCurrentSea() ~= 3 then TravelToSea(3); task.wait(2.5); return end
+
+                SetLog("Target: Electric Claw [Trial]", "Traveling to Mansion (-12547, 320, -7487) to Start Trial...")
+                local mansionCF = CFrame.new(-12547.71, 320.14, -7487.06)
+                local reachedMansion = TweenTo(mansionCF, 190)
+                local curHrp = GetHRP()
+                if reachedMansion or (curHrp and (curHrp.Position - mansionCF.Position).Magnitude <= 35) then
+                    task.wait(0.4)
+                    if comm then
+                        comm:InvokeServer("BuyElectricClaw", "Start")
+                    end
+                    task.wait(0.5)
+                end
+                return
+            end
+
+            -- Nếu result khác 4: Đã hoàn thành trial / Có thể mua -> Check đủ 5k Frags & 3M Beli rồi mua
             if frags < 5000 then
                 local holdMelee = GetAnyUnmaxedOwnedMelee(ownedMelees)
                 SetLog("Target: Electric Claw [Need Fragments]", string.format("Tyrant of the Skies | Frags: %d/5,000 F", frags))
@@ -4266,7 +4299,7 @@ local function RunAutoGodhumanStep()
                 FarmBoneMastery(holdMelee); return
             end
 
-            -- Đã đủ 400 Mastery, 5000 Frags và 3M Beli -> Bay tới Previous Hero để mua Electric Claw
+            -- Đã đủ điều kiện và xong trial -> Bay tới Previous Hero để mua Electric Claw
             if _G.RealKidMainActive or _G.RealKidMainLoaded or _G.RealKidHopLoaded then
                 SetLog("Refresh RealKid", "Đủ điều kiện mua Electric Claw -> Đang Hop Low để tắt RealKid trước khi tới Previous Hero...")
                 task.spawn(HopLowServer)
@@ -4280,10 +4313,8 @@ local function RunAutoGodhumanStep()
             local curHrp = GetHRP()
             if reachedEc or (curHrp and (curHrp.Position - ecCF.Position).Magnitude <= 35) then
                 task.wait(0.4)
-                if CommF_ then
-                    CommF_:InvokeServer("BuyElectricClaw", "Start")
-                    task.wait(0.3)
-                    CommF_:InvokeServer("BuyElectricClaw")
+                if comm then
+                    comm:InvokeServer("BuyElectricClaw")
                 end
                 task.wait(0.5); EquipMelee("Electric Claw", false)
             end
