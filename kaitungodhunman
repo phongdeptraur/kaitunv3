@@ -3537,7 +3537,7 @@ TriggerRealKidHop = function()
             AutoLoadEnabled = false, CyborgEnabled = false, MovementSpeed = 200, TTKEnabled = false,
             RandomEnabled = false, Destination = destBoss, Language = "Tiếng Việt",
             GunHeight = 35, YamaEnabled = false, VisitedJobs = {},
-            FruitWebhookEnabled = false, BossEnabled = true, StoreEnabled = true, GhoulEnabled = false,
+            FruitWebhookEnabled = false, BossEnabled = false, StoreEnabled = true, GhoulEnabled = false,
             WebhookEnabled = false, AttackHeight = 30, WeaponCategory = "Melee", InitialSide = "Marines",
             ChestEnabled = false, BuyLegendaryEnabled = false, FruitEnabled = false
         }
