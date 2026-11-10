@@ -1297,46 +1297,21 @@ local function EquipMelee(meleeName, allowNpcTravel)
         end
     end
     
-    -- 3. Thu goi Remote doi vo tu xa truoc khi quyet dinh bay toi NPC
-    if meleeName and MeleeRegistry[meleeName] and CommF_ then
-        local reg = MeleeRegistry[meleeName]
-        pcall(function()
-            if reg.BuyRemote == "BlackbeardReward" then
-                CommF_:InvokeServer("BlackbeardReward", "DragonClaw", "1")
-                task.wait(0.15)
-                CommF_:InvokeServer("BlackbeardReward", "DragonClaw", "2")
-            elseif reg.BuyRemote then
-                CommF_:InvokeServer(reg.BuyRemote)
-            end
-        end)
-        task.wait(0.3)
-
-        if char:FindFirstChildOfClass("Tool") and MatchMeleeName(char:FindFirstChildOfClass("Tool").Name, meleeName) then
-            return true
-        end
-        if bp then
-            local t = nil
-            for _, child in ipairs(bp:GetChildren()) do
-                if child:IsA("Tool") and MatchMeleeName(child.Name, meleeName) then t = child; break end
-            end
-            if t and char:FindFirstChildOfClass("Humanoid") then
-                char.Humanoid:EquipTool(t)
-                return true
-            end
-        end
-    end
-
-    -- 4. Bay toi NPC lay Melee neu duoc phep (Chi ap dung cho Melee, khong ap dung cho Sword)
-    if allowNpcTravel == true and meleeName and MeleeRegistry[meleeName] then
+    -- [AXIOM FIX]: TUYỆT ĐỐI KHÔNG FIRE REMOTE MUA/ĐỔI VÕ TỪ XA Ở BẤT KỲ ĐÂU!
+    -- BẮT BUỘC TWEEN ĐẾN NPC (MAD SCIENTIST / SABI / TEACHER) ĐỂ MUA/ĐỔI TRỰC TIẾP TẠI NPC
+    if (allowNpcTravel ~= false) and meleeName and MeleeRegistry[meleeName] then
         local reg = MeleeRegistry[meleeName]
         if reg and reg.NPC and CommF_ then
             local npcCF = reg.CFrame or FindNPC(reg.NPC)
             local hrp = GetHRP()
             if npcCF and hrp then
+                -- Tắt RealKid Main để cho phép nhân vật Tween tới NPC
+                _G.RealKidMainActive = false
+
                 local dist = (hrp.Position - npcCF.Position).Magnitude
                 if dist > 25 then
-                    SetLog(nil, string.format("Retrieving %s from %s...", meleeName, reg.NPC))
-                    TweenTo(npcCF + Vector3.new(0, 4, 0), 170)
+                    SetLog(nil, string.format("Navigating to %s to purchase/retrieve %s...", reg.NPC, meleeName))
+                    TweenTo(npcCF + Vector3.new(0, 4, 0), 190)
                     task.wait(0.3)
                 end
                 
@@ -1875,36 +1850,61 @@ local isRollingBones = false
 local checkedUzothEssenceOnce = false
 local DeliverFireEssenceToUzoth = nil -- Forward declaration for bone roller
 
--- // [AXIOM] ENGINE KIỂM TRA NGẦM COOLDOWN RANDOM BONES
+-- // [AXIOM] ENGINE KIỂM TRA NGẦM COOLDOWN RANDOM BONES & SỐ LƯỢNG BONES
 local isBoneOnCooldown = false
 local boneCooldownString = nil
 local lastBoneCdCheckTick = 0
+local CurrentBonesCount = 0
+local lastBonesCheckTick = 0
+
+local function GetBonesCount()
+    local now = os.clock()
+    if now - lastBonesCheckTick < 3.0 then
+        return CurrentBonesCount
+    end
+    lastBonesCheckTick = now
+
+    task.spawn(function()
+        pcall(function()
+            local comm = CommF_ or (ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_"))
+            if comm then
+                local res = comm:InvokeServer("Bones", "Check")
+                if res and tonumber(res) then
+                    CurrentBonesCount = tonumber(res)
+                elseif type(res) == "string" then
+                    local num = res:match("(%d+)")
+                    if num then CurrentBonesCount = tonumber(num) or CurrentBonesCount end
+                end
+            end
+        end)
+    end)
+    return CurrentBonesCount
+end
 
 local function CheckBoneCooldown()
     local now = os.clock()
-    if now - lastBoneCdCheckTick < 12.0 then
+    if now - lastBoneCdCheckTick < 5.0 then
         return isBoneOnCooldown, boneCooldownString
     end
     lastBoneCdCheckTick = now
 
-    pcall(function()
-        local comm = CommF_ or (ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_"))
-        if comm then
-            -- Gọi ngầm Remote Bones Buy (không print ra console)
-            local res1, res2, res3, res4, res5 = comm:InvokeServer("Bones", "Buy", 1, 1)
-            local combined = string.format("%s %s %s %s %s", tostring(res1), tostring(res2), tostring(res3), tostring(res4), tostring(res5))
-            
-            -- Regex bóc tách thời gian dạng 01:10 (1 tiếng 10 phút)
-            local cdMatch = combined:match("(%d+:%d+)")
-            if cdMatch then
-                isBoneOnCooldown = true
-                boneCooldownString = cdMatch
-            else
-                -- Kết quả trả về 2 (hoặc không còn dạng thời gian): Đã hết Cooldown!
-                isBoneOnCooldown = false
-                boneCooldownString = nil
+    task.spawn(function()
+        pcall(function()
+            local comm = CommF_ or (ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_"))
+            if comm then
+                local res1, res2, res3, res4, res5 = comm:InvokeServer("Bones", "Buy", 1, 1)
+                local combined = string.format("%s %s %s %s %s", tostring(res1), tostring(res2), tostring(res3), tostring(res4), tostring(res5))
+                
+                local cdMatch = combined:match("(%d+:%d+)")
+                if cdMatch then
+                    isBoneOnCooldown = true
+                    boneCooldownString = cdMatch
+                elseif tostring(res1) == "2" or not cdMatch then
+                    isBoneOnCooldown = false
+                    boneCooldownString = nil
+                end
             end
-        end
+        end)
     end)
     return isBoneOnCooldown, boneCooldownString
 end
@@ -3093,10 +3093,15 @@ local function FarmBoneMastery(targetMeleeName)
     if farmWeapon and farmWeapon ~= "" then
         local isAlreadyHolding = curHold and (MatchMeleeName(curHold.Name, farmWeapon) or string.find(string.lower(curHold.Name), string.lower(farmWeapon), 1, true))
         if not isAlreadyHolding or curLvl >= wReq then
-            local equipped = EquipMelee(farmWeapon, false)
+            -- Cho phép allowNpcTravel = true để bay tới NPC mua/đổi võ nếu chưa có sẵn trong túi đồ
+            local equipped = EquipMelee(farmWeapon, true)
             if not equipped and wType == "Melee" then
-                SetLog(nil, string.format("Equipping %s...", farmWeapon))
-                EquipMelee(farmWeapon, false)
+                SetLog(nil, string.format("Equipping %s (Traveling to NPC)...", farmWeapon))
+                equipped = EquipMelee(farmWeapon, true)
+            end
+            if not equipped and wType == "Melee" then
+                -- Nếu chưa trang bị được Melee mong muốn, tuyệt đối KHÔNG kích hoạt RealKid Main farm quái linh tinh
+                return
             end
         end
     end
@@ -4195,45 +4200,74 @@ local function RunAutoGodhumanStep()
         -- // 1.2: ELECTRIC CLAW
         if targetUnownedV2 == "Electric Claw" then
             local el = ownedMelees["Electro"]
-            if not el then
-                if beli < 500000 then
+            local myChar = GetChar()
+            local bp = LocalPlayer:FindFirstChild("Backpack")
+            local hasElectroInInv = (myChar and myChar:FindFirstChildOfClass("Tool") and MatchMeleeName(myChar:FindFirstChildOfClass("Tool").Name, "Electro"))
+                or (bp and (function()
+                    for _, t in ipairs(bp:GetChildren()) do
+                        if t:IsA("Tool") and MatchMeleeName(t.Name, "Electro") then return true end
+                    end
+                    return false
+                end)())
+
+            -- Nếu chưa sở hữu Electro hoặc chưa có Electro trong túi đồ/trên tay -> BẮT BUỘC Tween tới Mad Scientist để mua/lấy!
+            if not el or not hasElectroInInv then
+                if not el and beli < 500000 then
                     local holdMelee = GetAnyUnmaxedOwnedMelee(ownedMelees)
                     SetLog("Target: Electric Claw [Need Beli]", string.format("Haunted Castle (Bones) | Need $500K for Electro [Hold: %s]", holdMelee or "None"))
                     FarmBoneMastery(holdMelee); return
                 end
-                SetLog("Target: Electric Claw [Prereq]", "Traveling to Mad Scientist to buy Electro...")
+
+                -- [BẮT BUỘC TWEEN ĐẾN MAD SCIENTIST ĐỂ MUA/ĐỔI VÕ, KHÔNG FIRE REMOTE Ở BẤT KỲ ĐÂU]
+                _G.RealKidMainActive = false -- Mở khóa quyền Tween
+                if GetCurrentSea() ~= 3 then TravelToSea(3); task.wait(2.5); return end
+
+                SetLog("Target: Electric Claw [Prereq]", "Traveling to Mad Scientist (Castle on the Sea) to buy/equip Electro...")
                 local cf = (MeleeRegistry["Electro"] and MeleeRegistry["Electro"].CFrame) or CFrame.new(-4996.05, 313.21, -3201.82)
-                if TweenTo(cf + Vector3.new(0, 4, 0), 170) then
-                    task.wait(0.4); if CommF_ then CommF_:InvokeServer("BuyElectro") end
-                    task.wait(0.5); EquipMelee("Electro")
+                local reached = TweenTo(cf + Vector3.new(0, 4, 0), 190)
+                local hrp = GetHRP()
+                if reached or (hrp and (hrp.Position - cf.Position).Magnitude <= 35) then
+                    task.wait(0.4)
+                    if CommF_ then CommF_:InvokeServer("BuyElectro") end
+                    task.wait(0.5)
+                    EquipMelee("Electro", false)
                 end
                 return
             end
+
+            -- Đã có Electro trong người: nếu Mastery < 400 thì cày Mastery ở Haunted Castle
             if el.Mastery < 400 then
                 SetLog("Target: Electric Claw [Prereq]", string.format("Haunted Castle (Bones) | Electro Mastery: %d/400", el.Mastery))
                 FarmBoneMastery("Electro"); return
             end
+
             if frags < 5000 then
                 local holdMelee = GetAnyUnmaxedOwnedMelee(ownedMelees)
                 SetLog("Target: Electric Claw [Need Fragments]", string.format("Tyrant of the Skies | Frags: %d/5,000 F", frags))
                 CallFarmTyrant(holdMelee); return
             end
+
             if beli < 3000000 then
                 local holdMelee = GetAnyUnmaxedOwnedMelee(ownedMelees)
                 SetLog("Target: Electric Claw [Need Beli]", string.format("Haunted Castle (Bones) | Funds: $%s/3M Beli", tostring(beli)))
                 FarmBoneMastery(holdMelee); return
             end
+
+            -- Đã đủ 400 Mastery, 5000 Frags và 3M Beli -> Bay tới Previous Hero để mua Electric Claw
+            _G.RealKidMainActive = false -- Mở khóa quyền Tween
             if GetCurrentSea() ~= 3 then TravelToSea(3); task.wait(2.5); return end
             SetLog("Target: Electric Claw", "Traveling to Previous Hero (Floating Turtle) to purchase...")
             local ecCF = (MeleeRegistry["Electric Claw"] and MeleeRegistry["Electric Claw"].CFrame) or CFrame.new(-10371.47, 330.76, -10131.42)
-            if TweenTo(ecCF + Vector3.new(0, 4, 0), 170) then
+            local reachedEc = TweenTo(ecCF + Vector3.new(0, 4, 0), 190)
+            local curHrp = GetHRP()
+            if reachedEc or (curHrp and (curHrp.Position - ecCF.Position).Magnitude <= 35) then
                 task.wait(0.4)
                 if CommF_ then
                     CommF_:InvokeServer("BuyElectricClaw", "Start")
                     task.wait(0.3)
                     CommF_:InvokeServer("BuyElectricClaw")
                 end
-                task.wait(0.5); EquipMelee("Electric Claw")
+                task.wait(0.5); EquipMelee("Electric Claw", false)
             end
             return
         end
@@ -4930,13 +4964,36 @@ local function CreateUI()
 
     local MatSectionLbl = Instance.new("TextLabel", TabGrindContainer)
     MatSectionLbl.Text = "🔮 GODHUMAN MATERIAL REQUIREMENTS"
-    MatSectionLbl.Size = UDim2.new(1, -24, 0, 18)
+    MatSectionLbl.Size = UDim2.new(0.52, 0, 0, 18)
     MatSectionLbl.Position = UDim2.new(0, 14, 0, 166)
     MatSectionLbl.Font = Enum.Font.GothamBold
     MatSectionLbl.TextSize = 11
     MatSectionLbl.TextColor3 = Color3.fromRGB(140, 150, 180)
     MatSectionLbl.BackgroundTransparency = 1
     MatSectionLbl.TextXAlignment = Enum.TextXAlignment.Left
+
+    -- [AXIOM UI] BONES LIVE STATUS BADGE (COUNT & CD)
+    local BonesStatusFrame = Instance.new("Frame", TabGrindContainer)
+    BonesStatusFrame.Name = "BonesStatusFrame"
+    BonesStatusFrame.Size = UDim2.new(0.48, -14, 0, 22)
+    BonesStatusFrame.Position = UDim2.new(0.52, 0, 0, 164)
+    BonesStatusFrame.BackgroundColor3 = Color3.fromRGB(24, 28, 42)
+    Instance.new("UICorner", BonesStatusFrame).CornerRadius = UDim.new(0, 6)
+    local bStroke = Instance.new("UIStroke", BonesStatusFrame)
+    bStroke.Color = Color3.fromRGB(50, 60, 85)
+    bStroke.Thickness = 1
+
+    local BonesStatusLbl = Instance.new("TextLabel", BonesStatusFrame)
+    BonesStatusLbl.Name = "BonesStatusLbl"
+    BonesStatusLbl.Size = UDim2.new(1, -6, 1, 0)
+    BonesStatusLbl.Position = UDim2.new(0, 3, 0, 0)
+    BonesStatusLbl.Font = Enum.Font.GothamBold
+    BonesStatusLbl.TextSize = 10
+    BonesStatusLbl.TextColor3 = Color3.fromRGB(255, 215, 0)
+    BonesStatusLbl.BackgroundTransparency = 1
+    BonesStatusLbl.TextXAlignment = Enum.TextXAlignment.Center
+    BonesStatusLbl.Text = "🦴 Bones: ... | CD: ..."
+    Axiom.BonesStatusLbl = BonesStatusLbl
 
     local MatFrame = Instance.new("Frame", TabGrindContainer)
     MatFrame.Size = UDim2.new(1, -24, 0, 144)
@@ -5417,6 +5474,20 @@ local function CreateUI()
 
             pcall(UpdateMeleeCards)
             pcall(UpdateMaterialCards)
+
+            -- Cập nhật Bones Status trên UI (Count & Cooldown)
+            if Axiom.BonesStatusLbl then
+                local bCount = (type(GetBonesCount) == "function") and GetBonesCount() or 0
+                local onCd, cdTime = (type(CheckBoneCooldown) == "function") and CheckBoneCooldown() or false, nil
+                local cdText = onCd and string.format("CD: %s", tostring(cdTime or "Active")) or "CD: Ready"
+                Axiom.BonesStatusLbl.Text = string.format("🦴 Bones: %d | %s", bCount, cdText)
+                if onCd then
+                    Axiom.BonesStatusLbl.TextColor3 = Color3.fromRGB(255, 170, 60)
+                else
+                    Axiom.BonesStatusLbl.TextColor3 = Color3.fromRGB(0, 255, 150)
+                end
+            end
+
             if TabUnownedContainer and TabUnownedContainer.Visible then
                 pcall(UpdateUnownedCards)
             end
