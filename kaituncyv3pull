@@ -222,6 +222,7 @@ local PendingStatus = "[AutoCyborgV3] Đang khởi tạo..."
 local LastRenderedStatus = ""
 local UnregisterAutoCySession -- Forward declaration
 local UnregisterCoopLaw       -- Forward declaration
+local RunSea3BossTarget       -- Forward declaration
 
 local function CleanupMovement()
     if ActiveTween then pcall(function() ActiveTween:Cancel() end) ActiveTween = nil end
@@ -2003,32 +2004,28 @@ local function RunCoopSupplyCoreBrain(TravelToSeaFn)
 end
 
 -- ============================================================================
--- CƠ CHẾ BACK HELP SAU KHI PULL LEVER CYBORG V3 (KHÔNG MUA CHIP, NHƯỜNG CHỖ KHI ĐẦY)
+-- CƠ CHẾ BACK HELP SAU KHI PULL LEVER CYBORG V3 (VỪA FARM FRAG VỪA TRỰC CHỜ COOP)
 -- ============================================================================
 local function RunBackHelpCoopLaw(TravelToSeaFn)
     UnregisterAutoCySession()
     UnmarkCoreSupplyRecorded()
 
-    if GetSea() ~= 2 then
-        SetStatus("[BackHelp] Đã xong Cyborg V3 + Pull Lever! Quay về Sea 2 phụ các Group thiếu người đánh Law...")
-        TravelToSeaFn(2)
-    end
-    if Stopped() then return end
-
     local lastTeleportAttempt = 0
     local myAtPosFlag = false
 
     while not Stopped() do
-        if GetSea() ~= 2 then
-            TravelToSeaFn(2)
-            if Stopped() then return end
-        end
-
         local coopData, myGroup = SyncAndRebalanceCoop(myAtPosFlag, true)
         local myName = LocalPlayer.Name
         local curJob = tostring(game.JobId)
 
         if myGroup then
+            -- Khi có Group cần phụ -> Đảm bảo đang ở Sea 2
+            if GetSea() ~= 2 then
+                SetStatus("[BackHelp] Phát hiện Group cần phụ Law -> Chuyển về Sea 2...")
+                TravelToSeaFn(2)
+                if Stopped() then return end
+            end
+
             local targetJob = tostring(myGroup.TargetJobId or curJob)
 
             if targetJob ~= "" and targetJob ~= curJob then
@@ -2111,7 +2108,7 @@ local function RunBackHelpCoopLaw(TravelToSeaFn)
                 end
             end
         else
-            -- Không nằm trong Group nào (do chưa có Group thiếu người, hoặc vừa nhường chỗ cho acc chính thứ 5 vào Group đầy)
+            -- Không nằm trong Group nào (do các Group đã đủ 5 người hoặc chưa có acc nào làm Law)
             myAtPosFlag = false
             CleanupMovement()
 
@@ -2127,19 +2124,37 @@ local function RunBackHelpCoopLaw(TravelToSeaFn)
             end
 
             if standingInFullGroupServer then
-                SetStatus("[BackHelp] Group hiện tại đã đủ 5/5 acc cần Core Brain -> Nhường chỗ & Hop Low rời server!")
+                SetStatus("[BackHelp] Group hiện tại đã đủ 5/5 acc cần Core Brain -> Nhường chỗ rời server đi farm Frag!")
                 RecordJobCache(HOP_CACHE_FILE, TriedJobs, curJob)
                 HopLow(10, fullGroupJobs)
                 return
             end
 
-            -- Nếu tình cờ có sẵn Boss Law trong server đang đứng thì vẫn bay lên đánh phụ
+            -- Nếu tình cờ có sẵn Boss Law trong server đang đứng thì vẫn đánh phụ
             local lawBoss, lawHum = FindBossAlive({ "Order" })
             if lawBoss and lawHum and lawHum.Health > 0 then
                 FightLawBossLoop(1, 1, true)
             else
-                SetStatus("[BackHelp] Đã xong Cyborg V3 + Pull Lever | Đang trực chờ Group thiếu người (< 5) để phụ Kill Law...")
-                task.wait(1.5)
+                -- CHẾ ĐỘ VỪA FARM FRAG VỪA TRỰC CHỜ: Sang Sea 3 săn Cake Prince, ngay khi có Coop thì ngắt quay lại Sea 2
+                SetStatus("[BackHelp Trực Chờ] Chưa có Group Law phù hợp -> Vừa farm Frag (Cake Prince) vừa trực chờ...")
+                RunSea3BossTarget(
+                    DESTINATIONS.CAKE_PRINCE,
+                    POS_CAKE_LOAF,
+                    function()
+                        return ("[BackHelp Trực Chờ] Đang farm Frag (Cake Prince | Frag: %d) | Chờ Group Law..."):format(GetFragments())
+                    end,
+                    function()
+                        local _, gCheck = SyncAndRebalanceCoop(false, true)
+                        if gCheck then
+                            SetStatus("[BackHelp] Phát hiện Group cần phụ Law! Bỏ farm Frag về Sea 2 ngay...")
+                            getgenv()._RealKidMainRunning = false
+                            getgenv()._RealKidHopRunning = false
+                            CleanupMovement()
+                            return true -- Dừng ngay farm Frag để quay lại vòng lặp Coop
+                        end
+                        return false
+                    end
+                )
             end
         end
     end
@@ -2283,7 +2298,7 @@ local function TravelToSea(targetSea)
     return not Stopped() and GetSea() == targetSea
 end
 
-local function RunSea3BossTarget(destination, preTweenPos, waitMsgFn, doneCheckFn)
+RunSea3BossTarget = function(destination, preTweenPos, waitMsgFn, doneCheckFn)
     if Stopped() then return end
     if GetSea() ~= 3 then TravelToSea(3) end
     if Stopped() then return end
