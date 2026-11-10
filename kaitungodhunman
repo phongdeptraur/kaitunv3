@@ -1827,6 +1827,7 @@ local function ExecuteFastAttack247()
     end
 
     CollectTargets(workspace:FindFirstChild("Enemies"))
+    CollectTargets(workspace:FindFirstChild("Characters"))
     if #hitList == 0 or not primaryTarget then return end
 
     local netModInstance = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("Net")
@@ -3549,7 +3550,7 @@ TriggerRealKidHop = function()
                 baseCfg.Destination = destBoss
                 baseCfg.SearchEnabled = true
                 baseCfg.AttackEnabled = true
-                baseCfg.BossEnabled = true
+                baseCfg.BossEnabled = false
             end
         end
         local encoded = HttpService:JSONEncode(baseCfg)
@@ -3755,6 +3756,7 @@ local function OnTyrantDefeated()
             SetLog("Tyrant Radar", string.format("Tyrant defeated! Collecting loot (%ds)...", i))
             task.wait(1)
         end
+        _G.AxiomPreTweenedTiki = false
         isWaitingTyrantHop = false
         HopTyrantServer()
     end)
@@ -3884,6 +3886,8 @@ local function FarmTyrantRealtime(meleeName)
 
         if AutoAttack then
             pcall(function() AutoAttack(boss) end)
+        elseif PerformAttack then
+            pcall(PerformAttack)
         end
 
         task.wait(0.05)
@@ -3978,7 +3982,7 @@ local function RunAutoGodhumanStep()
     -- [AXIOM SPECIAL DIRECTIVE]: KHI LEVEL DƯỚI 1976 -> CHỈ PRE-TWEEN TIKI VÀ CHẠY REALKID HOP
     -- TUYỆT ĐỐI KHÔNG LÀM BẤT CỨ VIỆC NÀO KHÁC (BỎ QUA TOÀN BỘ BƯỚC 0 -> BƯỚC 4)
     -- --------------------------------------------------------------------------
-    local playerLevel = 1
+        local playerLevel = 1
     pcall(function()
         local d = LocalPlayer:FindFirstChild("Data")
         if d and d:FindFirstChild("Level") then 
@@ -3989,7 +3993,7 @@ local function RunAutoGodhumanStep()
     end)
 
     if playerLevel < 1976 then
-        _G.RealKidMainActive = false -- Mở khóa để cho phép Tween nhân vật bay tới Tiki Outpost
+        _G.RealKidMainActive = false -- Mở khóa để cho phép Tween nhân vật bay tới Tiki Outpost / Đánh Boss
 
         if GetCurrentSea() ~= 3 then
             TravelToSea(3)
@@ -3997,18 +4001,35 @@ local function RunAutoGodhumanStep()
             return
         end
 
-        local TIKI_OUTPOST_CF = CFrame.new(-16204, 30, 479)
-        local curHrp = GetHRP()
-        local distTiki = curHrp and (curHrp.Position - TIKI_OUTPOST_CF.Position).Magnitude or 9999
+        -- [BƯỚC 1]: Pre-Tween tới Tiki Outpost CHỈ 1 LẦN DUY NHẤT trong suốt server
+        if not _G.AxiomPreTweenedTiki then
+            local checkBossBefore, checkHumBefore = FindTyrantBoss()
+            if not (checkBossBefore and checkHumBefore and checkHumBefore.Health > 0) then
+                local TIKI_OUTPOST_CF = CFrame.new(-16204, 30, 479)
+                local curHrp = GetHRP()
+                local distTiki = curHrp and (curHrp.Position - TIKI_OUTPOST_CF.Position).Magnitude or 9999
 
-        if distTiki > 80 then
-            SetLog("Target: Pre-Tween Tiki", string.format("Level %d/1976 | Bay tới Tiki Outpost (%dm)...", playerLevel, math.floor(distTiki)))
-            TweenTo(TIKI_OUTPOST_CF, 190)
+                if distTiki > 80 then
+                    SetLog("Target: Pre-Tween Tiki (1x)", string.format("Level %d/1976 | Bay tới Tiki Outpost 1 lần duy nhất (%dm)...", playerLevel, math.floor(distTiki)))
+                    TweenTo(TIKI_OUTPOST_CF, 190)
+                end
+            end
+            _G.AxiomPreTweenedTiki = true
+            task.wait(0.5)
+        end
+
+        -- [BƯỚC 2]: KIỂM TRA BOSS TYRANT OF THE SKIES TRONG SERVER
+        -- NẾU CÓ BOSS -> BẮT BUỘC ĐÁNH BOSS, TUYỆT ĐỐI KHÔNG TWEEN VỀ TIKI VÀ KHÔNG HOP!
+        local tBoss, tHum, tRoot = FindTyrantBoss()
+        if tBoss and tHum and tHum.Health > 0 then
+            local holdMelee = GetAnyUnmaxedOwnedMelee(ownedMelees) or GetBestMasteryMelee(ownedMelees)
+            SetLog("Target: Săn Boss Tyrant", string.format("Level %d/1976 | Tyrant HP: %d/%d -> Đang đánh boss!", playerLevel, math.floor(tHum.Health), math.floor(tHum.MaxHealth)))
+            CallFarmTyrant(holdMelee)
             return
         end
 
-        -- Đã tới Tiki Outpost: Kích hoạt RealKid Hop săn Tyrant
-        SetLog("Target: RealKid Hop Tyrant", string.format("Level %d/1976 | Đã tới Tiki! Kích hoạt RealKid Hop...", playerLevel))
+        -- [BƯỚC 3]: NẾU KHÔNG CÓ BOSS (HOẶC BOSS ĐÃ CHẾT) -> KÍCH HOẠT REALKID HOP ĐỂ SĂN SERVER KHÁC
+        SetLog("Target: RealKid Hop Tyrant", string.format("Level %d/1976 | Không có Boss -> Kích hoạt RealKid Hop...", playerLevel))
         local runHop = TriggerRealKidHop or _G.TriggerRealKidHop or (getgenv and getgenv().TriggerRealKidHop)
         if runHop then
             runHop()
