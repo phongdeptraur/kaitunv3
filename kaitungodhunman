@@ -2913,6 +2913,7 @@ TriggerRealKidMain = function(mode, target)
             end
             cfg.TweenSpeedV4 = 190
             cfg.auto_load_script = false -- [AXIOM MANDATE] Khóa cứng ép buộc auto_load_script thành false
+            cfg.auto_load_script = false -- [AXIOM MANDATE] Khóa cứng ép buộc auto_load_script thành false
 
             local encoded = HttpService:JSONEncode(cfg)
             if writefile then
@@ -4069,7 +4070,7 @@ local function RunAutoGodhumanStep()
     end
 
     -- --------------------------------------------------------------------------
-    -- BƯỚC 1: ƯU TIÊN SỞ HỮU TOÀN BỘ 5 MELEE V2 (CHECK KÈM ĐỦ TIỀN & FRAGMENTS)
+    -- BƯỚC 1: ƯU TIÊN SỞ HỮU TOÀN BỘ 5 MELEE V2 (CƠ CHẾ SKIP THÔNG MINH)
     -- --------------------------------------------------------------------------
     local v2CheckList = {
         "Dragon Talon",
@@ -4080,26 +4081,29 @@ local function RunAutoGodhumanStep()
     }
 
     local targetUnownedV2 = nil
+    local isBonesOnCD, cdTimeStr = CheckBoneCooldown() -- Check CD 1 lần duy nhất ở đây
+
     for _, v2Name in ipairs(v2CheckList) do
+        -- Kiểm tra xem đã sở hữu melee này chưa
+        local isOwned = ownedMelees[v2Name]
         if v2Name == "Dragon Talon" then
-            local hasDT = ownedMelees["Dragon Talon"] or tostring(UzothStatus) == "1" or (Axiom.PersistentOwnedMelees and Axiom.PersistentOwnedMelees["Dragon Talon"])
-            if hasDT then
-                continue
-            end
-            -- THỨ TỰ TUÂN THỦ: dragon talon -> electric claw -> sharkman karate -> death step -> godhuman
-            -- Nếu chưa có Dragon Talon, chưa có/chưa nộp Fire Essence, Dragon Claw >= 400 và Bones đang CD:
-            -- BỎ QUA Dragon Talon để chuyển sang Electric Claw -> Sharkman Karate -> Death Step!
-            local dClaw = ownedMelees["Dragon Claw"]
-            local hasEssence = CheckHasFireEssence()
-            local submitted = FireEssenceDelivered or tostring(UzothStatus) == "0"
-            if not hasEssence and not submitted and dClaw and dClaw.Mastery >= 400 then
-                local onCd, cdTime = CheckBoneCooldown()
-                if onCd then
-                    continue -- Sang Electric Claw -> Sharkman -> Death Step
+            isOwned = isOwned or tostring(UzothStatus) == "1" or (Axiom.PersistentOwnedMelees and Axiom.PersistentOwnedMelees["Dragon Talon"])
+        end
+
+        if not isOwned then
+            -- [CORE LOGIC FIX]: Xử lý đặc thù cho Dragon Talon
+            if v2Name == "Dragon Talon" then
+                local hasEssence = CheckHasFireEssence()
+                local submitted = FireEssenceDelivered or tostring(UzothStatus) == "0"
+                
+                -- Nếu chưa có Essence, chưa nộp, VÀ Bones đang bị Cooldown -> Tạm thời Skip
+                if not hasEssence and not submitted and isBonesOnCD then
+                    SetLog("Target: Skip Dragon Talon", "Bones on CD (" .. tostring(cdTimeStr) .. ") -> Chuyển sang cày Melee ưu tiên tiếp theo!")
+                    continue -- Bỏ qua DT, vòng lặp tự trượt xuống check Electric Claw, v.v.
                 end
             end
-        end
-        if not ownedMelees[v2Name] then
+
+            -- Chốt mục tiêu ưu tiên cao nhất hiện tại (không bị kẹt) và thoát vòng lặp
             targetUnownedV2 = v2Name
             break
         end
@@ -4109,9 +4113,8 @@ local function RunAutoGodhumanStep()
         -- // 1.1: DRAGON TALON (UZOTH ABLAZE & ZERO-STALL BONE ENGINE)
         if targetUnownedV2 == "Dragon Talon" then
             local uStat = (CheckDragonTalonUzothStatus and CheckDragonTalonUzothStatus()) or UzothStatus or "2"
-            local uStatStr = tostring(uStat):lower()
-
-            if uStat == "1" or uStat == "true" or uStat == 1 or uStat == true then
+            
+            if uStat == "1" or tostring(uStat) == "1" or uStat == 1 or uStat == true then
                 FireEssenceDelivered = true
                 if Axiom and Axiom.PersistentOwnedMelees then
                     Axiom.PersistentOwnedMelees["Dragon Talon"] = Axiom.PersistentOwnedMelees["Dragon Talon"] or 1
@@ -4119,15 +4122,13 @@ local function RunAutoGodhumanStep()
                 return
             end
 
-            -- 1. Neu da cam Fire Essence: Kiem tra 1 lan duy nhat xem da nhet Uzoth chua
+            -- 1. Nếu đã cầm Fire Essence: Giao cho Uzoth
             if CheckHasFireEssence() then
                 local alreadySubmitted = FireEssenceDelivered or UzothStatus == "0" or UzothStatus == "1"
                 if not alreadySubmitted and not checkedUzothEssenceOnce then
                     checkedUzothEssenceOnce = true
-                    local okStat, uRes = pcall(function()
-                        return CommF_:InvokeServer("BuyDragonTalon", true)
-                    end)
-                    if okStat and uRes ~= nil then
+                    pcall(function()
+                        local uRes = CommF_:InvokeServer("BuyDragonTalon", true)
                         local s = tostring(uRes)
                         if s == "0" or s == "1" or s == "3" then
                             UzothStatus = s
@@ -4135,18 +4136,16 @@ local function RunAutoGodhumanStep()
                             alreadySubmitted = true
                         elseif s == "2" or string.find(s:lower(), "ablaze") or string.find(s:lower(), "heart") then
                             UzothStatus = "2"
-                            alreadySubmitted = false
                         end
-                    end
+                    end)
                 end
-
                 if not alreadySubmitted then
                     DeliverFireEssenceToUzoth()
                     return
                 end
             end
 
-            -- 2. Kiem tra vu khi tien quyet: Dragon Claw (Dragon Breath) phai dat 400 Mastery
+            -- 2. Kiểm tra Dragon Claw V1 (Mastery 400)
             local dClaw = ownedMelees["Dragon Claw"]
             if not dClaw then
                 if frags < 1500 then
@@ -4175,7 +4174,7 @@ local function RunAutoGodhumanStep()
                 return
             end
 
-            -- 3. RANG BUOC TIEN TE: PHAI DU 5,000 FRAGMENTS VA 3,000,000 BELI TRUOC KHI DI FARM BONE!
+            -- 3. Đủ điều kiện, chuẩn bị farm Bones (Script chỉ lọt vào đây khi isBonesOnCD == false)
             local holdMelee = GetAnyUnmaxedOwnedMelee(ownedMelees) or "Dragon Claw"
             if frags < 5000 then
                 SetLog("Target: Dragon Talon [Need Fragments]", string.format("Tyrant of the Skies | Frags: %d/5,000 F [Prep DT]", frags))
@@ -4188,16 +4187,6 @@ local function RunAutoGodhumanStep()
                 return
             end
 
-            -- 4. DA DU TIEN & FRAGMENTS VA UZOTH BAO "Set your heart ablaze":
-            -- Kiểm tra Cooldown Random Bones: Nếu đang dính Cooldown -> Nhả để chu kỳ sau chuyển Melee kế tiếp theo thứ tự
-            local onCd, cdTime = CheckBoneCooldown()
-            if onCd then
-                SetLog(string.format("Target: Skip DT [Bone CD: %s]", tostring(cdTime or "Active")), "Bones Cooldown! Chuyển sang farm Melee kế tiếp theo thứ tự...")
-                isAutoGodhumanStepBusy = false
-                return
-            end
-
-            -- BẮT BUỘC ĐI FARM BONE VÀ ROLL 3S KHI ĐÃ HẾT COOLDOWN
             local farmWp, curM, maxM, wpType = ResolveBoneFarmWeapon(holdMelee, ownedMelees)
             SetLog("Target: Dragon Talon [Uzoth: Need Essence]", string.format("Haunted Castle (Bones) | %s: %d/%d", farmWp, curM, maxM))
             FarmBoneMastery(farmWp)
@@ -4217,7 +4206,6 @@ local function RunAutoGodhumanStep()
                     return false
                 end)())
 
-            -- Nếu chưa sở hữu Electro hoặc chưa có Electro trong túi đồ/trên tay -> BẮT BUỘC Tween tới Mad Scientist để mua/lấy!
             if not el or not hasElectroInInv then
                 if not el and beli < 500000 then
                     local holdMelee = GetAnyUnmaxedOwnedMelee(ownedMelees)
@@ -4225,7 +4213,6 @@ local function RunAutoGodhumanStep()
                     FarmBoneMastery(holdMelee); return
                 end
 
-                -- [BẮT BUỘC TWEEN ĐẾN MAD SCIENTIST ĐỂ MUA/ĐỔI VÕ, KHÔNG FIRE REMOTE Ở BẤT KỲ ĐÂU]
                 if _G.RealKidMainActive or _G.RealKidMainLoaded or _G.RealKidHopLoaded then
                     SetLog("Refresh RealKid", "Cần lấy Electro từ Mad Scientist -> Đang Hop Low để tắt RealKid...")
                     task.spawn(HopLowServer)
@@ -4247,22 +4234,16 @@ local function RunAutoGodhumanStep()
                 return
             end
 
-            -- Đã có Electro trong người: nếu Mastery < 400 thì cày Mastery ở Haunted Castle
             if el.Mastery < 400 then
                 SetLog("Target: Electric Claw [Prereq]", string.format("Haunted Castle (Bones) | Electro Mastery: %d/400", el.Mastery))
                 FarmBoneMastery("Electro"); return
             end
 
-            -- [AXIOM UPDATE] KIỂM TRA TRẠNG THÁI TRIAL ELECTRIC CLAW
-            local comm = CommF_ or (ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_"))
             local ecStatus = nil
-            if comm then
-                pcall(function()
-                    ecStatus = comm:InvokeServer("BuyElectricClaw", true)
-                end)
+            if CommF_ then
+                pcall(function() ecStatus = CommF_:InvokeServer("BuyElectricClaw", true) end)
             end
 
-            -- Nếu ra 4: Chưa start trial -> Tween đến Mansion (-12547.71, 320.14, -7487.06) rồi chạy remote Start Trial
             if ecStatus == 4 or tostring(ecStatus) == "4" then
                 if _G.RealKidMainActive or _G.RealKidMainLoaded or _G.RealKidHopLoaded then
                     SetLog("Refresh RealKid", "Cần làm Trial Electric Claw -> Đang Hop Low để tắt RealKid...")
@@ -4278,15 +4259,12 @@ local function RunAutoGodhumanStep()
                 local curHrp = GetHRP()
                 if reachedMansion or (curHrp and (curHrp.Position - mansionCF.Position).Magnitude <= 35) then
                     task.wait(0.4)
-                    if comm then
-                        comm:InvokeServer("BuyElectricClaw", "Start")
-                    end
+                    if CommF_ then CommF_:InvokeServer("BuyElectricClaw", "Start") end
                     task.wait(0.5)
                 end
                 return
             end
 
-            -- Nếu result khác 4: Đã hoàn thành trial / Có thể mua -> Check đủ 5k Frags & 3M Beli rồi mua
             if frags < 5000 then
                 local holdMelee = GetAnyUnmaxedOwnedMelee(ownedMelees)
                 SetLog("Target: Electric Claw [Need Fragments]", string.format("Tyrant of the Skies | Frags: %d/5,000 F", frags))
@@ -4299,9 +4277,8 @@ local function RunAutoGodhumanStep()
                 FarmBoneMastery(holdMelee); return
             end
 
-            -- Đã đủ điều kiện và xong trial -> Bay tới Previous Hero để mua Electric Claw
             if _G.RealKidMainActive or _G.RealKidMainLoaded or _G.RealKidHopLoaded then
-                SetLog("Refresh RealKid", "Đủ điều kiện mua Electric Claw -> Đang Hop Low để tắt RealKid trước khi tới Previous Hero...")
+                SetLog("Refresh RealKid", "Đủ điều kiện mua Electric Claw -> Đang Hop Low để tắt RealKid...")
                 task.spawn(HopLowServer)
                 task.wait(4)
                 return
@@ -4313,9 +4290,7 @@ local function RunAutoGodhumanStep()
             local curHrp = GetHRP()
             if reachedEc or (curHrp and (curHrp.Position - ecCF.Position).Magnitude <= 35) then
                 task.wait(0.4)
-                if comm then
-                    comm:InvokeServer("BuyElectricClaw")
-                end
+                if CommF_ then CommF_:InvokeServer("BuyElectricClaw") end
                 task.wait(0.5); EquipMelee("Electric Claw", false)
             end
             return
@@ -4371,11 +4346,7 @@ local function RunAutoGodhumanStep()
                         WaterKeyDelivered = true
                     end
                 end
-
-                if needsKey then
-                    FarmTideKeeper()
-                    return
-                end
+                if needsKey then FarmTideKeeper(); return end
             end
 
             if frags < 5000 then
