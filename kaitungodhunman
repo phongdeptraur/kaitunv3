@@ -101,7 +101,6 @@ _G.AxiomHopConfig = _G.AxiomHopConfig or {
     BossDestination = "Tyrant of Skies"  -- Boss mục tiêu săn Tyrant
 }
 
-
 -- ==============================================================================
 -- [1.1] ANTI-GRAVITY ENGINE
 -- ==============================================================================
@@ -385,7 +384,7 @@ local function AttemptServerJoin(server)
     -- Cách Join chuẩn của Blox Fruits
     local sb = ReplicatedStorage:FindFirstChild("__ServerBrowser")
     if not (sb and pcall(function() sb:InvokeServer("teleport", JOB_ID) end)) then
-        TeleportService:TeleportToPlaceInstance(PlaceId, JOB_ID, LocalPlayer)
+        TeleportService:TeleportToPlaceInstance(game.PlaceId, JOB_ID, LocalPlayer)
     end
     task.wait(6)
 end
@@ -2121,7 +2120,6 @@ task.spawn(function()
     end
 end)
 
-
 -- // [AXIOM] KIEM TRA VA LAY THONG TIN KIEM TRONG TUI (YAMA / TUSHITA)
 local CachedSwordMastery = {}
 local function GetSwordData(swordName)
@@ -2322,7 +2320,6 @@ local function GetBestMasteryMelee(ownedMelees)
     end
     return nil
 end
-
 
 -- ==============================================================================
 -- [5.2] REACTIVE DUAL-LAYER QUEST ENGINE & CONTROLLER (ANTI-SPAM SINGLETON)
