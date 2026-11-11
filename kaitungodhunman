@@ -39,6 +39,7 @@ repeat task.wait(0.2) until GetChar() and GetHRP() and GetHum()
 _G.AxiomHopConfig = { UseNightApi = false, UseRealKidHop = true, BossDestination = "Tyrant of Skies" }
 _G.AxiomGodhumanLoaded = true
 _G.AutoGodhuman = true
+_G.MaxLevelCap = 2800 -- Mốc Max Level chuẩn hiện tại
 
 local REALKID_PREMIUM_KEY = "TRAU_PREMIUM_306B4DB2D52F3D14BAB7247D2CC4B53D8E3C8EC77B572154"
 local UzothStatus, GodhumanStatus = "2", nil
@@ -419,6 +420,20 @@ end
 
 local function GetCurrency(n) local d = LocalPlayer:FindFirstChild("Data"); return (d and d:FindFirstChild(n) and d[n].Value) or 0 end
 local function GetPlayerLevel() local d = LocalPlayer:FindFirstChild("Data"); return (d and d:FindFirstChild("Level") and tonumber(d.Level.Value)) or 1 end
+
+local function IsPlayerMaxLevel()
+    local lvl = GetPlayerLevel()
+    local maxCap = _G.MaxLevelCap or 2800
+    pcall(function()
+        if workspace:GetAttribute("MaxLevel") then
+            maxCap = tonumber(workspace:GetAttribute("MaxLevel")) or maxCap
+        elseif ReplicatedStorage:GetAttribute("MaxLevel") then
+            maxCap = tonumber(ReplicatedStorage:GetAttribute("MaxLevel")) or maxCap
+        end
+    end)
+    return lvl >= maxCap
+end
+
 local function EquipBuso() if GetChar() and not GetChar():FindFirstChild("HasBuso") and CommF_ then pcall(function() CommF_:InvokeServer("Buso") end) end end
 
 local function EquipMelee(mName, allowTravel)
@@ -584,8 +599,10 @@ local function CheckGodhumanStatus()
 end
 
 -- ==============================================================================
--- [6] REALKID ENGINE
+-- [6] REALKID ENGINE (MAIN & HOP WITH FULL BASE CONFIG)
 -- ==============================================================================
+local REALKID_HOP_BASE_JSON = [[{"RaceV4Enabled":false,"RaceV3Enabled":false,"SearchEnabled":true,"TushitaEnabled":false,"AttackEnabled":true,"PullLeverEnabled":false,"DebugEnabled":false,"GhostFruitEnabled":false,"SearchPause":10,"RaidEnabled":false,"BerryEnabled":false,"GuitarEnabled":false,"AuraEnabled":true,"KenEnabled":false,"WebhookAddress":"","PortalEnabled":true,"AutoLoadEnabled":false,"CyborgEnabled":false,"MovementSpeed":200,"TTKEnabled":false,"RandomEnabled":false,"Destination":"Fruits","Language":"Tiếng Việt","GunHeight":35,"YamaEnabled":false,"VisitedJobs":{"9eac69a4-d9e6-40fe-abb9-689cf84a368d":true},"FruitWebhookEnabled":false,"BossEnabled":false,"StoreEnabled":true,"GhoulEnabled":false,"WebhookEnabled":false,"AttackHeight":30,"WeaponCategory":"Melee","InitialSide":"Marines","ChestEnabled":false,"BuyLegendaryEnabled":false,"FruitEnabled":false}]]
+
 local lastRk = nil
 TriggerRealKidMain = function(mode, target)
     _G.RealKidMainActive = true
@@ -637,28 +654,72 @@ TriggerRealKidMain = function(mode, target)
     end
 end
 
-TriggerRealKidHop = function()
-    if _G.RealKidHopLoaded and _G.RealKidHopLoadTime and (os.clock() - _G.RealKidHopLoadTime < 45.0) then return end
+local lastHopDest = nil
+TriggerRealKidHop = function(destOverride)
+    local dest = destOverride or _G.AxiomHopConfig.BossDestination or "Tyrant of Skies"
+    _G.AxiomHopConfig.BossDestination = dest
+
+    local uid = tostring(LocalPlayer.UserId or "0")
+    local hopFileName = "RealKidHop_" .. uid .. ".json"
+
+    -- Khởi tạo từ Base Config chuẩn của RealKidHop và chỉnh sửa đúng các trường trên nền Base Config đó
+    pcall(function()
+        local baseCfg = HttpService:JSONDecode(REALKID_HOP_BASE_JSON)
+
+        -- Giữ lại danh sách VisitedJobs cũ nếu file đã tồn tại để tránh hop lại server vừa đi qua
+        if isfile and readfile and isfile(hopFileName) then
+            local okRead, oldData = pcall(function() return HttpService:JSONDecode(readfile(hopFileName)) end)
+            if okRead and type(oldData) == "table" and type(oldData.VisitedJobs) == "table" then
+                baseCfg.VisitedJobs = oldData.VisitedJobs
+            end
+        end
+
+        if game.JobId and game.JobId ~= "" then
+            baseCfg.VisitedJobs = baseCfg.VisitedJobs or {}
+            baseCfg.VisitedJobs[tostring(game.JobId)] = true
+        end
+
+        -- Chỉnh sửa đúng trường Destination và các cờ liên quan ngay trên Base Config
+        baseCfg.Destination = dest
+        baseCfg.SearchEnabled = true
+        baseCfg.StoreEnabled = true
+        if dest == "Fruit" or dest == "Fruits" then
+            baseCfg.BossEnabled = false
+            baseCfg.FruitEnabled = true
+        else
+            baseCfg.BossEnabled = false
+            baseCfg.FruitEnabled = false
+        end
+
+        local encodedCfg = HttpService:JSONEncode(baseCfg)
+        if writefile then
+            writefile(hopFileName, encodedCfg)
+            pcall(function() writefile("RealKidHop.json", encodedCfg) end)
+        end
+        if getgenv then getgenv().RealKidHopConfig = baseCfg end
+    end)
+
+    -- Nếu đang chạy Hop cùng Destination và chưa quá 45s thì không nạp đè
+    if _G.RealKidHopLoaded and lastHopDest == dest and _G.RealKidHopLoadTime and (os.clock() - _G.RealKidHopLoadTime < 45.0) then 
+        return 
+    end
     
     -- LÀN RANH QUAN TRỌNG: Hop chạy sau Main ít nhất 10 giây
     if _G.RealKidMainStartTime and (os.clock() - _G.RealKidMainStartTime < 10.0) then 
         task.wait(10.0 - (os.clock() - _G.RealKidMainStartTime)) 
     end
     
+    lastHopDest = dest
     _G.RealKidHopLoaded = true; _G.RealKidHopLoadTime = os.clock()
-    local uid = tostring(LocalPlayer.UserId or "0")
-    pcall(function()
-        local c = { RaceV4Enabled=false, SearchEnabled=true, BossEnabled=false, Destination=(_G.AxiomHopConfig.BossDestination or "Tyrant of Skies") }
-        local e = HttpService:JSONEncode(c)
-        if writefile then writefile("RealKidHop_"..uid..".json", e); pcall(function() writefile("RealKidHop.json", e) end) end
-        if getgenv then getgenv().RealKidHopConfig = c end
-    end)
     getgenv().Key = REALKID_PREMIUM_KEY; _G.Key = REALKID_PREMIUM_KEY
-    task.spawn(function() local ok = pcall(function() loadstring(game:HttpGet("https://raw.githubusercontent.com/realkidhub/realkid/refs/heads/main/RealKidHop.lua"))() end); if not ok then _G.RealKidHopLoaded = false end end)
+    task.spawn(function() 
+        local ok = pcall(function() loadstring(game:HttpGet("https://raw.githubusercontent.com/realkidhub/realkid/refs/heads/main/RealKidHop.lua"))() end)
+        if not ok then _G.RealKidHopLoaded = false end 
+    end)
 end
 
 -- ==============================================================================
--- [7] FULL-MAP DEEP BOSS SCANNER (STREAMING BYPASS) & BOSS HUNTING
+-- [7] FULL-MAP DEEP BOSS SCANNER, BOSS HUNTING & FRUIT SCANNER
 -- ==============================================================================
 local function ExpandStreamingRadius()
     pcall(function()
@@ -723,9 +784,100 @@ local function FindBossDeepScan(targetName)
     return nil, nil, nil
 end
 
+-- Quét tìm Trái Ác Quỷ rơi trên mặt đất trong Server
+local function FindDroppedFruit()
+    ExpandStreamingRadius()
+    local hrp = GetHRP()
+    local bestFruit, bestHandle, minDist = nil, nil, math.huge
+
+    for _, obj in ipairs(workspace:GetChildren()) do
+        if (obj:IsA("Tool") or obj:IsA("Model")) and not Players:GetPlayerFromCharacter(obj) then
+            local nameLower = obj.Name:lower()
+            local isFruit = nameLower:find("fruit") or obj:FindFirstChild("Fruit") or obj:GetAttribute("IsFruit")
+            if isFruit then
+                local handle = obj:FindFirstChild("Handle") or obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart", true)
+                if handle and handle:IsA("BasePart") then
+                    local d = hrp and (hrp.Position - handle.Position).Magnitude or 0
+                    if d < minDist then
+                        minDist = d
+                        bestFruit = obj
+                        bestHandle = handle
+                    end
+                end
+            end
+        end
+    end
+
+    local playafs = workspace:FindFirstChild("Playability") or workspace:FindFirstChild("DroppedFruits")
+    if playafs then
+        for _, obj in ipairs(playafs:GetChildren()) do
+            local handle = obj:FindFirstChild("Handle") or obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart", true)
+            if handle and handle:IsA("BasePart") then
+                local d = hrp and (hrp.Position - handle.Position).Magnitude or 0
+                if d < minDist then
+                    minDist = d
+                    bestFruit = obj
+                    bestHandle = handle
+                end
+            end
+        end
+    end
+
+    return bestFruit, bestHandle
+end
+
+-- Tự động cất Trái Ác Quỷ vào kho nếu nhặt được vào Balo/Tay
+local function AutoStoreBackpackFruits()
+    if not CommF_ then return end
+    local containers = { LocalPlayer:FindFirstChild("Backpack"), GetChar() }
+    for _, cont in ipairs(containers) do
+        if cont then
+            for _, tool in ipairs(cont:GetChildren()) do
+                if tool:IsA("Tool") and (tool.Name:lower():find("fruit") or tool:GetAttribute("OriginalName")) then
+                    local orig = tool:GetAttribute("OriginalName")
+                    if not orig then
+                        local clean = tool.Name:gsub(" Fruit", ""):gsub("^%s*(.-)%s*$", "%1")
+                        orig = clean .. "-" .. clean
+                    end
+                    pcall(function() CommF_:InvokeServer("StoreFruit", orig, tool) end)
+                end
+            end
+        end
+    end
+end
+
+local function CollectAndHopFruitRoutine()
+    _G.RealKidMainActive = false
+    AutoStoreBackpackFruits()
+
+    local fruitObj, fruitHandle = FindDroppedFruit()
+    if fruitObj and fruitHandle and fruitObj.Parent then
+        while fruitObj and fruitObj.Parent and fruitHandle and fruitHandle.Parent and Axiom.Running and Axiom.AutoGodhuman do
+            SetLog("🍎 FRUIT FOUND: " .. tostring(fruitObj.Name), string.format("Tweening to Fruit (%dm)...", math.floor((GetHRP().Position - fruitHandle.Position).Magnitude)))
+            TweenTo(fruitHandle.CFrame)
+            pcall(function()
+                if firetouchinterest and GetHRP() then
+                    firetouchinterest(GetHRP(), fruitHandle, 0)
+                    firetouchinterest(GetHRP(), fruitHandle, 1)
+                end
+            end)
+            AutoStoreBackpackFruits()
+            task.wait(0.15)
+            fruitObj, fruitHandle = FindDroppedFruit()
+        end
+        SetLog("🍎 Fruit Collected!", "Checking server again...")
+        AutoStoreBackpackFruits()
+        task.wait(0.5)
+        return
+    end
+
+    SetLog("🍎 Max Lv + Godhuman", "No dropped fruit -> RealKidHop [Fruits]...")
+    TriggerRealKidHop("Fruits")
+end
+
 local function HopTyrantServer()
     if IsTyrantHopping or IsHopping then return end
-    IsTyrantHopping = true; task.spawn(function() TriggerRealKidHop(); task.wait(10); IsTyrantHopping = false end)
+    IsTyrantHopping = true; task.spawn(function() TriggerRealKidHop("Tyrant of Skies"); task.wait(10); IsTyrantHopping = false end)
 end
 
 local function FarmTyrantRealtime(meleeName)
@@ -750,7 +902,7 @@ local function FarmTyrantRealtime(meleeName)
         if targetPos then
             local safeY = math.max(targetPos.Y + 30, 200)
             local targetCF = CFrame.new(targetPos.X, safeY, targetPos.Z)
-            SetLog(string.format("🦅 Tyrant HP: %d/%d", math.floor(bHum.Health), math.floor(bHum.MaxHealth)), "Farming Level & Frags...")
+            SetLog(string.format("🦅 Tyrant HP: %d/%d", math.floor(bHum.Health), math.floor(bHum.MaxHealth)), "Lv: " .. GetPlayerLevel() .. " | Farming Level & Frags...")
             if (GetHRP().Position - targetCF.Position).Magnitude > 5 then TweenTo(targetCF) end
         end
         task.wait(0.05)
@@ -761,7 +913,12 @@ local function FarmTyrantRealtime(meleeName)
         Axiom.BossCache["Tyrant"] = nil
         isWaitingTyrantHop = true
         for i = 8, 1, -1 do SetLog("Tyrant Defeated", "Collecting loot (" .. i .. "s)..."); task.wait(1) end
-        _G.AxiomPreTweenedTiki = false; isWaitingTyrantHop = false; HopTyrantServer()
+        _G.AxiomPreTweenedTiki = false; isWaitingTyrantHop = false
+        if GodhumanUnlocked and IsPlayerMaxLevel() then
+            CollectAndHopFruitRoutine()
+        else
+            HopTyrantServer()
+        end
     end
 end
 
@@ -891,6 +1048,37 @@ local function RunAutoGodhumanStep()
         if not GetChar() or not GetHRP() then EnsureTeamSelected(); return end
         local o, b, f, l = FetchOwnedMastery(), GetCurrency("Beli"), GetCurrency("Fragments"), GetPlayerLevel()
 
+        -- Ưu tiên 1: Nếu đã có Godhuman -> Không farm Mastery mà đi farm Tyrant tới Max Level -> Sau đó Hop Fruits & Nhặt Fruit
+        if o["Godhuman"] or GodhumanUnlocked or CheckGodhumanStatus() == "1" then
+            GodhumanUnlocked = true
+            if not IsPlayerMaxLevel() then
+                _G.RealKidMainActive = false
+                if GetCurrentSea() ~= 3 then TravelToSea(3); task.wait(2.5); return end
+                if not _G.AxiomPreTweenedTiki then
+                    local bo, hu = FindBossDeepScan("Tyrant")
+                    if not (bo and hu and hu.Health > 0) then
+                        local tkCF = CFrame.new(-16204, 30, 479)
+                        if (GetHRP().Position - tkCF.Position).Magnitude > 80 then
+                            SetLog("Pre-Tween Tiki (GH)", "Lv " .. l .. " | Moving to Tiki...")
+                            TweenTo(tkCF)
+                        end
+                    end
+                    _G.AxiomPreTweenedTiki = true
+                end
+                local tB, tH = FindBossDeepScan("Tyrant")
+                if tB and tH and tH.Health > 0 then
+                    FarmTyrantRealtime("Godhuman")
+                else
+                    SetLog("Tyrant Hop (To Max Lv)", "Lv " .. l .. " | Finding Tyrant...")
+                    TriggerRealKidHop("Tyrant of Skies")
+                end
+            else
+                -- Đã Max Level + Có Godhuman -> Quét Fruit rơi trên map để Tween nhặt & Hop "Fruits"
+                CollectAndHopFruitRoutine()
+            end
+            return
+        end
+
         if CheckHasFireEssence() and not o["Dragon Talon"] and not FireEssenceDelivered and UzothStatus ~= "0" and UzothStatus ~= "1" then
             DeliverFireEssenceToUzoth(); return
         end
@@ -908,13 +1096,7 @@ local function RunAutoGodhumanStep()
             end
             local tB, tH = FindBossDeepScan("Tyrant")
             if tB and tH and tH.Health > 0 then FarmTyrantRealtime(GetAnyUnmaxedOwnedMelee(o))
-            else SetLog("Tyrant Hop", "Lv " .. l .. " | Finding Tyrant..."); TriggerRealKidHop() end
-            return
-        end
-
-        if o["Godhuman"] or GodhumanUnlocked or CheckGodhumanStatus() == "1" then
-            GodhumanUnlocked = true
-            if (o["Godhuman"] and o["Godhuman"].Mastery or 1) < 600 then FarmBoneMastery("Godhuman") else SetLog("🎉 GODHUMAN MAXED", "Complete!") end
+            else SetLog("Tyrant Hop", "Lv " .. l .. " | Finding Tyrant..."); TriggerRealKidHop("Tyrant of Skies") end
             return
         end
 
@@ -1035,7 +1217,15 @@ local function RunAutoGodhumanStep()
         if GetCurrentSea() ~= 3 then TravelToSea(3); task.wait(2.5); return end
         
         SetLog("Unlocking Godhuman", "Tweening to Ancient Monk...")
-        if TweenTo(MeleeReg["Godhuman"].CF + Vector3.new(0, 3, 0)) then task.wait(0.5); if CommF_ then CommF_:InvokeServer("BuyGodhuman") end end
+        if TweenTo(MeleeReg["Godhuman"].CF + Vector3.new(0, 3, 0)) then
+            task.wait(0.5)
+            if CommF_ then
+                local res = CommF_:InvokeServer("BuyGodhuman")
+                if tostring(res) == "1" or res == true then
+                    GodhumanUnlocked = true
+                end
+            end
+        end
     end)
     isAutoGodhumanStepBusy = false
 end
