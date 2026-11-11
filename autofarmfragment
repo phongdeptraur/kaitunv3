@@ -1,0 +1,149 @@
+-- // AUTO FARM FRAGMENT (BASE HOP CONFIG + PRE-TWEEN CAKE LOAF + REALKID HOP)
+repeat task.wait() until game:IsLoaded()
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CommF = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommF_")
+
+-- ============================================================================
+-- CẤU HÌNH & HẰNG SỐ
+-- ============================================================================
+local REALKID_KEY   = "TRAU_PREMIUM_306B4DB2D52F3D14BAB7247D2CC4B53D8E3C8EC77B572154"
+local URL_HOP       = "https://raw.githubusercontent.com/realkidhub/realkid/refs/heads/main/RealKidHop.lua"
+local POS_CAKE_LOAF = Vector3.new(-1954.96, 37.83, -11875.87)
+local TWEEN_SPEED   = 190
+local SCRIPT_FILE   = "AutoFarmFrag.lua"
+
+-- BASE CONFIG CHUẨN CỦA REALKID HOP (CHỨA ĐỦ TẤT CẢ CÁC TRƯỜNG THIẾT YẾU)
+local BASE_HOP_JSON = [[{"VisitedJobs":{},"PortalEnabled":true,"RaceV4Enabled":false,"WeaponCategory":"Melee","SearchEnabled":true,"DebugEnabled":false,"FruitWebhookEnabled":false,"WebhookEnabled":false,"AttackEnabled":true,"PullLeverEnabled":false,"FruitEnabled":false,"RandomEnabled":false,"Destination":"Cake Prince","RaidEnabled":false,"GunHeight":35,"AttackHeight":30,"GhostFruitEnabled":false,"SearchPause":5,"BerryEnabled":false,"BuyLegendaryEnabled":false,"RaceV3Enabled":false,"BossEnabled":true,"StoreEnabled":false,"KenEnabled":false,"WebhookAddress":"","MovementSpeed":200,"AuraEnabled":true,"InitialSide":"Marines","ChestEnabled":false,"AutoLoadEnabled":false,"Language":"Tiếng Việt"}]]
+
+-- ============================================================================
+-- 1. CHỌN TEAM & KIỂM TRA SEA 3
+-- ============================================================================
+pcall(function() CommF:InvokeServer("SetTeam", "Marines") end)
+
+local isSea3 = (game.PlaceId == 7449423635 or game.PlaceId == 100117331123089)
+if not isSea3 then
+    pcall(function() CommF:InvokeServer("TravelZou") end)
+    return
+end
+
+-- ============================================================================
+-- 2. TỰ ĐỘNG CHẠY TIẾP KHI TELEPORT (AUTO-REQUEUE)
+-- ============================================================================
+local qot = queue_on_teleport or (syn and syn.queue_on_teleport) or queueonteleport
+if qot then
+    LocalPlayer.OnTeleport:Connect(function(state)
+        if state == Enum.TeleportState.Started then
+            if isfile and isfile(SCRIPT_FILE) then
+                qot(('loadfile(%q)()'):format(SCRIPT_FILE))
+            end
+        end
+    end)
+end
+
+-- ============================================================================
+-- 3. HÀM GHI ĐÈ LÊN BASE CONFIG REALKID HOP
+-- ============================================================================
+local function WriteHopConfig(overrides)
+    -- 1. Giải mã Base Config chuẩn của RealKid Hop
+    local cfg = HttpService:JSONDecode(BASE_HOP_JSON)
+
+    -- 2. Ghi đè các tham số tùy chỉnh lên Base Config
+    for k, v in pairs(overrides or {}) do
+        cfg[k] = v
+    end
+
+    local path = "RealKidHop_" .. tostring(LocalPlayer.UserId) .. ".json"
+
+    -- 3. Đọc file cũ nếu có để giữ lại danh sách server đã ghé (tránh hop lặp)
+    if isfile and readfile and isfile(path) then
+        local okR, raw = pcall(readfile, path)
+        if okR and type(raw) == "string" then
+            local okD, old = pcall(function() return HttpService:JSONDecode(raw) end)
+            if okD and type(old) == "table" and old.Destination == cfg.Destination
+                and type(old.VisitedJobs) == "table" and next(old.VisitedJobs) ~= nil then
+                cfg.VisitedJobs = old.VisitedJobs
+            end
+        end
+    end
+
+    -- Đánh dấu JobId server hiện tại
+    if not cfg.VisitedJobs then cfg.VisitedJobs = {} end
+    cfg.VisitedJobs[tostring(game.JobId)] = true
+
+    -- 4. Lưu toàn bộ Base Config đã chỉnh sửa ra file
+    if writefile then
+        writefile(path, HttpService:JSONEncode(cfg))
+    end
+end
+
+-- ============================================================================
+-- 4. PRE-TWEEN ĐẾN CAKE LOAF (190 STUD/S + NOCLIP)
+-- ============================================================================
+local function PreTweenCakeLoaf()
+    local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local hum  = char:WaitForChild("Humanoid")
+    local hrp  = char:WaitForChild("HumanoidRootPart")
+
+    if hum.Sit then
+        hum.Sit = false
+        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+        task.wait(0.2)
+    end
+
+    local dist = (hrp.Position - POS_CAKE_LOAF).Magnitude
+    if dist <= 15 then return true end
+
+    print(("[AutoFrag] Pre-Tween đến Cake Loaf (khoảng cách: %.0f studs)..."):format(dist))
+
+    local bv = Instance.new("BodyVelocity")
+    bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+    bv.Velocity = Vector3.zero
+    bv.Parent = hrp
+
+    local noclip = RunService.Stepped:Connect(function()
+        if char and char.Parent then
+            for _, p in ipairs(char:GetDescendants()) do
+                if p:IsA("BasePart") and p.CanCollide then p.CanCollide = false end
+            end
+        end
+    end)
+
+    local tw = TweenService:Create(hrp, TweenInfo.new(dist / TWEEN_SPEED, Enum.EasingStyle.Linear), { CFrame = CFrame.new(POS_CAKE_LOAF) })
+    tw:Play()
+
+    while tw.PlaybackState == Enum.PlaybackState.Playing do
+        if not char.Parent or hum.Health <= 0 or (hrp.Position - POS_CAKE_LOAF).Magnitude <= 15 then
+            break
+        end
+        task.wait(0.1)
+    end
+
+    pcall(function() tw:Cancel() end)
+    pcall(function() noclip:Disconnect() end)
+    pcall(function() bv:Destroy() end)
+    return (hrp.Position - POS_CAKE_LOAF).Magnitude <= 20
+end
+
+-- ============================================================================
+-- 5. THỰC THI CHÍNH
+-- ============================================================================
+-- 1. Pre-Tween nhân vật lại vị trí Cake Loaf trước
+PreTweenCakeLoaf()
+
+-- 2. Ghi đè Base Config với mục tiêu Cake Prince và lưu vào file
+WriteHopConfig({
+    Destination = "Cake Prince",
+    BossEnabled = true,
+    AttackEnabled = true
+})
+
+-- 3. Khởi chạy RealKid Hop
+print("[AutoFrag] Khởi chạy RealKid Hop (Cake Prince)...")
+getgenv().Key = REALKID_KEY
+loadstring(game:HttpGet(URL_HOP))()
