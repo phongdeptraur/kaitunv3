@@ -954,16 +954,22 @@ local function ContinuousTweenStep(targetPos)
     return dist <= 10
 end
 
--- Hệ thống Fast Attack hỗ trợ Net RegisterAttack/RegisterHit + ép trực tiếp targetModel + VirtualUser
+-- Hệ thống Fast Attack chuẩn: Tự động lấy/thử lại Net RegisterAttack/RegisterHit + Ép đánh Law (Order) chuẩn Workspace
 local NetRegisterAttack, NetRegisterHit
-pcall(function()
-    local modules = ReplicatedStorage:FindFirstChild("Modules")
-    local net = modules and modules:FindFirstChild("Net")
-    if net then
-        NetRegisterAttack = net:FindFirstChild("RE/RegisterAttack")
-        NetRegisterHit    = net:FindFirstChild("RE/RegisterHit")
+local function GetNetRemotes()
+    if NetRegisterAttack and NetRegisterHit and NetRegisterAttack.Parent and NetRegisterHit.Parent then
+        return NetRegisterAttack, NetRegisterHit
     end
-end)
+    pcall(function()
+        local modules = ReplicatedStorage:FindFirstChild("Modules") or ReplicatedStorage:WaitForChild("Modules", 3)
+        local net = modules and (modules:FindFirstChild("Net") or modules:WaitForChild("Net", 3))
+        if net then
+            NetRegisterAttack = net:FindFirstChild("RE/RegisterAttack") or net:WaitForChild("RE/RegisterAttack", 3)
+            NetRegisterHit    = net:FindFirstChild("RE/RegisterHit") or net:WaitForChild("RE/RegisterHit", 3)
+        end
+    end)
+    return NetRegisterAttack, NetRegisterHit
+end
 
 local LastBusoTick = 0
 local function EquipCombatWeapon()
@@ -1008,9 +1014,35 @@ local function PerformFastAttack(targetModel)
     if not hrp then return end
 
     local tool = EquipCombatWeapon()
-    local enemyPart = targetModel and (targetModel:FindFirstChild("HumanoidRootPart") or targetModel:FindFirstChild("Head") or targetModel:FindFirstChildOfClass("BasePart"))
 
-    if NetRegisterAttack and NetRegisterHit then
+    -- Bắt buộc targetModel phải nằm trong Workspace để RegisterAttack/RegisterHit được Server chấp nhận
+    if targetModel and not targetModel:IsDescendantOf(workspace) then
+        targetModel = nil
+    end
+
+    -- Nếu targetModel chưa có hoặc bị trỏ sai, tự tìm boss Order hoặc quái gần nhất trong Workspace
+    if not targetModel then
+        for _, folder in ipairs({ workspace:FindFirstChild("Enemies"), workspace:FindFirstChild("Characters") }) do
+            if folder then
+                for _, mob in ipairs(folder:GetChildren()) do
+                    if not Players:GetPlayerFromCharacter(mob) then
+                        local mHum = mob:FindFirstChildOfClass("Humanoid")
+                        local mPart = mob:FindFirstChild("Head") or mob:FindFirstChild("HumanoidRootPart")
+                        if mHum and mPart and mHum.Health > 0 and (mPart.Position - hrp.Position).Magnitude <= 85 then
+                            targetModel = mob
+                            break
+                        end
+                    end
+                end
+            end
+            if targetModel then break end
+        end
+    end
+
+    local enemyPart = targetModel and (targetModel:FindFirstChild("Head") or targetModel:FindFirstChild("HumanoidRootPart") or targetModel:FindFirstChildOfClass("BasePart"))
+
+    local regAttack, regHit = GetNetRemotes()
+    if regAttack and regHit then
         local targets = {}
         local addedModels = {}
 
@@ -1024,7 +1056,7 @@ local function PerformFastAttack(targetModel)
                 for _, mob in ipairs(folder:GetChildren()) do
                     if not addedModels[mob] and not Players:GetPlayerFromCharacter(mob) then
                         local mHum = mob:FindFirstChildOfClass("Humanoid")
-                        local mPart = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Head")
+                        local mPart = mob:FindFirstChild("Head") or mob:FindFirstChild("HumanoidRootPart")
                         if mHum and mPart and mHum.Health > 0 and (mPart.Position - hrp.Position).Magnitude <= 85 then
                             addedModels[mob] = true
                             table.insert(targets, { mob, mPart })
@@ -1036,10 +1068,13 @@ local function PerformFastAttack(targetModel)
         end
 
         if enemyPart and #targets > 0 then
-            pcall(function()
-                NetRegisterAttack:FireServer(0)
-                NetRegisterHit:FireServer(enemyPart, targets)
-            end)
+            -- Bắn burst 4 lần đòn RegisterAttack + RegisterHit để tối ưu tốc độ Fast Attack lên Law
+            for _ = 1, 4 do
+                pcall(function()
+                    regAttack:FireServer(0)
+                    regHit:FireServer(enemyPart, targets)
+                end)
+            end
         end
     end
 
@@ -1693,8 +1728,28 @@ local function FightLawBossLoop(inServerCount, groupTotalCount, isBackHelpMode)
             break
         end
 
-        if not lawHrp then
+        if not lawHrp or (lawBoss and not lawBoss:IsDescendantOf(workspace)) then
             pcall(function() LocalPlayer:RequestStreamAroundAsync(lawPos or POS_LAW_ARENA, 5) end)
+        end
+
+        -- Nếu lawBoss bị nhặt nhầm từ ReplicatedStorage, lập tức tìm kiếm đối tượng thực trong Workspace
+        if lawBoss and not lawBoss:IsDescendantOf(workspace) then
+            for _, folder in ipairs({ workspace:FindFirstChild("Enemies"), workspace:FindFirstChild("Characters") }) do
+                if folder then
+                    for _, mob in ipairs(folder:GetChildren()) do
+                        if not Players:GetPlayerFromCharacter(mob) and mob.Name:lower():find("order", 1, true) then
+                            local mHum = mob:FindFirstChildOfClass("Humanoid")
+                            if mHum and mHum.Health > 0 then
+                                lawBoss = mob
+                                lawHum = mHum
+                                lawHrp = mob:FindFirstChild("Head") or mob:FindFirstChild("HumanoidRootPart")
+                                break
+                            end
+                        end
+                    end
+                end
+                if lawBoss:IsDescendantOf(workspace) then break end
+            end
         end
 
         local attackPos = ((lawHrp and lawHrp.Position) or lawPos or POS_LAW_ARENA) + Vector3.new(0, 12, 0)
