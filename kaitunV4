@@ -1,0 +1,728 @@
+-- ============================================================================
+-- AUTO V4 MODULE (COMPATIBLE WITH 6V4 ORCHESTRATOR)
+-- ============================================================================
+repeat task.wait() until game:IsLoaded() and game.Players.LocalPlayer
+
+-- Dọn dẹp instance cũ nếu script được gọi lại
+if getgenv().AutoV4Cleanup then
+    pcall(getgenv().AutoV4Cleanup)
+end
+
+local Players           = game:GetService("Players")
+local TweenService      = game:GetService("TweenService")
+local RunService        = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local VirtualInputMgr   = game:GetService("VirtualInputManager")
+local Lighting          = game:GetService("Lighting")
+
+local LocalPlayer = Players.LocalPlayer
+local CommF_      = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommF_")
+local CommE       = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommE")
+
+-- Đọc config từ 6V4 (hoặc dùng mặc định nếu chạy lẻ)
+local function GetCfg()
+    local c = getgenv().config
+    if type(c) ~= "table" then
+        c = {
+            Enabled = true,
+            TweenSpeed = 190,
+            AutoTrial = true,
+            AutoUpgradeRace = true,
+            Main = { Account = { LocalPlayer.Name }, Tier = 5, Gear = "A-B-A" },
+            Help = { Account = {}, Reset = true }
+        }
+        getgenv().config = c
+    end
+    return c
+end
+
+local isRunning      = true
+local currentStatus  = "Khởi tạo..."
+local doorSyncText   = "0/3"
+local activeTween    = nil
+local noclipEnabled  = false
+local aimPos         = nil
+local defaultGravity = workspace.Gravity > 0 and workspace.Gravity or 196.2
+
+-- Tọa độ chuẩn
+local GREAT_TREE_TOP  = CFrame.new(3033, 2281, -7324)
+local TEMPLE_CENTER   = Vector3.new(28282.5703125, 14896.8505859375, 105.10427093505859)
+local CYBORG_SAFE_CF  = CFrame.new(-20021.8691, 10090.4893, -16.37994, -0.976144373, 6.71342875e-08, -0.217122361, 8.46145412e-08, 1, -7.1212007e-08, 0.217122361, -8.78849065e-08, -0.976144373)
+
+local TRIAL_LOCATIONS = {
+    "Trial of the Machine",
+    "Trial of Speed",
+    "Trial of Strength",
+    "Trial of Water",
+    "Trial of the King",
+    "Trial of Carnage"
+}
+
+-- ============================================================================
+-- 1. HOOK AIMPOS CHO SKILL SEA BEAST (TRIAL FISHMAN)
+-- ============================================================================
+if not getgenv().AutoV4AimHooked and hookmetamethod and getnamecallmethod then
+    getgenv().AutoV4AimHooked = true
+    local oldNamecall
+    oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        local args = { ... }
+        if method == "FireServer" and self.Name == "RemoteEvent" and getgenv().AutoV4AimPos then
+            local target = getgenv().AutoV4AimPos
+            if tostring(target.X) ~= "nan" then
+                if #args == 1 and typeof(args[1]) == "Vector3" then
+                    args[1] = target.Position
+                    return oldNamecall(self, unpack(args))
+                elseif #args == 1 and typeof(args[1]) == "CFrame" then
+                    args[1] = target
+                    return oldNamecall(self, unpack(args))
+                end
+            end
+        end
+        return oldNamecall(self, ...)
+    end))
+end
+
+-- ============================================================================
+-- 2. UI NGẮN GỌN (ĐẶT GÓC PHẢI ĐỂ KHÔNG ĐÈ UI 6V4)
+-- ============================================================================
+local gui = Instance.new("ScreenGui")
+gui.Name = "AutoV4_MiniUI"
+gui.ResetOnSpawn = false
+
+local card = Instance.new("Frame")
+card.Size = UDim2.new(0, 265, 0, 145)
+card.Position = UDim2.new(1, -280, 0, 45)
+card.BackgroundColor3 = Color3.fromRGB(16, 18, 25)
+card.BorderSizePixel = 0
+card.Active = true
+card.Draggable = true
+card.Parent = gui
+
+local corner = Instance.new("UICorner", card)
+corner.CornerRadius = UDim.new(0, 8)
+
+local stroke = Instance.new("UIStroke", card)
+stroke.Color = Color3.fromRGB(45, 55, 80)
+stroke.Thickness = 1.2
+
+local header = Instance.new("TextLabel", card)
+header.Size = UDim2.new(1, -16, 0, 26)
+header.Position = UDim2.new(0, 10, 0, 4)
+header.BackgroundTransparency = 1
+header.Font = Enum.Font.GothamBold
+header.TextSize = 12
+header.TextColor3 = Color3.fromRGB(0, 210, 255)
+header.TextXAlignment = Enum.TextXAlignment.Left
+header.Text = "⚡ AUTO V4 - 6V4 SYNC"
+
+local infoLabel = Instance.new("TextLabel", card)
+infoLabel.Size = UDim2.new(1, -20, 0, 74)
+infoLabel.Position = UDim2.new(0, 10, 0, 30)
+infoLabel.BackgroundTransparency = 1
+infoLabel.Font = Enum.Font.GothamMedium
+infoLabel.TextSize = 11
+infoLabel.TextColor3 = Color3.fromRGB(225, 230, 240)
+infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+infoLabel.TextYAlignment = Enum.TextYAlignment.Top
+infoLabel.RichText = true
+infoLabel.TextWrapped = true
+infoLabel.Text = "Đang khởi động..."
+
+local toggleBtn = Instance.new("TextButton", card)
+toggleBtn.Size = UDim2.new(1, -20, 0, 26)
+toggleBtn.Position = UDim2.new(0, 10, 1, -34)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(25, 135, 84)
+toggleBtn.Font = Enum.Font.GothamBold
+toggleBtn.TextSize = 11
+toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleBtn.Text = "TRẠNG THÁI: ĐANG BẬT"
+Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 6)
+
+toggleBtn.MouseButton1Click:Connect(function()
+    local cfg = GetCfg()
+    cfg.Enabled = not cfg.Enabled
+end)
+
+gui.Parent = (gethui and gethui()) or game:GetService("CoreGui")
+
+-- ============================================================================
+-- 3. VẬT LÝ DI CHUYỂN (NOCLIP + CHỐNG RƠI + TWEEN)
+-- ============================================================================
+local function SetNoclip(state)
+    noclipEnabled = state
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if state then
+        workspace.Gravity = 0
+        if hrp then
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            if not hrp:FindFirstChild("V4Float") then
+                local bv = Instance.new("BodyVelocity")
+                bv.Name = "V4Float"
+                bv.Velocity = Vector3.zero
+                bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+                bv.Parent = hrp
+            end
+        end
+    else
+        workspace.Gravity = defaultGravity
+        if hrp and hrp:FindFirstChild("V4Float") then
+            hrp.V4Float:Destroy()
+        end
+    end
+end
+
+local steppedConn = RunService.Stepped:Connect(function()
+    if not isRunning or not noclipEnabled then return end
+    workspace.Gravity = 0
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        hrp.AssemblyLinearVelocity = Vector3.zero
+    end
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") and part.CanCollide then
+            part.CanCollide = false
+        end
+    end
+end)
+
+local function StopTween()
+    if activeTween then
+        pcall(function() activeTween:Cancel() end)
+        activeTween = nil
+    end
+    SetNoclip(false)
+end
+
+-- Hàm Tween có kiểm tra điều kiện ngắt giữa chừng
+local function TweenTo(targetCF, customSpeed, cancelCond)
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not (hrp and hum and hum.Health > 0) then return false end
+
+    if hum.Sit then
+        hum.Sit = false
+        hum.Jump = true
+        task.wait(0.2)
+    end
+
+    local dist = (hrp.Position - targetCF.Position).Magnitude
+    if dist <= 6 then
+        hrp.CFrame = targetCF
+        SetNoclip(false)
+        return true
+    end
+
+    StopTween()
+    SetNoclip(true)
+
+    local speed = math.min(customSpeed or GetCfg().TweenSpeed or 190, 200)
+    local duration = dist / speed
+    local tw = TweenService:Create(hrp, TweenInfo.new(duration, Enum.EasingStyle.Linear), { CFrame = targetCF })
+    activeTween = tw
+    tw:Play()
+
+    while tw.PlaybackState == Enum.PlaybackState.Playing do
+        if not isRunning or getgenv().V4Stop or not GetCfg().Enabled or (cancelCond and cancelCond()) then
+            StopTween()
+            return false
+        end
+        local c = LocalPlayer.Character
+        local h = c and c:FindFirstChildOfClass("Humanoid")
+        if not (c and h and h.Health > 0) then
+            StopTween()
+            return false
+        end
+        task.wait(0.05)
+    end
+
+    StopTween()
+    return (hrp.Position - targetCF.Position).Magnitude <= 15
+end
+
+-- ============================================================================
+-- 4. CÁC HÀM KIỂM TRA TRẠNG THÁI GAME & TỘC
+-- ============================================================================
+local function ShouldStop()
+    if not isRunning or getgenv().V4Stop then return true end
+    local cfg = GetCfg()
+    if cfg.Enabled == false then return true end
+    return false
+end
+
+local function GetMyRole()
+    local cfg = GetCfg()
+    local helpAccs = (cfg.Help and cfg.Help.Account) or {}
+    local mainAccs = (cfg.Main and cfg.Main.Account) or {}
+
+    if table.find(helpAccs, LocalPlayer.Name) then
+        return "Help"
+    end
+    if table.find(mainAccs, LocalPlayer.Name) then
+        return "Main"
+    end
+    return "Main"
+end
+
+local function GetRace(plr)
+    plr = plr or LocalPlayer
+    local data = plr:FindFirstChild("Data")
+    local r = data and data:FindFirstChild("Race")
+    return r and tostring(r.Value) or ""
+end
+
+local function IsFullMoon()
+    local sky = Lighting:FindFirstChildOfClass("Sky")
+    local hasMoonTex = sky and tostring(sky.MoonTextureId):find("9709149431") ~= nil
+    local clock = Lighting.ClockTime
+    return hasMoonTex and (clock >= 18 or clock < 5)
+end
+
+-- 1. Load map Temple of Time từ MapStash nếu chưa có trong workspace.Map
+local function EnsureTempleLoaded()
+    if not workspace.Map:FindFirstChild("Temple of Time") then
+        local stash = ReplicatedStorage:FindFirstChild("MapStash")
+        local temple = stash and stash:FindFirstChild("Temple of Time")
+        if temple then
+            temple.Parent = workspace.Map
+        end
+    end
+    return workspace.Map:FindFirstChild("Temple of Time")
+end
+
+local function IsInsideTemple()
+    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+    return (hrp.Position - TEMPLE_CENTER).Magnitude <= 3000
+end
+
+local function IsNearAnyTrial()
+    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    local locs = workspace:FindFirstChild("_WorldOrigin") and workspace._WorldOrigin:FindFirstChild("Locations")
+    if not (hrp and locs) then return false end
+
+    for _, name in ipairs(TRIAL_LOCATIONS) do
+        local loc = locs:FindFirstChild(name)
+        if loc and (hrp.Position - loc.Position).Magnitude < 1500 then
+            return true, name
+        end
+    end
+    return false, nil
+end
+
+local function IsTrialActive()
+    local nearTrial = IsNearAnyTrial()
+    if not nearTrial then return false end
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    local raidTimer = pg and pg:FindFirstChild("Main")
+        and pg.Main:FindFirstChild("TopHUDList")
+        and pg.Main.TopHUDList:FindFirstChild("RaidTimer")
+    if raidTimer and raidTimer.Visible then
+        return true
+    end
+    local temple = workspace.Map:FindFirstChild("Temple of Time")
+    local ff = temple and temple:FindFirstChild("FFABorder") and temple.FFABorder:FindFirstChild("Forcefield")
+    if ff and ff.Transparency ~= 1 then
+        return true
+    end
+    return false
+end
+
+local function GetDoorCFrame(raceName)
+    local temple = EnsureTempleLoaded()
+    if not temple or raceName == "" then return nil end
+    local corridor = temple:FindFirstChild(raceName .. "Corridor")
+    local door = corridor and corridor:FindFirstChild("Door")
+    local innerDoor = door and door:FindFirstChild("Door")
+    local rightDoor = innerDoor and innerDoor:FindFirstChild("RightDoor")
+    local union = rightDoor and rightDoor:FindFirstChild("Union")
+    return union and union.CFrame or nil
+end
+
+-- ============================================================================
+-- 5. KÍCH HOẠT TỘC V3 ĐỒNG BỘ TẠI CỬA (1 MAIN + 2 SUPPORT)
+-- ============================================================================
+local lastV3Trigger = 0
+
+local function ActivateRaceV3()
+    if os.clock() - lastV3Trigger < 2.0 then return end
+    lastV3Trigger = os.clock()
+
+    pcall(function()
+        CommE:FireServer("ActivateAbility")
+    end)
+    pcall(function()
+        VirtualInputMgr:SendKeyEvent(true, Enum.KeyCode.T, false, game)
+        task.wait(0.05)
+        VirtualInputMgr:SendKeyEvent(false, Enum.KeyCode.T, false, game)
+    end)
+end
+
+local function CheckAndTriggerDoorSync()
+    local cfg = GetCfg()
+    local mainAccs = (cfg.Main and cfg.Main.Account) or {}
+    local helpAccs = (cfg.Help and cfg.Help.Account) or {}
+
+    local participants = {}
+    -- Lấy tối đa 1 Main đang có mặt trong server
+    for _, name in ipairs(mainAccs) do
+        local p = Players:FindFirstChild(name)
+        if p and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            table.insert(participants, p)
+            break
+        end
+    end
+    -- Lấy 2 Support đang có mặt trong server
+    for _, name in ipairs(helpAccs) do
+        local p = Players:FindFirstChild(name)
+        if p and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            table.insert(participants, p)
+        end
+    end
+
+    local atDoorCount = 0
+    for _, p in ipairs(participants) do
+        local pRace = GetRace(p)
+        local dCF = GetDoorCFrame(pRace)
+        local pHrp = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+        if dCF and pHrp and (pHrp.Position - dCF.Position).Magnitude <= 30 then
+            atDoorCount = atDoorCount + 1
+        end
+    end
+
+    local totalNeeded = math.max(#participants, 3)
+    doorSyncText = string.format("%d/%d ở cửa", atDoorCount, totalNeeded)
+
+    -- Khi đủ cả 3 acc (1 Main + 2 Help) đứng tại cửa và đang Full Moon -> Bấm V3 mở cửa
+    if atDoorCount >= 3 and IsFullMoon() then
+        currentStatus = "Đủ 3 acc ở cửa -> Kích hoạt V3!"
+        ActivateRaceV3()
+    else
+        currentStatus = IsFullMoon()
+            and string.format("Đang chờ đủ 3 acc tại cửa (%s)...", doorSyncText)
+            or "Đang đứng tại cửa (Chờ Full Moon)..."
+    end
+end
+
+-- ============================================================================
+-- 6. HỆ THỐNG ĐÁNH QUÁI & SKILL CHO TRIAL
+-- ============================================================================
+local RERegisterAttack = ReplicatedStorage.Modules.Net:WaitForChild("RE/RegisterAttack")
+local RegisterHit      = require(ReplicatedStorage.Modules.Net):RemoteEvent("RegisterHit", true)
+local CombatUtil       = require(ReplicatedStorage.Modules.CombatUtil)
+
+local function EquipWeaponByType(tooltip)
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not hum or hum.Sit then return end
+
+    for _, tool in ipairs(char:GetChildren()) do
+        if tool:IsA("Tool") and tool.ToolTip == tooltip then return tool.Name end
+    end
+    for _, tool in ipairs(LocalPlayer.Backpack:GetChildren()) do
+        if tool:IsA("Tool") and tool.ToolTip == tooltip then
+            hum:EquipTool(tool)
+            return tool.Name
+        end
+    end
+end
+
+local function AttackNearbyMobs(range)
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local stun = char and char:FindFirstChild("Stun")
+    if not hrp or (stun and stun.Value ~= 0) then return end
+
+    local hitPairs = {}
+    local firstPart = nil
+    for _, enemy in ipairs(workspace.Enemies:GetChildren()) do
+        local eHrp = enemy:FindFirstChild("HumanoidRootPart")
+        local eHum = enemy:FindFirstChildOfClass("Humanoid")
+        if eHrp and eHum and eHum.Health > 0 and (eHrp.Position - hrp.Position).Magnitude <= (range or 65) then
+            if CombatUtil:IsVulnerable(enemy) then
+                local head = enemy:FindFirstChild("Head") or eHrp
+                if not firstPart then firstPart = head end
+                table.insert(hitPairs, { enemy, head })
+            end
+        end
+    end
+
+    if firstPart and #hitPairs > 0 then
+        RERegisterAttack:FireServer(0)
+        RegisterHit:FireServer(firstPart, hitPairs)
+    end
+end
+
+local function CastAllSkills()
+    local skillKeys = { Enum.KeyCode.Z, Enum.KeyCode.X, Enum.KeyCode.C, Enum.KeyCode.V }
+    for _, toolType in ipairs({ "Melee", "Blox Fruit", "Sword" }) do
+        local name = EquipWeaponByType(toolType)
+        if name then
+            for _, key in ipairs(skillKeys) do
+                if ShouldStop() or not IsTrialActive() then return end
+                VirtualInputMgr:SendKeyEvent(true, key, false, game)
+                task.wait(0.08)
+                VirtualInputMgr:SendKeyEvent(false, key, false, game)
+                task.wait(0.15)
+            end
+        end
+    end
+end
+
+-- ============================================================================
+-- 7. XỬ LÝ TỰ ĐỘNG VƯỢT TRIAL & NÂNG GEAR V4
+-- ============================================================================
+local function HandleTrial()
+    local cfg = GetCfg()
+    local role = GetMyRole()
+
+    -- Nếu là Support (Help): Reset để Main thắng Trial
+    if role == "Help" then
+        if cfg.Help and cfg.Help.Reset ~= false then
+            currentStatus = "Support vào Trial -> Tự Reset nhường Main"
+            task.wait(1.5)
+            local char = LocalPlayer.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health > 0 then
+                hum.Health = 0
+            end
+        else
+            currentStatus = "Support đang đứng chờ trong Trial"
+        end
+        return
+    end
+
+    if not cfg.AutoTrial then
+        currentStatus = "Đang trong Trial (AutoTrial đang tắt)"
+        return
+    end
+
+    local race = GetRace(LocalPlayer)
+    local locs = workspace._WorldOrigin.Locations
+    currentStatus = "Đang vượt Trial tộc " .. race
+
+    if race == "Human" then
+        local center = locs:FindFirstChild("Trial of Strength")
+        if center then
+            for _, mob in ipairs(workspace.Enemies:GetChildren()) do
+                local mHrp = mob:FindFirstChild("HumanoidRootPart")
+                local mHum = mob:FindFirstChildOfClass("Humanoid")
+                if mHrp and mHum and mHum.Health > 0 and (mHrp.Position - center.Position).Magnitude <= 1000 then
+                    TweenTo(mHrp.CFrame * CFrame.new(0, 15, 0), 200, function()
+                        return not IsTrialActive() or mHum.Health <= 0
+                    end)
+                    EquipWeaponByType("Melee")
+                    AttackNearbyMobs(65)
+                    break
+                end
+            end
+        end
+
+    elseif race == "Ghoul" then
+        local center = locs:FindFirstChild("Trial of Carnage")
+        if center then
+            for _, mob in ipairs(workspace.Enemies:GetChildren()) do
+                local mHrp = mob:FindFirstChild("HumanoidRootPart")
+                local mHum = mob:FindFirstChildOfClass("Humanoid")
+                if mHrp and mHum and mHum.Health > 0 and (mHrp.Position - center.Position).Magnitude <= 1000 then
+                    TweenTo(mHrp.CFrame * CFrame.new(0, 15, 0), 200, function()
+                        return not IsTrialActive() or mHum.Health <= 0
+                    end)
+                    EquipWeaponByType("Melee")
+                    AttackNearbyMobs(65)
+                    break
+                end
+            end
+        end
+
+    elseif race == "Skypiea" then
+        local skyTrial = workspace.Map:FindFirstChild("SkyTrial")
+        local finish = skyTrial and skyTrial:FindFirstChild("Model") and skyTrial.Model:FindFirstChild("FinishPart")
+        if finish then
+            TweenTo(finish.CFrame, 200, function() return not IsTrialActive() end)
+        end
+
+    elseif race == "Mink" then
+        local startPoint = workspace:FindFirstChild("StartPoint")
+        if startPoint then
+            TweenTo(startPoint.CFrame * CFrame.new(0, 2, 0), 200, function() return not IsTrialActive() end)
+        end
+
+    elseif race == "Cyborg" then
+        TweenTo(CYBORG_SAFE_CF, 200, function() return not IsTrialActive() end)
+
+    elseif race == "Fishman" then
+        local waterLoc = locs:FindFirstChild("Trial of Water")
+        if waterLoc then
+            for _, sb in ipairs(workspace.SeaBeasts:GetChildren()) do
+                local sbHrp = sb:FindFirstChild("HumanoidRootPart")
+                local sbHealth = sb:FindFirstChild("Health")
+                if sbHrp and sbHealth and sbHealth.Value > 0 and (sbHrp.Position - waterLoc.Position).Magnitude <= 1500 then
+                    getgenv().AutoV4AimPos = CFrame.new(sbHrp.Position.X, 40, sbHrp.Position.Z)
+                    local hoverPos = Vector3.new(sbHrp.Position.X, math.max(sbHrp.Position.Y + 180, 140), sbHrp.Position.Z)
+                    TweenTo(CFrame.new(hoverPos), 200, function()
+                        return not IsTrialActive() or sbHealth.Value <= 0
+                    end)
+                    if LocalPlayer:DistanceFromCharacter(sbHrp.Position) < 400 then
+                        CastAllSkills()
+                    end
+                    break
+                end
+            end
+        end
+    end
+end
+
+-- Tự động mua Gear & lắp điểm Gear theo cấu hình "A-B-A"
+local lastGearCheck = 0
+local function AutoUpgradeAndSpendGear()
+    if os.clock() - lastGearCheck < 2.5 then return end
+    lastGearCheck = os.clock()
+
+    local cfg = GetCfg()
+    if not cfg.AutoUpgradeRace then return end
+
+    pcall(function()
+        local code = CommF_:InvokeServer("UpgradeRace", "Check")
+        if code == 2 or code == 4 or code == 7 then
+            CommF_:InvokeServer("UpgradeRace", "Buy")
+        end
+    end)
+
+    pcall(function()
+        local clockData = CommF_:InvokeServer("TempleClock", "Check")
+        if type(clockData) == "table" and (clockData.HadPoint or (clockData.RaceLevel and clockData.RaceLevel < 2)) then
+            local patternStr = (cfg.Main and cfg.Main.Gear) or "A-B-A"
+            local parts = string.split(patternStr, "-")
+            local mapType = { A = "Alpha", B = "Omega" }
+
+            local gears = clockData.RaceDetails and clockData.RaceDetails.Gears or {}
+            local slotToSpend = "Gear1"
+            local gearType = "Default"
+
+            if (clockData.RaceLevel or 1) >= 2 then
+                if not gears[1] or gears[1] == "" then
+                    slotToSpend = "Gear2"
+                    gearType = mapType[parts[1]] or "Alpha"
+                elseif not gears[2] or gears[2] == "" then
+                    slotToSpend = "Gear3"
+                    gearType = mapType[parts[2]] or "Omega"
+                elseif not gears[3] or gears[3] == "" then
+                    slotToSpend = "Gear4"
+                    gearType = mapType[parts[3]] or "Alpha"
+                end
+            end
+
+            CommF_:InvokeServer("TempleClock", "SpendPoint", slotToSpend, gearType)
+        end
+    end)
+end
+
+-- ============================================================================
+-- 8. VÒNG LẶP ĐIỀU PHỐI CHÍNH
+-- ============================================================================
+task.spawn(function()
+    while task.wait(0.25) do
+        if ShouldStop() then
+            StopTween()
+            getgenv().AutoV4AimPos = nil
+            currentStatus = "Đã dừng (6V4 Stop / Disabled)"
+            break
+        end
+
+        pcall(function()
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if not (hrp and hum and hum.Health > 0) then
+                currentStatus = "Đang chờ hồi sinh..."
+                return
+            end
+
+            -- Kiểm tra nâng cấp Gear nếu có điểm dư
+            AutoUpgradeAndSpendGear()
+
+            -- Trường hợp 1: Đang ở trong khu vực Trial
+            if IsTrialActive() then
+                getgenv().AutoV4AimPos = nil
+                HandleTrial()
+                return
+            end
+            getgenv().AutoV4AimPos = nil
+
+            -- Bước 1: Luôn đảm bảo map Temple of Time đã được load từ MapStash
+            EnsureTempleLoaded()
+
+            -- Bước 2: Nếu CHƯA ở trong Temple of Time -> Tween lên đỉnh Great Tree rồi Teleport vào
+            if not IsInsideTemple() then
+                currentStatus = "Đang bay lên đỉnh Great Tree..."
+                local reachedTree = TweenTo(GREAT_TREE_TOP, GetCfg().TweenSpeed or 190, function()
+                    return IsInsideTemple() or ShouldStop()
+                end)
+
+                if reachedTree and not IsInsideTemple() and not ShouldStop() then
+                    currentStatus = "Đang gọi Teleport vào Temple..."
+                    local timeout = os.clock()
+                    while not IsInsideTemple() and (os.clock() - timeout < 10) and not ShouldStop() do
+                        CommF_:InvokeServer("RaceV4Progress", "Teleport")
+                        task.wait(0.8)
+                    end
+                end
+                return
+            end
+
+            -- Bước 3: ĐÃ XÁC NHẬN VÀO ĐƯỢC Temple of Time -> Tween thẳng tới cửa tộc
+            if IsInsideTemple() then
+                local myRace = GetRace(LocalPlayer)
+                local doorCF = GetDoorCFrame(myRace)
+
+                if not doorCF then
+                    currentStatus = "Không tìm thấy cửa tộc: " .. myRace
+                    return
+                end
+
+                if (hrp.Position - doorCF.Position).Magnitude > 6 then
+                    currentStatus = "Đang bay tới cửa tộc " .. myRace .. "..."
+                    TweenTo(doorCF, 200, function()
+                        return not IsInsideTemple() or IsTrialActive() or ShouldStop()
+                    end)
+                else
+                    -- Đã đứng tại cửa tộc -> Kiểm tra đủ 3 acc để bật V3
+                    CheckAndTriggerDoorSync()
+                end
+            end
+        end)
+    end
+end)
+
+-- Cập nhật hiển thị UI
+task.spawn(function()
+    while task.wait(0.3) and isRunning do
+        local cfg = GetCfg()
+        local enabled = (cfg.Enabled ~= false) and (not getgenv().V4Stop)
+        toggleBtn.BackgroundColor3 = enabled and Color3.fromRGB(25, 135, 84) or Color3.fromRGB(180, 45, 45)
+        toggleBtn.Text = enabled and "TRẠNG THÁI: ĐANG BẬT" or "TRẠNG THÁI: ĐANG TẮT"
+
+        infoLabel.Text = string.format(
+            "<b>Vai trò:</b> <font color='#00FF88'>%s</font> | <b>Tộc:</b> %s\n<b>Đồng bộ cửa:</b> %s | <b>Moon:</b> %s\n<b>Tiến trình:</b> <font color='#FFFF77'>%s</font>",
+            GetMyRole(),
+            GetRace(LocalPlayer),
+            doorSyncText,
+            IsFullMoon() and "<font color='#00FF88'>Full Moon</font>" or "<font color='#FF6666'>Chưa FM</font>",
+            currentStatus
+        )
+    end
+end)
+
+-- Hàm dọn dẹp tài nguyên khi tắt/reload
+getgenv().AutoV4Cleanup = function()
+    isRunning = false
+    StopTween()
+    getgenv().AutoV4AimPos = nil
+    if steppedConn then pcall(function() steppedConn:Disconnect() end) end
+    if gui then pcall(function() gui:Destroy() end) end
+end
