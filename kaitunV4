@@ -1,9 +1,8 @@
 -- ============================================================================
--- AUTO V4 MODULE (COMPATIBLE WITH 6V4 ORCHESTRATOR)
+-- AUTO V4 MODULE (TRIAL, BUY GEAR & SPEND GEAR ONLY - DOOR SYNC BY 6V4)
 -- ============================================================================
 repeat task.wait() until game:IsLoaded() and game.Players.LocalPlayer
 
--- Dọn dẹp instance cũ nếu script được gọi lại
 if getgenv().AutoV4Cleanup then
     pcall(getgenv().AutoV4Cleanup)
 end
@@ -17,9 +16,7 @@ local Lighting          = game:GetService("Lighting")
 
 local LocalPlayer = Players.LocalPlayer
 local CommF_      = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommF_")
-local CommE       = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommE")
 
--- Đọc config từ 6V4 (hoặc dùng mặc định nếu chạy lẻ)
 local function GetCfg()
     local c = getgenv().config
     if type(c) ~= "table" then
@@ -38,16 +35,13 @@ end
 
 local isRunning      = true
 local currentStatus  = "Khởi tạo..."
-local doorSyncText   = "0/3"
 local activeTween    = nil
 local noclipEnabled  = false
-local aimPos         = nil
 local defaultGravity = workspace.Gravity > 0 and workspace.Gravity or 196.2
 
--- Tọa độ chuẩn
-local GREAT_TREE_TOP  = CFrame.new(3033, 2281, -7324)
-local TEMPLE_CENTER   = Vector3.new(28282.5703125, 14896.8505859375, 105.10427093505859)
-local CYBORG_SAFE_CF  = CFrame.new(-20021.8691, 10090.4893, -16.37994, -0.976144373, 6.71342875e-08, -0.217122361, 8.46145412e-08, 1, -7.1212007e-08, 0.217122361, -8.78849065e-08, -0.976144373)
+local GREAT_TREE_TOP = CFrame.new(3033, 2281, -7324)
+local TEMPLE_CENTER  = Vector3.new(28282.5703125, 14896.8505859375, 105.10427093505859)
+local CYBORG_SAFE_CF = CFrame.new(-20021.8691, 10090.4893, -16.37994, -0.976144373, 6.71342875e-08, -0.217122361, 8.46145412e-08, 1, -7.1212007e-08, 0.217122361, -8.78849065e-08, -0.976144373)
 
 local TRIAL_LOCATIONS = {
     "Trial of the Machine",
@@ -91,7 +85,7 @@ gui.Name = "AutoV4_MiniUI"
 gui.ResetOnSpawn = false
 
 local card = Instance.new("Frame")
-card.Size = UDim2.new(0, 265, 0, 145)
+card.Size = UDim2.new(0, 265, 0, 135)
 card.Position = UDim2.new(1, -280, 0, 45)
 card.BackgroundColor3 = Color3.fromRGB(16, 18, 25)
 card.BorderSizePixel = 0
@@ -114,10 +108,10 @@ header.Font = Enum.Font.GothamBold
 header.TextSize = 12
 header.TextColor3 = Color3.fromRGB(0, 210, 255)
 header.TextXAlignment = Enum.TextXAlignment.Left
-header.Text = "⚡ AUTO V4 - 6V4 SYNC"
+header.Text = "⚡ AUTO V4 - TRIAL & GEAR"
 
 local infoLabel = Instance.new("TextLabel", card)
-infoLabel.Size = UDim2.new(1, -20, 0, 74)
+infoLabel.Size = UDim2.new(1, -20, 0, 64)
 infoLabel.Position = UDim2.new(0, 10, 0, 30)
 infoLabel.BackgroundTransparency = 1
 infoLabel.Font = Enum.Font.GothamMedium
@@ -197,7 +191,6 @@ local function StopTween()
     SetNoclip(false)
 end
 
--- Hàm Tween có kiểm tra điều kiện ngắt giữa chừng
 local function TweenTo(targetCF, customSpeed, cancelCond)
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -257,13 +250,8 @@ end
 local function GetMyRole()
     local cfg = GetCfg()
     local helpAccs = (cfg.Help and cfg.Help.Account) or {}
-    local mainAccs = (cfg.Main and cfg.Main.Account) or {}
-
     if table.find(helpAccs, LocalPlayer.Name) then
         return "Help"
-    end
-    if table.find(mainAccs, LocalPlayer.Name) then
-        return "Main"
     end
     return "Main"
 end
@@ -282,7 +270,6 @@ local function IsFullMoon()
     return hasMoonTex and (clock >= 18 or clock < 5)
 end
 
--- 1. Load map Temple of Time từ MapStash nếu chưa có trong workspace.Map
 local function EnsureTempleLoaded()
     if not workspace.Map:FindFirstChild("Temple of Time") then
         local stash = ReplicatedStorage:FindFirstChild("MapStash")
@@ -344,72 +331,7 @@ local function GetDoorCFrame(raceName)
 end
 
 -- ============================================================================
--- 5. KÍCH HOẠT TỘC V3 ĐỒNG BỘ TẠI CỬA (1 MAIN + 2 SUPPORT)
--- ============================================================================
-local lastV3Trigger = 0
-
-local function ActivateRaceV3()
-    if os.clock() - lastV3Trigger < 2.0 then return end
-    lastV3Trigger = os.clock()
-
-    pcall(function()
-        CommE:FireServer("ActivateAbility")
-    end)
-    pcall(function()
-        VirtualInputMgr:SendKeyEvent(true, Enum.KeyCode.T, false, game)
-        task.wait(0.05)
-        VirtualInputMgr:SendKeyEvent(false, Enum.KeyCode.T, false, game)
-    end)
-end
-
-local function CheckAndTriggerDoorSync()
-    local cfg = GetCfg()
-    local mainAccs = (cfg.Main and cfg.Main.Account) or {}
-    local helpAccs = (cfg.Help and cfg.Help.Account) or {}
-
-    local participants = {}
-    -- Lấy tối đa 1 Main đang có mặt trong server
-    for _, name in ipairs(mainAccs) do
-        local p = Players:FindFirstChild(name)
-        if p and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            table.insert(participants, p)
-            break
-        end
-    end
-    -- Lấy 2 Support đang có mặt trong server
-    for _, name in ipairs(helpAccs) do
-        local p = Players:FindFirstChild(name)
-        if p and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            table.insert(participants, p)
-        end
-    end
-
-    local atDoorCount = 0
-    for _, p in ipairs(participants) do
-        local pRace = GetRace(p)
-        local dCF = GetDoorCFrame(pRace)
-        local pHrp = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
-        if dCF and pHrp and (pHrp.Position - dCF.Position).Magnitude <= 30 then
-            atDoorCount = atDoorCount + 1
-        end
-    end
-
-    local totalNeeded = math.max(#participants, 3)
-    doorSyncText = string.format("%d/%d ở cửa", atDoorCount, totalNeeded)
-
-    -- Khi đủ cả 3 acc (1 Main + 2 Help) đứng tại cửa và đang Full Moon -> Bấm V3 mở cửa
-    if atDoorCount >= 3 and IsFullMoon() then
-        currentStatus = "Đủ 3 acc ở cửa -> Kích hoạt V3!"
-        ActivateRaceV3()
-    else
-        currentStatus = IsFullMoon()
-            and string.format("Đang chờ đủ 3 acc tại cửa (%s)...", doorSyncText)
-            or "Đang đứng tại cửa (Chờ Full Moon)..."
-    end
-end
-
--- ============================================================================
--- 6. HỆ THỐNG ĐÁNH QUÁI & SKILL CHO TRIAL
+-- 5. HỆ THỐNG ĐÁNH QUÁI & SKILL CHO TRIAL
 -- ============================================================================
 local RERegisterAttack = ReplicatedStorage.Modules.Net:WaitForChild("RE/RegisterAttack")
 local RegisterHit      = require(ReplicatedStorage.Modules.Net):RemoteEvent("RegisterHit", true)
@@ -474,13 +396,12 @@ local function CastAllSkills()
 end
 
 -- ============================================================================
--- 7. XỬ LÝ TỰ ĐỘNG VƯỢT TRIAL & NÂNG GEAR V4
+-- 6. XỬ LÝ TỰ ĐỘNG VƯỢT TRIAL, MUA GEAR & CỘNG ĐIỂM GEAR V4
 -- ============================================================================
 local function HandleTrial()
     local cfg = GetCfg()
     local role = GetMyRole()
 
-    -- Nếu là Support (Help): Reset để Main thắng Trial
     if role == "Help" then
         if cfg.Help and cfg.Help.Reset ~= false then
             currentStatus = "Support vào Trial -> Tự Reset nhường Main"
@@ -577,10 +498,9 @@ local function HandleTrial()
     end
 end
 
--- Tự động mua Gear & lắp điểm Gear theo cấu hình "A-B-A"
 local lastGearCheck = 0
 local function AutoUpgradeAndSpendGear()
-    if os.clock() - lastGearCheck < 2.5 then return end
+    if os.clock() - lastGearCheck < 2.0 then return end
     lastGearCheck = os.clock()
 
     local cfg = GetCfg()
@@ -623,7 +543,7 @@ local function AutoUpgradeAndSpendGear()
 end
 
 -- ============================================================================
--- 8. VÒNG LẶP ĐIỀU PHỐI CHÍNH
+-- 7. VÒNG LẶP CHÍNH
 -- ============================================================================
 task.spawn(function()
     while task.wait(0.25) do
@@ -643,10 +563,8 @@ task.spawn(function()
                 return
             end
 
-            -- Kiểm tra nâng cấp Gear nếu có điểm dư
             AutoUpgradeAndSpendGear()
 
-            -- Trường hợp 1: Đang ở trong khu vực Trial
             if IsTrialActive() then
                 getgenv().AutoV4AimPos = nil
                 HandleTrial()
@@ -654,10 +572,8 @@ task.spawn(function()
             end
             getgenv().AutoV4AimPos = nil
 
-            -- Bước 1: Luôn đảm bảo map Temple of Time đã được load từ MapStash
             EnsureTempleLoaded()
 
-            -- Bước 2: Nếu CHƯA ở trong Temple of Time -> Tween lên đỉnh Great Tree rồi Teleport vào
             if not IsInsideTemple() then
                 currentStatus = "Đang bay lên đỉnh Great Tree..."
                 local reachedTree = TweenTo(GREAT_TREE_TOP, GetCfg().TweenSpeed or 190, function()
@@ -675,7 +591,6 @@ task.spawn(function()
                 return
             end
 
-            -- Bước 3: ĐÃ XÁC NHẬN VÀO ĐƯỢC Temple of Time -> Tween thẳng tới cửa tộc
             if IsInsideTemple() then
                 local myRace = GetRace(LocalPlayer)
                 local doorCF = GetDoorCFrame(myRace)
@@ -691,15 +606,13 @@ task.spawn(function()
                         return not IsInsideTemple() or IsTrialActive() or ShouldStop()
                     end)
                 else
-                    -- Đã đứng tại cửa tộc -> Kiểm tra đủ 3 acc để bật V3
-                    CheckAndTriggerDoorSync()
+                    currentStatus = "Đã đứng tại cửa " .. myRace .. " (Chờ 6V4 bật V3)"
                 end
             end
         end)
     end
 end)
 
--- Cập nhật hiển thị UI
 task.spawn(function()
     while task.wait(0.3) and isRunning do
         local cfg = GetCfg()
@@ -708,17 +621,15 @@ task.spawn(function()
         toggleBtn.Text = enabled and "TRẠNG THÁI: ĐANG BẬT" or "TRẠNG THÁI: ĐANG TẮT"
 
         infoLabel.Text = string.format(
-            "<b>Vai trò:</b> <font color='#00FF88'>%s</font> | <b>Tộc:</b> %s\n<b>Đồng bộ cửa:</b> %s | <b>Moon:</b> %s\n<b>Tiến trình:</b> <font color='#FFFF77'>%s</font>",
+            "<b>Vai trò:</b> <font color='#00FF88'>%s</font> | <b>Tộc:</b> %s | <b>Moon:</b> %s\n<b>Tiến trình:</b> <font color='#FFFF77'>%s</font>",
             GetMyRole(),
             GetRace(LocalPlayer),
-            doorSyncText,
-            IsFullMoon() and "<font color='#00FF88'>Full Moon</font>" or "<font color='#FF6666'>Chưa FM</font>",
+            IsFullMoon() and "<font color='#00FF88'>FM</font>" or "<font color='#FF6666'>Off</font>",
             currentStatus
         )
     end
 end)
 
--- Hàm dọn dẹp tài nguyên khi tắt/reload
 getgenv().AutoV4Cleanup = function()
     isRunning = false
     StopTween()
