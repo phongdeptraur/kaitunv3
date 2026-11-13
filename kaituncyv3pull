@@ -1220,6 +1220,20 @@ local function HasFistItem()
     return false, nil
 end
 
+local function HasGodChaliceItem()
+    for _, c in ipairs({ LocalPlayer:FindFirstChild("Backpack"), LocalPlayer.Character }) do
+        if c then
+            for _, item in ipairs(c:GetChildren()) do
+                local ln = item.Name:lower()
+                if ln:find("god's chalice", 1, true) or ln:find("god chalice", 1, true) then
+                    return true, item.Name
+                end
+            end
+        end
+    end
+    return false, nil
+end
+
 local function HasMicrochipItem()
     for _, c in ipairs({ LocalPlayer.Character, LocalPlayer:FindFirstChild("Backpack") }) do
         if c then
@@ -2721,6 +2735,22 @@ if not hasV3 then
         if GetSea() ~= 3 then TravelToSea(3) end
         if not Stopped() and LaunchRealKidMain({ Chest = true }, ("Farm Chest lấy Beli (%d/%d)"):format(GetBeli(), reqBeli)) then
             while not Stopped() and task.wait(1.5) do
+                local hasChalice, chaliceName = HasGodChaliceItem()
+                if hasChalice then
+                    SetStatus(("Phát hiện %s trong túi khi farm Chest -> Đang reset nhân vật..."):format(tostring(chaliceName)))
+                    local char = LocalPlayer.Character
+                    if char then
+                        local hum = char:FindFirstChildOfClass("Humanoid")
+                        if hum and hum.Health > 0 then
+                            hum.Health = 0
+                        end
+                        pcall(function() char:BreakJoints() end)
+                    end
+                    local tReset = os.clock()
+                    while not Stopped() and HasGodChaliceItem() and (os.clock() - tReset) < 5 do
+                        task.wait(0.2)
+                    end
+                end
                 SetStatus(("Đang farm Beli: %d / %d"):format(GetBeli(), reqBeli))
                 if GetBeli() >= reqBeli then
                     SetStatus("Đã đủ Beli! Hop Low để refresh...")
