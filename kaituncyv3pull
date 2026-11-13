@@ -15,7 +15,6 @@ local TeleportService = game:GetService("TeleportService")
 local RunService = game:GetService("RunService")
 local Lighting = game:GetService("Lighting")
 local CollectionService = game:GetService("CollectionService")
-local VirtualUser = game:GetService("VirtualUser")
 
 local CommF = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommF_")
 local request_ = request or http_request or (syn and syn.request) or (fluxus and fluxus.request) or (Krnl and Krnl.request)
@@ -954,21 +953,38 @@ local function ContinuousTweenStep(targetPos)
     return dist <= 10
 end
 
--- Hệ thống Fast Attack chuẩn: Tự động lấy/thử lại Net RegisterAttack/RegisterHit + Ép đánh Law (Order) chuẩn Workspace
-local NetRegisterAttack, NetRegisterHit
+-- Hệ thống Fast Attack thuần RegisterAttack / RegisterHit (không dùng Virtual Click)
+local NetFolder, NetModule, NetRegisterAttack, NetRegisterHit, NetSeed, ObfRemote, ObfId
 local function GetNetRemotes()
     if NetRegisterAttack and NetRegisterHit and NetRegisterAttack.Parent and NetRegisterHit.Parent then
-        return NetRegisterAttack, NetRegisterHit
+        return NetRegisterAttack, NetRegisterHit, NetModule, NetSeed, ObfRemote, ObfId
     end
     pcall(function()
         local modules = ReplicatedStorage:FindFirstChild("Modules") or ReplicatedStorage:WaitForChild("Modules", 3)
         local net = modules and (modules:FindFirstChild("Net") or modules:WaitForChild("Net", 3))
         if net then
+            NetFolder         = net
             NetRegisterAttack = net:FindFirstChild("RE/RegisterAttack") or net:WaitForChild("RE/RegisterAttack", 3)
             NetRegisterHit    = net:FindFirstChild("RE/RegisterHit") or net:WaitForChild("RE/RegisterHit", 3)
+            NetSeed           = net:FindFirstChild("seed")
+            local okM, mod    = pcall(require, net)
+            if okM and mod then NetModule = mod end
+        end
+        if not ObfRemote then
+            for _, folderName in ipairs({ "Util", "Common", "Remotes", "Assets", "FX" }) do
+                local f = ReplicatedStorage:FindFirstChild(folderName)
+                for _, child in ipairs(f and f:GetChildren() or {}) do
+                    if child:IsA("RemoteEvent") and child:GetAttribute("Id") then
+                        ObfRemote = child
+                        ObfId = child:GetAttribute("Id")
+                        break
+                    end
+                end
+                if ObfRemote then break end
+            end
         end
     end)
-    return NetRegisterAttack, NetRegisterHit
+    return NetRegisterAttack, NetRegisterHit, NetModule, NetSeed, ObfRemote, ObfId
 end
 
 local LastBusoTick = 0
@@ -1003,7 +1019,7 @@ local function EquipCombatWeapon()
 
     if chosen then
         pcall(function() hum:EquipTool(chosen) end)
-        return chosen
+        return char:FindFirstChildOfClass("Tool") or chosen
     end
     return char:FindFirstChildOfClass("Tool")
 end
@@ -1014,75 +1030,92 @@ local function PerformFastAttack(targetModel)
     if not hrp then return end
 
     local tool = EquipCombatWeapon()
+    if not (tool and tool.Parent == char) then return end
 
-    -- Bắt buộc targetModel phải nằm trong Workspace để RegisterAttack/RegisterHit được Server chấp nhận
     if targetModel and not targetModel:IsDescendantOf(workspace) then
         targetModel = nil
     end
 
-    -- Nếu targetModel chưa có hoặc bị trỏ sai, tự tìm boss Order hoặc quái gần nhất trong Workspace
     if not targetModel then
+        local fallbackMob = nil
         for _, folder in ipairs({ workspace:FindFirstChild("Enemies"), workspace:FindFirstChild("Characters") }) do
             if folder then
                 for _, mob in ipairs(folder:GetChildren()) do
                     if not Players:GetPlayerFromCharacter(mob) then
                         local mHum = mob:FindFirstChildOfClass("Humanoid")
-                        local mPart = mob:FindFirstChild("Head") or mob:FindFirstChild("HumanoidRootPart")
-                        if mHum and mPart and mHum.Health > 0 and (mPart.Position - hrp.Position).Magnitude <= 85 then
-                            targetModel = mob
-                            break
+                        local mPart = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Head")
+                        if mHum and mPart and mHum.Health > 0 and (mPart.Position - hrp.Position).Magnitude <= 120 then
+                            if mob.Name:lower():find("order", 1, true) then
+                                targetModel = mob
+                                break
+                            elseif not fallbackMob then
+                                fallbackMob = mob
+                            end
                         end
                     end
                 end
             end
             if targetModel then break end
         end
+        targetModel = targetModel or fallbackMob
     end
 
-    local enemyPart = targetModel and (targetModel:FindFirstChild("Head") or targetModel:FindFirstChild("HumanoidRootPart") or targetModel:FindFirstChildOfClass("BasePart"))
+    local regAttack, regHit, netMod, netSeed, obfR, obfId = GetNetRemotes()
+    if not (regAttack and regHit) then return end
 
-    local regAttack, regHit = GetNetRemotes()
-    if regAttack and regHit then
-        local targets = {}
-        local addedModels = {}
+    local targets = {}
+    local addedModels = {}
+    local enemyPart = nil
 
-        if targetModel and enemyPart then
-            table.insert(targets, { targetModel, enemyPart })
+    if targetModel then
+        local tHead = targetModel:FindFirstChild("Head")
+        local tRoot = targetModel:FindFirstChild("HumanoidRootPart") or tHead or targetModel:FindFirstChildOfClass("BasePart")
+        if tRoot then
+            enemyPart = tHead or tRoot
+            table.insert(targets, { targetModel, tRoot })
             addedModels[targetModel] = true
         end
+    end
 
-        for _, folder in ipairs({ workspace:FindFirstChild("Enemies"), workspace:FindFirstChild("Characters") }) do
-            if folder then
-                for _, mob in ipairs(folder:GetChildren()) do
-                    if not addedModels[mob] and not Players:GetPlayerFromCharacter(mob) then
-                        local mHum = mob:FindFirstChildOfClass("Humanoid")
-                        local mPart = mob:FindFirstChild("Head") or mob:FindFirstChild("HumanoidRootPart")
-                        if mHum and mPart and mHum.Health > 0 and (mPart.Position - hrp.Position).Magnitude <= 85 then
-                            addedModels[mob] = true
-                            table.insert(targets, { mob, mPart })
-                            if not enemyPart then enemyPart = mPart end
+    for _, folder in ipairs({ workspace:FindFirstChild("Enemies"), workspace:FindFirstChild("Characters") }) do
+        if folder then
+            for _, mob in ipairs(folder:GetChildren()) do
+                if not addedModels[mob] and not Players:GetPlayerFromCharacter(mob) then
+                    local mHum = mob:FindFirstChildOfClass("Humanoid")
+                    local mRoot = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Head")
+                    if mHum and mRoot and mHum.Health > 0 and (mRoot.Position - hrp.Position).Magnitude <= 100 then
+                        addedModels[mob] = true
+                        table.insert(targets, { mob, mRoot })
+                        if not enemyPart then
+                            enemyPart = mob:FindFirstChild("Head") or mRoot
                         end
                     end
                 end
             end
         end
-
-        if enemyPart and #targets > 0 then
-            -- Bắn burst 4 lần đòn RegisterAttack + RegisterHit để tối ưu tốc độ Fast Attack lên Law
-            for _ = 1, 4 do
-                pcall(function()
-                    regAttack:FireServer(0)
-                    regHit:FireServer(enemyPart, targets)
-                end)
-            end
-        end
     end
 
-    pcall(function()
-        if tool then tool:Activate() end
-        VirtualUser:CaptureController()
-        VirtualUser:ClickButton1(Vector2.new(851, 158))
-    end)
+    if enemyPart and #targets > 0 then
+        local sessionTag = tostring(LocalPlayer.UserId):sub(2, 4) .. tostring(os.clock()):sub(3, 7)
+        if netMod then
+            pcall(function()
+                netMod:RemoteEvent("RegisterAttack", true):FireServer(0)
+                netMod:RemoteEvent("RegisterHit", true):FireServer(enemyPart, targets, {}, "078da5141")
+            end)
+        end
+        pcall(function()
+            regAttack:FireServer()
+            regHit:FireServer(enemyPart, targets, {}, sessionTag)
+        end)
+        if obfR and obfId and netSeed then
+            pcall(function()
+                local k = string.gsub("RE/RegisterHit", ".", function(ch)
+                    return string.char(bit32.bxor(string.byte(ch), math.floor(workspace:GetServerTimeNow() / 10 % 10) + 1))
+                end)
+                obfR:FireServer(k, bit32.bxor(obfId + 909090, netSeed:InvokeServer() * 2), enemyPart, targets)
+            end)
+        end
+    end
 end
 
 -- ============================================================================
@@ -1763,7 +1796,7 @@ local function FightLawBossLoop(inServerCount, groupTotalCount, isBackHelpMode)
             inServerCount or 1,
             groupTotalCount or 1
         ))
-        task.wait(0.05)
+        task.wait()
     end
     CleanupMovement()
 end
