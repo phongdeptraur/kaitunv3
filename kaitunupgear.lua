@@ -601,6 +601,18 @@ local function GetSmoothClockTime()
     end
 end
 
+local function IsSupportPresentAndValid(sName, sRace, targetRace, st)
+    if not sRace or sRace == targetRace then return false end
+    if not Players:FindFirstChild(sName) then return false end
+    if type(st) == "table" then
+        if st.ph == "train" or st.ph == "frag" or st.ph == "v3"
+            or st.ph == "travel_sea2" or st.ph == "leave_3sp" or st.ph == "sp_extra" then
+            return false
+        end
+    end
+    return true
+end
+
 local function HasTwoSupportsInServer(targetRace)
     local tr = targetRace or ST.tr
     if not tr or tr == "" then return false end
@@ -608,14 +620,10 @@ local function HasTwoSupportsInServer(targetRace)
     local usedRaces = {}
     for _, sInfo in ipairs(CFG.Supports) do
         local sName, sRace = sInfo[1], sInfo[2]
-        if sRace ~= tr and not usedRaces[sRace] and Players:FindFirstChild(sName) then
-            local st = SafeReadJson(PROGRESS_DIR .. "/st_" .. sName .. ".json")
-            if type(st) == "table" and st.rdy == true and st.tn == true
-                and st.ph ~= "train" and st.ph ~= "frag" and st.ph ~= "v3"
-                and st.ph ~= "travel_sea3" and st.ph ~= "travel_sea2" then
-                count = count + 1
-                usedRaces[sRace] = true
-            end
+        local st = SafeReadJson(PROGRESS_DIR .. "/st_" .. sName .. ".json")
+        if not usedRaces[sRace] and IsSupportPresentAndValid(sName, sRace, tr, st) then
+            count = count + 1
+            usedRaces[sRace] = true
         end
     end
     return count >= 2
@@ -767,10 +775,46 @@ task.spawn(function()
 end)
 
 -- ========================================================================================
--- 9. IN-GAME DOOR CHECKING (STRICTLY NO AUTO V3 ABILITY ACTIVATION)
+-- 9. IN-GAME DOOR CHECKING & SYNCHRONIZED V3 TRIGGER (1 PRIORITY CLONE + 2 SUPPORTS)
 -- ========================================================================================
--- This function verifies if an account is standing in front of its race temple door.
--- IMPORTANT: Pure geometric distance check (< 35 studs). Strictly DOES NOT trigger V3!
+local lastDoorV3Clock = 0
+
+local function IsInActiveTrial6V4()
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    local raidTimer = pg and pg:FindFirstChild("Main")
+        and pg.Main:FindFirstChild("TopHUDList")
+        and pg.Main.TopHUDList:FindFirstChild("RaidTimer")
+    if raidTimer and raidTimer.Visible then
+        return true
+    end
+    local map = Workspace:FindFirstChild("Map")
+    local temple = map and map:FindFirstChild("Temple of Time")
+    local ff = temple and temple:FindFirstChild("FFABorder") and temple.FFABorder:FindFirstChild("Forcefield")
+    if ff and ff.Transparency ~= 1 then
+        return true
+    end
+    return false
+end
+
+local function TriggerDoorV3Ability()
+    if os.clock() - lastDoorV3Clock < 2.0 then return end
+    lastDoorV3Clock = os.clock()
+    DebugLog("DOOR-V3", "Đủ 1 Clone ưu tiên + 2 Support tại cửa (Full Moon) -> Kích hoạt V3!")
+
+    pcall(function()
+        local commE = RemotesFolder and RemotesFolder:FindFirstChild("CommE")
+        if commE then
+            commE:FireServer("ActivateAbility")
+        end
+    end)
+    pcall(function()
+        local vim = GetService("VirtualInputManager")
+        vim:SendKeyEvent(true, Enum.KeyCode.T, false, game)
+        task.wait(0.05)
+        vim:SendKeyEvent(false, Enum.KeyCode.T, false, game)
+    end)
+end
+
 local function IsAccAtDoorInGame(accName, targetRace)
     if not InSea3() then return false end
     local plr = Players:FindFirstChild(accName)
@@ -1034,17 +1078,6 @@ local function CoordinateMoonServer(others, targetRace)
         end
     end
 
-    lock = {
-        j    = targetJob,
-        bj   = backupJob,
-        bh   = backupHolder,
-        mc   = totalMoonCount,
-        tr   = targetRace,
-        sups = cleanSups,
-        t    = now
-    }
-    SafeWriteJson(MOON_LOCK_FILE, lock)
-
     local supsInTargetServer = 0
     for _, sName in ipairs(cleanSups) do
         local st = others[sName]
@@ -1053,8 +1086,47 @@ local function CoordinateMoonServer(others, targetRace)
         end
     end
 
+    -- Nếu Support 1 đang ở trong server Moon và thấy Support 2 vừa join vào game.Players -> Mở khóa cho Clone join liền!
+    local fastReadyJob = (lock.tr == targetRace and (now - (lock.t or 0) < 20)) and lock.fastReadyJob or nil
+    if InSea3() and targetJob == game.JobId and SUPPORTS_MAP[PlayerName] and IsSupportEligible(PlayerName, ST, targetRace) then
+        if HasTwoSupportsInServer(targetRace) then
+            supsInTargetServer = 2
+            fastReadyJob = targetJob
+            ST.fast2sp = targetJob
+        else
+            ST.fast2sp = nil
+        end
+    else
+        ST.fast2sp = nil
+    end
+
+    if fastReadyJob == targetJob then
+        supsInTargetServer = 2
+    else
+        for _, sInfo in ipairs(CFG.Supports) do
+            local st = others[sInfo[1]]
+            if st and st.j == targetJob and st.fast2sp == targetJob and (now - (st.t or 0) < 15) then
+                supsInTargetServer = 2
+                fastReadyJob = targetJob
+                break
+            end
+        end
+    end
+
+    lock = {
+        j            = targetJob,
+        bj           = backupJob,
+        bh           = backupHolder,
+        mc           = totalMoonCount,
+        tr           = targetRace,
+        sups         = cleanSups,
+        fastReadyJob = fastReadyJob,
+        t            = now
+    }
+    SafeWriteJson(MOON_LOCK_FILE, lock)
+
     local isRegisteredSupport = table.find(cleanSups, PlayerName) ~= nil
-    local clonesCanJoin = (supsInTargetServer == 2)
+    local clonesCanJoin = (supsInTargetServer >= 2)
 
     return targetJob, isRegisteredSupport, clonesCanJoin, supsInTargetServer, cleanSups, backupJob, totalMoonCount, backupHolder
 end
@@ -2047,13 +2119,24 @@ task.spawn(function()
 
         SafeWriteJson(STATUS_FILE, ST)
 
-        -- Update GUI content
+        -- Update GUI content & Đồng bộ bật V3 tại cửa (1 Clone ưu tiên + 2 Support)
         pcall(function()
             local others = GetOthersStatus(25)
             local targetRace = ST.tr or "?"
             local lockedSupportRace = SUPPORTS_MAP[PlayerName] and SUPPORTS_MAP[PlayerName]:upper() or "Không (Clone)"
-            local _, _, _, coloredList = GetRosterDoorAndServerState(targetRace, others)
+            local supsAtDoor, _, earliestClone, coloredList = GetRosterDoorAndServerState(targetRace, others)
             local accountListFormatted = (#coloredList > 0) and table.concat(coloredList, ", ") or "Chưa có acc nào khác trong server"
+
+            -- Bật V3 đồng bộ khi đang Full Moon, chưa vào Trial và đủ 1 Clone ưu tiên + 2 Support đứng tại cửa
+            if InSea3() and ST.m == 2 and not moonRejectedShortMoon and not IsInActiveTrial6V4() then
+                if #supsAtDoor >= 2 and earliestClone ~= nil then
+                    local isChosenSup = (PlayerName == supsAtDoor[1] or PlayerName == supsAtDoor[2])
+                    local isPriorityClone = (PlayerName == earliestClone)
+                    if isChosenSup or isPriorityClone then
+                        TriggerDoorV3Ability()
+                    end
+                end
+            end
 
             local completedClonesCount = 0
             for _, c in ipairs(CFG.Clones) do
@@ -2373,12 +2456,12 @@ local function TickOrchestrator()
             return
         end
 
-        -- 4. In active moon server: verify EXACTLY 2 Supports + 1 Clone are physically in game before RealKid V4!
+        -- 4. In active moon server: verify EXACTLY 2 Supports + 1 Clone are physically in game before KaitunV4!
         if ST.m > 0 and not moonRejectedShortMoon then
             local presentSups = {}
             for _, sInfo in ipairs(CFG.Supports) do
-                local sName = sInfo[1]
-                if Players:FindFirstChild(sName) and IsSupportEligible(sName, others[sName], targetRace) then
+                local sName, sRace = sInfo[1], sInfo[2]
+                if IsSupportPresentAndValid(sName, sRace, targetRace, others[sName]) then
                     table.insert(presentSups, sName)
                 end
             end
@@ -2468,12 +2551,12 @@ local function TickOrchestrator()
     end
 
     if CLONES_MAP[PlayerName] then
-        -- Ưu tiên chạy RealKid V4 ngay nếu đang ở server Full Moon (m == 2) có sẵn 2 Support hợp lệ
+        -- Ưu tiên chạy KaitunV4 ngay nếu đang ở server Full Moon (m == 2) có sẵn 2 Support hợp lệ
         if ST.m == 2 then
             local directSups = {}
             for _, sInfo in ipairs(CFG.Supports) do
-                local sName = sInfo[1]
-                if Players:FindFirstChild(sName) and IsSupportEligible(sName, others[sName], targetRace) then
+                local sName, sRace = sInfo[1], sInfo[2]
+                if IsSupportPresentAndValid(sName, sRace, targetRace, others[sName]) then
                     table.insert(directSups, sName)
                 end
             end
@@ -2506,8 +2589,8 @@ local function TickOrchestrator()
                 if clonesCanJoin then
                     local presentSups = {}
                     for _, sInfo in ipairs(CFG.Supports) do
-                        local sName = sInfo[1]
-                        if Players:FindFirstChild(sName) and IsSupportEligible(sName, others[sName], targetRace) then
+                        local sName, sRace = sInfo[1], sInfo[2]
+                        if IsSupportPresentAndValid(sName, sRace, targetRace, others[sName]) then
                             table.insert(presentSups, sName)
                         end
                     end
