@@ -1296,13 +1296,29 @@ local NON_FRUIT_ITEMS = {
 
 local function IsFruitTool(item)
     if not item or not item:IsA("Tool") then return false end
-    if item.ToolTip == "Melee" or item.ToolTip == "Sword" or item.ToolTip == "Gun" then return false end
+    -- Loại bỏ toàn bộ vũ khí & bộ chiêu trái ác quỷ đang ăn (ToolTip == "Blox Fruit")
+    if item.ToolTip == "Melee" or item.ToolTip == "Sword" or item.ToolTip == "Gun" or item.ToolTip == "Blox Fruit" then
+        return false
+    end
+
     local ln = item.Name:lower()
+    -- Loại bỏ trái ác quỷ hiện tại nhân vật đang sử dụng trong Data.DevilFruit (vd: "Ice-Ice")
+    local df = Data and Data:FindFirstChild("DevilFruit")
+    if df and tostring(df.Value) ~= "" and ln == tostring(df.Value):lower() then
+        return false
+    end
+    -- Loại bỏ định dạng tên chiêu thức "<Tên>-<Tên>" (vd: "ice-ice", "buddha-buddha")
+    if ln:match("^(.+)%-%1$") then
+        return false
+    end
+
     if NON_FRUIT_ITEMS[ln] then return false end
     for _, ab in pairs(V3Abilities) do
         if ln == ab:lower() then return false end
     end
-    return item.ToolTip == "Blox Fruit" or ln:find("fruit", 1, true) ~= nil or item:GetAttribute("Fruit") ~= nil or item:FindFirstChild("Fruit") ~= nil
+
+    -- Chỉ nhận diện trái vật lý trong balo (tên có chữ "fruit" hoặc có EatRemote)
+    return ln:find("fruit", 1, true) ~= nil or item:FindFirstChild("EatRemote") ~= nil
 end
 
 local function GetHeldFruits()
