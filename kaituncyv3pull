@@ -1233,6 +1233,20 @@ local function HasMicrochipItem()
     return false, nil
 end
 
+local function PlayerHasMicrochip(plr)
+    if not plr then return false end
+    for _, c in ipairs({ plr.Character, plr:FindFirstChild("Backpack") }) do
+        if c then
+            for _, item in ipairs(c:GetChildren()) do
+                if item.Name:lower():find("microchip", 1, true) then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
 HasFistOrCoreBrain = function()
     local hasCB, cbName = HasCoreBrainItem()
     if hasCB then return true, cbName end
@@ -1473,7 +1487,7 @@ local CoopJoinOrder = os.time()
 
 local function ReadCoopState()
     EnsureFolders()
-    local defaultState = { Players = {}, Groups = {} }
+    local defaultState = { Players = {}, Groups = {}, ChipLocks = {} }
     if isfile and readfile and isfile(COOP_LAW_FILE) then
         local okR, raw = pcall(readfile, COOP_LAW_FILE)
         if okR and type(raw) == "string" and raw ~= "" then
@@ -1481,6 +1495,7 @@ local function ReadCoopState()
             if okD and type(data) == "table" then
                 if type(data.Players) ~= "table" then data.Players = {} end
                 if type(data.Groups) ~= "table" then data.Groups = {} end
+                if type(data.ChipLocks) ~= "table" then data.ChipLocks = {} end
                 return data
             end
         end
@@ -1540,10 +1555,19 @@ local function SyncAndRebalanceCoop(myAtPos, isBackHelpMode)
         Heartbeat  = now,
     }
 
-    -- 2. Xóa các acc hết hạn TTL
+    -- 2. Xóa các acc & khóa mua Chip hết hạn TTL
     for acc, pInfo in pairs(data.Players) do
         if type(pInfo) ~= "table" or (now - (tonumber(pInfo.Heartbeat) or 0)) > COOP_LAW_TTL then
             data.Players[acc] = nil
+        end
+    end
+
+    for jobKey, lockInfo in pairs(data.ChipLocks) do
+        local buyerName = type(lockInfo) == "table" and tostring(lockInfo.Buyer or "") or ""
+        local lockTime = type(lockInfo) == "table" and (tonumber(lockInfo.Time) or 0) or 0
+        local buyerInfo = data.Players[buyerName]
+        if buyerName == "" or (now - lockTime) > 15 or not buyerInfo or tostring(buyerInfo.JobId) ~= tostring(jobKey) then
+            data.ChipLocks[jobKey] = nil
         end
     end
 
@@ -1858,6 +1882,106 @@ local function SupplyCoreBrainAndFinish()
     end
 end
 
+-- Hàm mua Microchip an toàn: Chặn tuyệt đối khi có Core Brain, đã có acc khác mua/đang mua Chip, hoặc Boss Law đang sống
+local LastChipBuyTick = 0
+local function TryBuyMicrochipSafe(curJob, inServerMembers)
+    if Stopped() then return false, "stopped" end
+    if IsCyborg() then return false, "is_cyborg" end
+    if HasCoreBrainItem() then return false, "has_core_brain" end
+    if HasMicrochipItem() then return true, "already_has_chip" end
+
+    local lawBoss, lawHum = FindBossAlive({ "Order" })
+    if lawBoss and lawHum and lawHum.Health > 0 then
+        return false, "boss_alive"
+    end
+
+    local myName = LocalPlayer.Name
+
+    -- 1. Kiểm tra trực tiếp túi đồ của tất cả thành viên cùng server & dữ liệu Coop
+    for _, m in ipairs(inServerMembers or {}) do
+        if m.Name ~= myName then
+            local otherPlr = Players:FindFirstChild(m.Name)
+            if m.HasChip or PlayerHasMicrochip(otherPlr) then
+                return false, "other_has_chip"
+            end
+        end
+    end
+
+    -- 2. Kiểm tra khóa mua Chip hiện tại của server này trong killlawcoop.txt
+    local now = os.time()
+    local coopNow = ReadCoopState()
+    local curLock = coopNow.ChipLocks[curJob]
+    if type(curLock) == "table" and curLock.Buyer and curLock.Buyer ~= myName and (now - (tonumber(curLock.Time) or 0)) < 12 then
+        local holderPlr = Players:FindFirstChild(curLock.Buyer)
+        local holderInfo = coopNow.Players[curLock.Buyer]
+        if holderPlr and holderInfo and tostring(holderInfo.JobId) == curJob then
+            return false, "locked_by_other"
+        end
+    end
+
+    -- 3. Chống spam bấm mua quá nhanh trong lúc chờ server trả vật phẩm về balo
+    if (os.clock() - LastChipBuyTick) < 3.5 then
+        return false, "cooldown"
+    end
+
+    -- 4. Ghi khóa mua Chip & xác minh lại sau 0.15s để chống 2 acc bấm cùng 1 mili-giây
+    coopNow.ChipLocks[curJob] = {
+        Buyer = myName,
+        Time  = now,
+    }
+    WriteCoopState(coopNow)
+    task.wait(0.15)
+
+    local verifyData = ReadCoopState()
+    local verifyLock = verifyData.ChipLocks[curJob]
+    if type(verifyLock) == "table" and verifyLock.Buyer and verifyLock.Buyer ~= myName then
+        if verifyLock.Buyer < myName then
+            return false, "race_lost"
+        end
+        verifyData.ChipLocks[curJob] = {
+            Buyer = myName,
+            Time  = os.time(),
+        }
+        WriteCoopState(verifyData)
+    end
+
+    -- 5. Kiểm tra lại lần cuối ngay trước khi gọi Remote mua Chip (chặn tuyệt đối Core Brain vừa rơi vào túi)
+    if Stopped() then return false, "stopped" end
+    if IsCyborg() then return false, "is_cyborg" end
+    if HasCoreBrainItem() then return false, "has_core_brain" end
+    if HasMicrochipItem() then return true, "already_has_chip" end
+
+    for _, m in ipairs(inServerMembers or {}) do
+        if m.Name ~= myName and PlayerHasMicrochip(Players:FindFirstChild(m.Name)) then
+            return false, "other_has_chip"
+        end
+    end
+
+    LastChipBuyTick = os.clock()
+    SetStatus(("Coop (%d acc) | Đã khóa quyền mua Chip -> Đang mua Microchip..."):format(#(inServerMembers or {})))
+    pcall(function() CommF:InvokeServer("BlackbeardReward", "Microchip", "2") end)
+
+    -- 6. Chờ vật phẩm Microchip xuất hiện trong balo (tối đa 1.8s) và cập nhật ngay lên file Coop
+    local tWait = os.clock()
+    while not Stopped() and (os.clock() - tWait) < 1.8 do
+        if HasCoreBrainItem() or IsCyborg() then
+            return false, "has_core_brain"
+        end
+        if HasMicrochipItem() then
+            local afterData = ReadCoopState()
+            if afterData.Players[myName] then
+                afterData.Players[myName].HasChip = true
+                afterData.Players[myName].Heartbeat = os.time()
+            end
+            WriteCoopState(afterData)
+            return true, "bought"
+        end
+        task.wait(0.15)
+    end
+
+    return HasMicrochipItem(), "pending_replication"
+end
+
 -- Luồng chính điều phối Coop & Solo đánh Law khi ở trạng thái Supply Core Brain
 local function RunCoopSupplyCoreBrain(TravelToSeaFn)
     UnregisterAutoCySession()
@@ -1928,15 +2052,26 @@ local function RunCoopSupplyCoreBrain(TravelToSeaFn)
                 end
                 task.wait(1)
             else
+                local activeChipLock = type(coopData.ChipLocks) == "table" and coopData.ChipLocks[curJob] or nil
+                local lockedBuyerName = (type(activeChipLock) == "table" and (os.time() - (tonumber(activeChipLock.Time) or 0)) < 12)
+                    and tostring(activeChipLock.Buyer or "") or ""
+
                 local inServerMembers = {}
                 for _, mName in ipairs(myGroup.Members) do
                     local plr = Players:FindFirstChild(mName)
                     local pInfo = coopData.Players[mName]
                     if plr and pInfo and tostring(pInfo.JobId) == curJob then
+                        local liveHasChip = (not pInfo.IsBackHelp) and (
+                            (mName == myName and (HasMicrochipItem() == true))
+                            or PlayerHasMicrochip(plr)
+                            or (pInfo.HasChip == true)
+                        ) or false
+
                         table.insert(inServerMembers, {
                             Name       = mName,
                             Fragments  = (mName == myName and GetFragments()) or (tonumber(pInfo.Fragments) or 0),
-                            HasChip    = (not pInfo.IsBackHelp) and ((mName == myName and (HasMicrochipItem() == true)) or (pInfo.HasChip == true)) or false,
+                            HasChip    = liveHasChip,
+                            HasBuyLock = (not pInfo.IsBackHelp) and (lockedBuyerName == mName),
                             IsBackHelp = (pInfo.IsBackHelp == true),
                             AtPos      = (pInfo.AtPos == true),
                         })
@@ -1967,9 +2102,16 @@ local function RunCoopSupplyCoreBrain(TravelToSeaFn)
                 local lawBoss, lawHum = FindBossAlive({ "Order" })
                 if lawBoss and lawHum and lawHum.Health > 0 then
                     myAtPosFlag = false
+                    -- Xóa khóa mua Chip cũ của server này vì Boss Law đã xuất hiện
+                    local clearLockData = ReadCoopState()
+                    if clearLockData.ChipLocks[curJob] then
+                        clearLockData.ChipLocks[curJob] = nil
+                        WriteCoopState(clearLockData)
+                    end
+
                     FightLawBossLoop(#inServerMembers, #myGroup.Members, false)
-                    SleepCheck(1.2)
-                    if HasCoreBrainItem() then
+                    SleepCheck(1.8)
+                    if HasCoreBrainItem() or IsCyborg() then
                         SupplyCoreBrainAndFinish()
                         return
                     end
@@ -1977,13 +2119,16 @@ local function RunCoopSupplyCoreBrain(TravelToSeaFn)
                     if #inServerMembers <= 1 then
                         -- CƠ CHẾ SOLO (Khi trong server chỉ có 1 mình)
                         myAtPosFlag = true
-                        SetStatus(("Chế độ Solo Kill Law (Group %d/5) | Frag: %d -> Tự mua Chip & Start..."):format(
+                        SetStatus(("Chế độ Solo Kill Law (Group %d/5) | Frag: %d -> Kiểm tra & mua Chip..."):format(
                             #myGroup.Members, GetFragments()
                         ))
 
                         if not HasMicrochipItem() then
-                            pcall(function() CommF:InvokeServer("BlackbeardReward", "Microchip", "2") end)
-                            task.wait(0.3)
+                            local _, buyReason = TryBuyMicrochipSafe(curJob, inServerMembers)
+                            if buyReason == "has_core_brain" or buyReason == "is_cyborg" then
+                                SupplyCoreBrainAndFinish()
+                                return
+                            end
                         end
 
                         local mainBtn = GetLawButtonMain()
@@ -2010,8 +2155,10 @@ local function RunCoopSupplyCoreBrain(TravelToSeaFn)
                             for _, m in ipairs(inServerMembers) do table.insert(sortedForBuyer, m) end
                         end
 
+                        -- Ưu tiên 1: Acc đã có sẵn Chip -> Ưu tiên 2: Acc đang giữ khóa mua Chip -> Ưu tiên 3: Nhiều Frag nhất
                         table.sort(sortedForBuyer, function(a, b)
                             if a.HasChip ~= b.HasChip then return a.HasChip end
+                            if a.HasBuyLock ~= b.HasBuyLock then return a.HasBuyLock end
                             if a.Fragments ~= b.Fragments then return a.Fragments > b.Fragments end
                             return a.Name < b.Name
                         end)
@@ -2034,11 +2181,17 @@ local function RunCoopSupplyCoreBrain(TravelToSeaFn)
 
                         if myName == buyerAcc then
                             if not HasMicrochipItem() then
-                                SetStatus(("Coop (%d acc) | Mình nhiều Frag nhất (%d) -> Đang mua Microchip..."):format(
-                                    #inServerMembers, GetFragments()
-                                ))
-                                pcall(function() CommF:InvokeServer("BlackbeardReward", "Microchip", "2") end)
-                                task.wait(0.3)
+                                local okChip, buyReason = TryBuyMicrochipSafe(curJob, inServerMembers)
+                                if buyReason == "has_core_brain" or buyReason == "is_cyborg" then
+                                    SupplyCoreBrainAndFinish()
+                                    return
+                                end
+                                if not okChip then
+                                    SetStatus(("Coop (%d acc) | Đang chờ đồng bộ Chip (%s)..."):format(
+                                        #inServerMembers, tostring(buyReason)
+                                    ))
+                                    task.wait(0.25)
+                                end
                             end
 
                             local mainBtn = GetLawButtonMain()
