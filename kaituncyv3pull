@@ -49,7 +49,6 @@ local CHEST_BLACKLIST_FILE = LOG_FOLDER .. "/chestcyblack.txt"
 local CHEST_BLACKLIST_TTL  = 1800 -- 30 phút (1800 giây)
 local COOP_LAW_FILE        = LOG_FOLDER .. "/killlawcoop.txt"
 local COOP_LAW_TTL         = 25
-local CORE_SUPPLY_FILE     = LOG_FOLDER .. "/coresupply.txt"
 local HOP_CACHE_FILE       = LOG_FOLDER .. "/AutoCyborgV3_HopCache.json"
 local NH_VISITED_FILE      = LOG_FOLDER .. "/Axiom_VisitedServers.json"
 
@@ -98,59 +97,6 @@ local function EnsureFolders()
     end
 end
 EnsureFolders()
-
--- ============================================================================
--- LƯU & ĐỌC TRẠNG THÁI SUPPLY CORE BRAIN (CyborgProgress/coresupply.txt)
--- ============================================================================
-local function ReadCoreSupplyMap()
-    EnsureFolders()
-    local map = {}
-    if isfile and readfile and isfile(CORE_SUPPLY_FILE) then
-        local okR, raw = pcall(readfile, CORE_SUPPLY_FILE)
-        if okR and type(raw) == "string" and raw ~= "" then
-            local okD, data = pcall(function() return HttpService:JSONDecode(raw) end)
-            if okD and type(data) == "table" then
-                for k, v in pairs(data) do
-                    if v then map[tostring(k)] = v end
-                end
-            else
-                for line in raw:gmatch("[^\r\n]+") do
-                    local clean = line:match("^%s*(.-)%s*$")
-                    if clean ~= "" then map[clean] = true end
-                end
-            end
-        end
-    end
-    return map
-end
-
-local function WriteCoreSupplyMap(map)
-    EnsureFolders()
-    if writefile then
-        pcall(writefile, CORE_SUPPLY_FILE, HttpService:JSONEncode(map))
-    end
-end
-
-local function HasCoreSupplyRecorded()
-    local map = ReadCoreSupplyMap()
-    return map[LocalPlayer.Name] ~= nil
-end
-
-local function MarkCoreSupplyRecorded()
-    local map = ReadCoreSupplyMap()
-    if not map[LocalPlayer.Name] then
-        map[LocalPlayer.Name] = os.time()
-        WriteCoreSupplyMap(map)
-    end
-end
-
-local function UnmarkCoreSupplyRecorded()
-    local map = ReadCoreSupplyMap()
-    if map[LocalPlayer.Name] ~= nil then
-        map[LocalPlayer.Name] = nil
-        WriteCoreSupplyMap(map)
-    end
-end
 
 -- ============================================================================
 -- STATUS UI (TÁCH LUỒNG RENDER) + NÚT X UNLOAD TOÀN BỘ + AUTO-REQUEUE
@@ -1384,7 +1330,6 @@ local function ParseNotifText(txt)
     local low = txt:lower()
     if low:find("core brain", 1, true) then
         PedestalSignal = "CORE_BRAIN"
-        MarkCoreSupplyRecorded()
     elseif low:find("microchip", 1, true) or low:find("fist of darkness", 1, true) then
         if PedestalSignal ~= "CORE_BRAIN" then
             PedestalSignal = "MICROCHIP"
@@ -1437,52 +1382,37 @@ end
 local function CheckLawPedestalStatus()
     if Stopped() then return "MICROCHIP" end
 
-    -- 1. Kiểm tra file CyborgProgress/coresupply.txt trước tiên (đặc biệt khi có Boss Law không bấm bệ được)
-    if HasCoreSupplyRecorded() then
-        local lawAlive = IsLawBossAliveRemote()
-        SetStatus(("Đã có tên trong CyborgProgress/coresupply.txt%s -> Vào thẳng Supply Core Brain!"):format(
-            lawAlive and " (Phát hiện Boss Law từ xa qua ReplicatedStorage)" or ""
-        ))
-        return "CORE_BRAIN"
-    end
-
-    local hasFist, itemName = HasFistOrCoreBrain()
-    if hasFist then
-        MarkCoreSupplyRecorded()
-        SetStatus("Đang có " .. tostring(itemName) .. " -> Lưu coresupply.txt & chuyển sang Supply Core Brain!")
+    if HasCoreBrainItem() then
+        SetStatus("Đang có sẵn Core Brain trong túi -> Chuyển sang nộp Core Brain!")
         return "CORE_BRAIN"
     end
 
     PedestalSignal = nil
     local attempt = 0
     while not Stopped() and not PedestalSignal do
-        if HasCoreSupplyRecorded() then
+        if HasCoreBrainItem() or IsCyborg() then
             return "CORE_BRAIN"
         end
-        local hasFistNow, itemNow = HasFistOrCoreBrain()
-        if hasFistNow then
-            MarkCoreSupplyRecorded()
-            SetStatus("Đang có " .. tostring(itemNow) .. " -> Lưu coresupply.txt & chuyển sang Supply Core Brain!")
-            return "CORE_BRAIN"
-        end
-        if IsCyborg() then return "CORE_BRAIN" end
 
-        -- Nếu chưa có trong coresupply.txt mà phát hiện Boss Law đang sống từ xa (không bấm bệ được) hoặc quá 25 lần click
         attempt = attempt + 1
-        if attempt > 25 then
-            SetStatus("Click bệ Law quá 25 lần không có kết quả (hoặc kẹt Boss Law) -> Hop Low...")
-            RecordJobCache(HOP_CACHE_FILE, TriedJobs, tostring(game.JobId))
-            HopLow()
-            return "HOPPED"
-        end
-
         pcall(function()
             local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
             if hum then hum:UnequipTools() end
         end)
 
-        SetStatus(("Đang FireClickDetector bệ Law chờ kết quả (Lần %d/25)..."):format(attempt))
-        FireLawPedestal()
+        local clicked = FireLawPedestal()
+        if not clicked then
+            SetStatus(("Chưa tải được bệ Law -> Đang bay tới bệ Law (Lần %d)..."):format(attempt))
+            TweenTo(POS_LAW_PEDESTAL, function()
+                return PedestalSignal ~= nil or IsCyborg() or HasCoreBrainItem() or (GetLawButtonMain() ~= nil)
+            end)
+            FireLawPedestal()
+        else
+            local lawAlive = IsLawBossAliveRemote()
+            SetStatus((lawAlive
+                and "Đang có Boss Law -> Tiếp tục bấm bệ Law chờ xong Law (Lần %d)..."
+                or "Đang bấm bệ Law chờ kết quả (Lần %d)..."):format(attempt))
+        end
 
         local t0 = os.clock()
         while not Stopped() and not PedestalSignal and (os.clock() - t0) < 1.0 do
@@ -1501,8 +1431,7 @@ local function CheckLawPedestalStatus()
     end
 
     if PedestalSignal == "CORE_BRAIN" then
-        MarkCoreSupplyRecorded()
-        SetStatus("Bệ Law báo: Supply Core Brain -> Đã lưu CyborgProgress/coresupply.txt & kích hoạt Coop/Solo Kill Law!")
+        SetStatus("Bệ Law báo: Supply Core Brain -> Kích hoạt Coop/Solo Kill Law!")
         return "CORE_BRAIN"
     end
 
@@ -1863,7 +1792,6 @@ local function SupplyCoreBrainAndFinish()
 
     while not Stopped() do
         if IsCyborg() then
-            UnmarkCoreSupplyRecorded()
             SetStatus("Đã lấy được tộc Cyborg! Hop Low để refresh sang V2/V3...")
             HopLow()
             return
@@ -1873,7 +1801,6 @@ local function SupplyCoreBrainAndFinish()
         if not hasCB then
             pcall(function() CommF:InvokeServer("CyborgTrainer", "Buy") end)
             if IsCyborg() then
-                UnmarkCoreSupplyRecorded()
                 SetStatus("Đã mua thành công tộc Cyborg! Hop Low để refresh...")
                 HopLow()
                 return
@@ -1882,7 +1809,6 @@ local function SupplyCoreBrainAndFinish()
                 while not Stopped() and task.wait(1.5) do
                     pcall(function() CommF:InvokeServer("CyborgTrainer", "Buy") end)
                     if IsCyborg() then
-                        UnmarkCoreSupplyRecorded()
                         SetStatus("Đã lấy được tộc Cyborg! Hop Low để refresh sang V2/V3...")
                         HopLow()
                         return
@@ -2015,7 +1941,6 @@ end
 -- Luồng chính điều phối Coop & Solo đánh Law khi ở trạng thái Supply Core Brain
 local function RunCoopSupplyCoreBrain(TravelToSeaFn)
     UnregisterAutoCySession()
-    MarkCoreSupplyRecorded()
 
     -- Nếu đang cầm Fist of Darkness trên tay/balo thì nộp vào bệ trước
     if HasFistItem() and not HasCoreBrainItem() then
@@ -2027,7 +1952,6 @@ local function RunCoopSupplyCoreBrain(TravelToSeaFn)
             FireLawPedestal()
             task.wait(0.3)
         end
-        MarkCoreSupplyRecorded()
     end
 
     if HasCoreBrainItem() then
@@ -2042,7 +1966,6 @@ local function RunCoopSupplyCoreBrain(TravelToSeaFn)
 
     while not Stopped() do
         if IsCyborg() then
-            UnmarkCoreSupplyRecorded()
             UnregisterCoopLaw()
             CleanupMovement()
             SetStatus("Đã có tộc Cyborg! Hop Low để refresh...")
@@ -2279,7 +2202,6 @@ end
 -- ============================================================================
 local function RunBackHelpCoopLaw(TravelToSeaFn)
     UnregisterAutoCySession()
-    UnmarkCoreSupplyRecorded()
 
     local lastTeleportAttempt = 0
     local myAtPosFlag = false
@@ -2635,7 +2557,7 @@ if not IsCyborg() then
     if Stopped() then return end
 
     local state = CheckLawPedestalStatus()
-    if Stopped() or state == "HOPPED" then return end
+    if Stopped() then return end
 
     if state == "CORE_BRAIN" then
         -- Trạng thái Supply Core Brain -> Chạy cơ chế Coop/Solo qua CyborgProgress/killlawcoop.txt
@@ -2651,7 +2573,6 @@ if not IsCyborg() then
         local chestCount = 0
         while not Stopped() do
             if IsCyborg() then
-                UnmarkCoreSupplyRecorded()
                 SetStatus("Đã có tộc Cyborg! Hop Low để refresh...")
                 HopLow()
                 return
@@ -2665,8 +2586,7 @@ if not IsCyborg() then
             local hasFist, itemName = HasFistOrCoreBrain()
             if hasFist then
                 CleanupMovement()
-                MarkCoreSupplyRecorded()
-                SetStatus(("Nhặt được %s! Đã lưu coresupply.txt & chuyển sang nộp Fist / Coop Kill Law..."):format(tostring(itemName)))
+                SetStatus(("Nhặt được %s! Chuyển sang nộp Fist / Coop Kill Law..."):format(tostring(itemName)))
                 RunCoopSupplyCoreBrain(TravelToSea)
                 return
             end
@@ -2722,8 +2642,7 @@ if not IsCyborg() then
 end
 if Stopped() then return end
 
--- 2. ĐÃ LÀ TỘC CYBORG -> XÓA LOG CORESUPPLY, CHECK V2, V3 & BELI, FRAGMENT
-UnmarkCoreSupplyRecorded()
+-- 2. ĐÃ LÀ TỘC CYBORG -> CHECK V2, V3 & BELI, FRAGMENT
 local hasV3 = HasRaceV3()
 local hasV2 = HasRaceV2()
 
