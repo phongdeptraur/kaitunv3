@@ -52,7 +52,11 @@ local COOP_LAW_TTL         = 25
 local HOP_CACHE_FILE       = LOG_FOLDER .. "/AutoCyborgV3_HopCache.json"
 local NH_VISITED_FILE      = LOG_FOLDER .. "/Axiom_VisitedServers.json"
 
-local REALKID_KEY = "TRAU_PREMIUM_306B4DB2D52F3D14BAB7247D2CC4B53D8E3C8EC77B572154"
+local DEFAULT_REALKID_KEY = "TRAU_PREMIUM_306B4DB2D52F3D14BAB7247D2CC4B53D8E3C8EC77B572154"
+local function ResolveRealKidKey()
+    return (type(getgenv) == "function" and ((type(getgenv().RealKidKey) == "string" and getgenv().RealKidKey ~= "" and getgenv().RealKidKey) or (type(getgenv().Key) == "string" and getgenv().Key ~= "" and getgenv().Key))) or DEFAULT_REALKID_KEY
+end
+local REALKID_KEY = ResolveRealKidKey()
 local URL_MAIN = "https://raw.githubusercontent.com/realkidhub/realkid/refs/heads/main/main.lua"
 local URL_HOP  = "https://raw.githubusercontent.com/realkidhub/realkid/refs/heads/main/RealKidHop.lua"
 
@@ -226,7 +230,8 @@ do
         TeleportConn = LocalPlayer.OnTeleport:Connect(function(state)
             if not Stopped() and state == Enum.TeleportState.Started and not queued then
                 queued = true
-                qot(('loadfile(%q)()'):format(scriptPath))
+                local rk = ResolveRealKidKey()
+                qot(('if type(getgenv) == "function" then getgenv().RealKidKey = %q; getgenv().Key = %q end; loadfile(%q)()'):format(rk, rk, scriptPath))
             end
         end)
     end
@@ -1078,6 +1083,7 @@ local function LaunchRealKidMain(overrides, desc)
     WriteMainConfig(overrides)
     if not SleepCheck(0.2) then return false end
     getgenv()._RealKidMainRunning = true
+    REALKID_KEY = ResolveRealKidKey()
     getgenv().Key = REALKID_KEY
     SetStatus("Chạy RealKid Main: " .. (desc or "Custom"))
     task.spawn(function()
@@ -1098,6 +1104,7 @@ local function LaunchRealKidHop(destination, extraOverrides)
     WriteHopConfig(cfg)
     if not SleepCheck(0.2) then return false end
     getgenv()._RealKidHopRunning = true
+    REALKID_KEY = ResolveRealKidKey()
     getgenv().Key = REALKID_KEY
     SetStatus("Chạy RealKid Hop -> " .. tostring(destination))
     task.spawn(function()
