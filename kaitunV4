@@ -1,61 +1,177 @@
--- ============================================================================
--- AUTO V4 MODULE (DO TRIAL, BUY GEAR & SPEND GEAR - DOOR SYNC BY 6V4)
--- ============================================================================
-repeat task.wait() until game:IsLoaded() and game.Players.LocalPlayer
+local CFG = {
+    OneRaceMode   = true,     -- true = Chỉ up 1 Race chỉ định | false = Up đủ 6 Race (6V4)
+    TargetOneRace = "cyborg", -- Race chỉ định khi bật OneRaceMode ("cyborg", "ghoul", "fishman", "skypiea", "mink", "human")
+    FarmTier10    = true,     -- true = Farm tiếp lên Tier 10 (gộp đủ Frag 1 lượt) | false = Dừng ngay khi lên Tier 5 và cần train
+    GearPattern   = "A-B-A",  -- Thứ tự lắp Gear V4: A = Red (Alpha), B = Blue (Omega)
+    AutoTrial     = true,     -- Tự động làm Trial V4
+    AutoGear      = true,     -- Tự động mua Gear & lắp điểm Gear
+    HelpReset     = true,     -- Support tự Reset khi lên Arena PvP nhường Main thắng
+    RealKidKey    = "TRAU_PREMIUM_28484A847A1F9B1EB564C76D64B1F7B35E1DE761633B0F18", -- Master RealKid Hub Key (ưu tiên dùng khi không rỗng; đồng bộ xuống getgenv().Key & getgenv().RealKidKey)
+    Supports = {
+        {"WindyPumao3340", "mink"},
+        {"SunnySpark5017", "skypiea"},
+        {"PrimalDarkSlime64", "ghoul"}
+    }, -- {Account Name, Locked Race}
+    Clones = {
+        "AmberQuail8661",
+        "CosmicDrake1203",
+        "TideGrove74153",
+        "IvoryMesa7378",
+        "CosmicIbex7632",
+        "MossyWave1993",
+        "SwiftSealy3310",
+        "UltraEmber0841",
+        "SunnyYardn7081",
+        "SwiftCliffs3419"
+    }
+}
 
-if getgenv().AutoV4Cleanup then
-    pcall(getgenv().AutoV4Cleanup)
-end
-
-local Players           = game:GetService("Players")
-local TweenService      = game:GetService("TweenService")
-local RunService        = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local VirtualInputMgr   = game:GetService("VirtualInputManager")
-local Lighting          = game:GetService("Lighting")
-
-local LocalPlayer = Players.LocalPlayer
-local CommF_      = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommF_")
-
-local function GetCfg()
-    local c = getgenv().config
-    if type(c) ~= "table" then
-        c = {
-            Enabled = true,
-            TweenSpeed = 190,
-            AutoTrial = true,
-            AutoUpgradeRace = true,
-            Main = { Account = { LocalPlayer.Name }, Tier = 5, Gear = "A-B-A" },
-            Help = { Account = {}, Reset = true }
-        }
-        getgenv().config = c
+-- Resolve and propagate master RealKid key to global executor environment
+local function ResolveRealKidKey()
+    local cfgKey = type(CFG) == "table" and CFG.RealKidKey
+    if type(cfgKey) == "string" and cfgKey ~= "" then
+        return cfgKey
     end
-    return c
+    if type(getgenv) == "function" then
+        local env = getgenv()
+        if type(env.Key) == "string" and env.Key ~= "" then
+            return env.Key
+        end
+        if type(env.RealKidKey) == "string" and env.RealKidKey ~= "" then
+            return env.RealKidKey
+        end
+    end
+    return nil
 end
 
-local isRunning      = true
-local currentStatus  = "Khởi tạo..."
-local activeTween    = nil
-local noclipEnabled  = false
-local floatEnabled   = false
-local defaultGravity = workspace.Gravity > 0 and workspace.Gravity or 196.2
+local function ApplyRealKidKey()
+    local key = ResolveRealKidKey()
+    if key and type(getgenv) == "function" then
+        local env = getgenv()
+        env.Key = key
+        env.RealKidKey = key
+    end
+    return key
+end
 
-local GREAT_TREE_TOP = CFrame.new(3033, 2281, -7324)
-local TEMPLE_CENTER  = Vector3.new(28282.5703125, 14896.8505859375, 105.10427093505859)
-local CYBORG_SAFE_CF = CFrame.new(-20021.8691, 10090.4893, -16.37994, -0.976144373, 6.71342875e-08, -0.217122361, 8.46145412e-08, 1, -7.1212007e-08, 0.217122361, -8.78849065e-08, -0.976144373)
+ApplyRealKidKey()
 
-local TRIAL_LOCATIONS = {
+local ORDER = {"cyborg", "ghoul", "fishman", "skypiea", "mink", "human"}
+
+-- Wait for Roblox engine and LocalPlayer initialization
+repeat task.wait() until game:IsLoaded() and game:GetService("Players").LocalPlayer
+
+-- Service References
+local function GetService(name) return game:GetService(name) end
+local Players           = GetService("Players")
+local ReplicatedStorage = GetService("ReplicatedStorage")
+local HttpService       = GetService("HttpService")
+local VirtualUser       = GetService("VirtualUser")
+local VirtualInputMgr   = GetService("VirtualInputManager")
+local Lighting          = GetService("Lighting")
+local TweenService      = GetService("TweenService")
+local RunService        = GetService("RunService")
+local UserInputService  = GetService("UserInputService")
+local Workspace         = workspace
+
+local LocalPlayer  = Players.LocalPlayer
+local PlayerName   = LocalPlayer.Name
+local PROGRESS_DIR = "6V4Progress"
+pcall(makefolder, PROGRESS_DIR)
+
+local RemotesFolder = ReplicatedStorage:WaitForChild("Remotes", 15)
+local CommF_        = RemotesFolder and RemotesFolder:WaitForChild("CommF_", 15)
+local CommE         = RemotesFolder and RemotesFolder:WaitForChild("CommE", 15)
+
+-- Sea Place IDs
+local SEA3_IDS = {[7449423635] = true, [100117331123089] = true}
+local SEA2_IDS = {[4442272183] = true, [79091703265657] = true}
+
+-- Spatial Coordinates
+local GREAT_TREE_POS     = Vector3.new(2262.59, 21.69, -6462.95)
+local TOP_GREAT_TREE_POS = Vector3.new(3033, 2281, -7324)
+local TEMPLE_CENTER_POS  = Vector3.new(28282.5703125, 14896.8505859375, 105.10427093505859)
+local CYBORG_SAFE_CF     = CFrame.new(-20021.8691, 10058.0, -16.37994, -0.976144373, 6.71342875e-08, -0.217122361, 8.46145412e-08, 1, -7.1212007e-08, 0.217122361, -8.78849065e-08, -0.976144373)
+
+local TEMPLE_DOORS = {
+    mink    = Vector3.new(29020.66, 14889.43, -379.27),
+    fishman = Vector3.new(28224.06, 14889.43, -210.59),
+    cyborg  = Vector3.new(28492.41, 14894.43, -422.11),
+    skypiea = Vector3.new(28967.41, 14918.08, 234.31),
+    ghoul   = Vector3.new(28672.72, 14889.13, 454.60),
+    human   = Vector3.new(29237.29, 14889.43, -206.95),
+}
+
+local RACE_TRIAL_NAMES = {
+    skypiea = "Trial of the King",
+    cyborg  = "Trial of the Machine",
+    mink    = "Trial of Speed",
+    human   = "Trial of Strength",
+    fishman = "Trial of Water",
+    ghoul   = "Trial of Carnage"
+}
+
+local TRIAL_ROOM_LIST = {
+    "Trial of the King",
     "Trial of the Machine",
     "Trial of Speed",
     "Trial of Strength",
     "Trial of Water",
-    "Trial of the King",
     "Trial of Carnage"
 }
 
--- ============================================================================
--- 1. HOOK AIMPOS CHO SKILL SEA BEAST (TRIAL FISHMAN)
--- ============================================================================
+-- V3 Pull Scripts Repository & Mapping
+local V3_BASE_URL = "https://raw.githubusercontent.com/phongdeptraur/kaitunv3/refs/heads/main/"
+local V3_SCRIPTS = {
+    human   = "autohumanv3pull",
+    cyborg  = "kaituncyv3pull",
+    fishman = "kaitunfishV3pull",
+    ghoul   = "kaitunghoulv3pull",
+    mink    = "kaitunminkV3pull",
+    skypiea = "kaitunskypieav3pull"
+}
+
+local RACE_ABILITIES = {
+    human   = "Last Resort",
+    mink    = "Agility",
+    fishman = "Water Body",
+    skypiea = "Heavenly Blood",
+    ghoul   = "Heightened Senses",
+    cyborg  = "Energy Core"
+}
+
+-- Roster Indexing
+local SUPPORTS_MAP, CLONES_MAP, ALL_ROSTER = {}, {}, {}
+for _, s in ipairs(CFG.Supports) do
+    SUPPORTS_MAP[s[1]] = s[2]
+    table.insert(ALL_ROSTER, s[1])
+end
+for _, c in ipairs(CFG.Clones) do
+    CLONES_MAP[c] = true
+    table.insert(ALL_ROSTER, c)
+end
+
+if not (SUPPORTS_MAP[PlayerName] or CLONES_MAP[PlayerName]) then
+    print(string.format("[6V4-DEBUG][INIT] Account %s is not in Support or Clone list. Exiting orchestrator.", PlayerName))
+    return
+end
+
+-- Global Orchestrator State Reset
+getgenv().V4Stop = true
+task.wait(1.0)
+getgenv().V4Stop = false
+getgenv().V4Hub  = nil
+getgenv().AutoV4AimPos = nil
+
+local function IsStopped() return getgenv().V4Stop == true end
+local function InSea3() return SEA3_IDS[game.PlaceId] == true end
+local function InSea2() return SEA2_IDS[game.PlaceId] == true end
+
+local FRAG_MINIMUM    = 3000
+local TWEEN_SPEED     = 190 -- Khóa cứng tốc độ Tween 190 stud/s chống lệch CFrame
+local DEFAULT_GRAVITY = Workspace.Gravity > 0 and Workspace.Gravity or 196.2
+
+-- Hook AimPos cho Skill Sea Beast (Trial Fishman)
 if not getgenv().AutoV4AimHooked and hookmetamethod and getnamecallmethod then
     getgenv().AutoV4AimHooked = true
     local oldNamecall
@@ -78,87 +194,1518 @@ if not getgenv().AutoV4AimHooked and hookmetamethod and getnamecallmethod then
     end))
 end
 
--- ============================================================================
--- 2. UI NGẮN GỌN (GÓC PHẢI - KHÔNG ĐÈ UI 6V4)
--- ============================================================================
-local gui = Instance.new("ScreenGui")
-gui.Name = "AutoV4_MiniUI"
-gui.ResetOnSpawn = false
+-- ========================================================================================
+-- 2. LOGGING & DEBUG UTILITIES
+-- ========================================================================================
+local function DebugLog(tag, msg, ...)
+    local formatted = string.format(msg, ...)
+    print(string.format("[6V4-DEBUG][%s] %s", tag, formatted))
+end
 
-local card = Instance.new("Frame")
-card.Size = UDim2.new(0, 270, 0, 162)
-card.Position = UDim2.new(1, -285, 0, 45)
-card.BackgroundColor3 = Color3.fromRGB(16, 18, 25)
-card.BorderSizePixel = 0
-card.Active = true
-card.Draggable = true
-card.Parent = gui
+local function DebugWarn(tag, msg, ...)
+    local formatted = string.format(msg, ...)
+    warn(string.format("[6V4-DEBUG][%s] %s", tag, formatted))
+end
 
-Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
+-- ========================================================================================
+-- 3. FILE SYSTEM & SYNC HELPERS
+-- ========================================================================================
+local function SafeReadJson(path)
+    local ok, res = pcall(function()
+        if not isfile(path) then return nil end
+        return HttpService:JSONDecode(readfile(path))
+    end)
+    return (ok and type(res) == "table") and res or {}
+end
 
-local stroke = Instance.new("UIStroke", card)
-stroke.Color = Color3.fromRGB(45, 55, 80)
-stroke.Thickness = 1.2
+local function SafeReadJsonStrict(path, maxRetries)
+    local exists = false
+    pcall(function() exists = isfile(path) end)
+    if not exists then
+        return {}, true
+    end
 
-local header = Instance.new("TextLabel", card)
-header.Size = UDim2.new(1, -16, 0, 26)
-header.Position = UDim2.new(0, 10, 0, 4)
-header.BackgroundTransparency = 1
-header.Font = Enum.Font.GothamBold
-header.TextSize = 12
-header.TextColor3 = Color3.fromRGB(0, 210, 255)
-header.TextXAlignment = Enum.TextXAlignment.Left
-header.Text = "⚡ AUTO V4 - TRIAL & GEAR"
+    local attempts = maxRetries or 4
+    for i = 1, attempts do
+        local ok, res = pcall(function()
+            local raw = readfile(path)
+            if type(raw) ~= "string" or raw == "" then
+                return nil
+            end
+            return HttpService:JSONDecode(raw)
+        end)
+        if ok and type(res) == "table" then
+            return res, true
+        end
+        if i < attempts then
+            task.wait(0.02)
+        end
+    end
+    return nil, false
+end
 
-local infoLabel = Instance.new("TextLabel", card)
-infoLabel.Size = UDim2.new(1, -20, 0, 62)
-infoLabel.Position = UDim2.new(0, 10, 0, 30)
-infoLabel.BackgroundTransparency = 1
-infoLabel.Font = Enum.Font.GothamMedium
-infoLabel.TextSize = 11
-infoLabel.TextColor3 = Color3.fromRGB(225, 230, 240)
-infoLabel.TextXAlignment = Enum.TextXAlignment.Left
-infoLabel.TextYAlignment = Enum.TextYAlignment.Top
-infoLabel.RichText = true
-infoLabel.TextWrapped = true
-infoLabel.Text = "Đang khởi động..."
+local function SafeWriteJson(path, data)
+    pcall(function()
+        writefile(path, HttpService:JSONEncode(data))
+    end)
+end
 
-local helpResetBtn = Instance.new("TextButton", card)
-helpResetBtn.Size = UDim2.new(1, -20, 0, 24)
-helpResetBtn.Position = UDim2.new(0, 10, 1, -62)
-helpResetBtn.BackgroundColor3 = Color3.fromRGB(40, 85, 140)
-helpResetBtn.Font = Enum.Font.GothamBold
-helpResetBtn.TextSize = 10
-helpResetBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-helpResetBtn.Text = "HELP RESET Ở ARENA: BẬT"
-Instance.new("UICorner", helpResetBtn).CornerRadius = UDim.new(0, 5)
+local function GetRoot()
+    local char = LocalPlayer.Character
+    return char and char:FindFirstChild("HumanoidRootPart")
+end
 
-helpResetBtn.MouseButton1Click:Connect(function()
-    local cfg = GetCfg()
-    cfg.Help = cfg.Help or { Account = {}, Reset = true }
-    cfg.Help.Reset = not (cfg.Help.Reset ~= false)
+local function GetHumanoid()
+    local char = LocalPlayer.Character
+    return char and char:FindFirstChildOfClass("Humanoid")
+end
+
+local function GetCurrentRace()
+    local data = LocalPlayer:FindFirstChild("Data")
+    local r = data and data:FindFirstChild("Race")
+    return r and tostring(r.Value):lower() or ""
+end
+
+local memoryCache = {}
+local function GetCached(key, ttl, fetchFunc)
+    local entry = memoryCache[key]
+    if entry and (os.clock() - entry.time < ttl) then
+        return entry.value
+    end
+    local val = fetchFunc()
+    memoryCache[key] = {time = os.clock(), value = val}
+    return val
+end
+
+local function InvokeCFTimeout(timeoutSec, ...)
+    if not CommF_ then return false, "No CommF_ remote" end
+    local args = {...}
+    local completed, ok, response = false, false, nil
+    task.spawn(function()
+        ok, response = pcall(function()
+            return CommF_:InvokeServer(table.unpack(args))
+        end)
+        completed = true
+    end)
+    local t0 = os.clock()
+    local limit = timeoutSec or 3.5
+    while not completed and (os.clock() - t0 < limit) and not IsStopped() do
+        task.wait(0.05)
+    end
+    if not completed then
+        return false, "Remote invocation timed out"
+    end
+    return ok, response
+end
+
+-- ========================================================================================
+-- 4. STATE INITIALIZATION & HEARTBEAT
+-- ========================================================================================
+local STATUS_FILE     = PROGRESS_DIR .. "/st_" .. PlayerName .. ".json"
+local MOON_LOCK_FILE  = PROGRESS_DIR .. "/moon_lock.json"
+local BLACKLIST_FILE  = PROGRESS_DIR .. "/bl.json"
+local TRAIN_LOCK_FILE = PROGRESS_DIR .. "/train_lock_" .. game.JobId .. ".json"
+
+local prevST = SafeReadJson(STATUS_FILE)
+local ST = {
+    sup           = SUPPORTS_MAP[PlayerName] ~= nil,
+    race          = prevST.race or "",
+    j             = game.JobId,
+    rdy           = false,
+    sr            = false,
+    v3            = prevST.v3 or false,
+    pull          = prevST.pull or false,
+    tn            = false,
+    ts            = "Chưa kiểm tra",
+    dn            = false,
+    m             = 0,
+    me            = 0,
+    np            = 1,
+    atTree        = false, -- Đã lên tới đỉnh Great Tree (3033, 2281, -7324)
+    treeTime      = 0,     -- Thời điểm lên tới đỉnh Great Tree để xếp hạng ưu tiên vào Temple
+    door          = false,
+    doorTime      = 0,
+    trialLoc      = "",
+    trialStarting = 0,
+    ph            = "init",
+    t             = os.time(),
+    jt            = os.time()
+}
+
+local isHopping              = false
+local eventTimers            = {start = 0, done = 0}
+local v3CacheRace            = (prevST.v3 and prevST.race) or nil
+local pullCache              = prevST.pull or false
+local currentActiveHelpers   = {}
+local totalReportedMoons     = 0
+local failedJoinJobs         = {}
+local previousTrainedState   = nil
+local lastNotifText          = "Chưa có thông báo"
+local lastNotifTime          = 0
+local currentPriorityClone   = nil
+local didTriggerV3AtDoor     = false
+local v3TriggeredAtClock     = 0
+local lastDoorV3Clock        = 0
+local doorV3VerifyToken      = 0
+local activeDoorSyncTargets  = { priorityClone = nil, sups = {} }
+local DOOR_SYNC_FILE         = PROGRESS_DIR .. "/door_sync_" .. game.JobId .. ".json"
+local myDoorArriveMs         = 0
+local all3InGameSinceMs      = 0
+
+local function IsMoonDeadTimeWindow()
+    local dt = os.date("*t")
+    return dt and dt.min >= 0 and dt.min <= 9
+end
+
+-- ========================================================================================
+-- 5. TRAIN ANTI-COLLISION LOCK
+-- ========================================================================================
+local function ClaimTrainLock()
+    local lock = SafeReadJson(TRAIN_LOCK_FILE)
+    local now = os.time()
+    if lock.user and lock.user ~= PlayerName and (now - (lock.t or 0) < 35) then
+        DebugWarn("TRAIN-LOCK", "Server %s train lock is held by %s (%d sec ago). Cannot train here!",
+            game.JobId, lock.user, now - (lock.t or 0))
+        return false
+    end
+    SafeWriteJson(TRAIN_LOCK_FILE, {user = PlayerName, t = now})
+    return true
+end
+
+local function UpdateTrainLockHeartbeat()
+    local lock = SafeReadJson(TRAIN_LOCK_FILE)
+    if lock.user == PlayerName then
+        lock.t = os.time()
+        SafeWriteJson(TRAIN_LOCK_FILE, lock)
+    end
+end
+
+local function ReleaseTrainLock()
+    local lock = SafeReadJson(TRAIN_LOCK_FILE)
+    if lock.user == PlayerName then
+        pcall(delfile, TRAIN_LOCK_FILE)
+        DebugLog("TRAIN-LOCK", "Released train lock for server %s", game.JobId)
+    end
+end
+
+-- ========================================================================================
+-- 6. SEA TRAVEL (TRAVELZOU / TRAVELDRESSROSA)
+-- ========================================================================================
+local lastTravelAttempt = 0
+
+local function TravelToSea3()
+    ST.ph = "travel_sea3"
+    ReleaseTrainLock()
+    if os.clock() - lastTravelAttempt < 6 then return end
+    lastTravelAttempt = os.clock()
+    DebugLog("SEA-TRAVEL", "Requesting travel to Sea 3 (TravelZou)...")
+    task.spawn(function()
+        pcall(function()
+            if CommF_ then CommF_:InvokeServer("TravelZou") end
+        end)
+    end)
+end
+
+local function TravelToSea2()
+    ST.ph = "travel_sea2"
+    ReleaseTrainLock()
+    if os.clock() - lastTravelAttempt < 6 then return end
+    lastTravelAttempt = os.clock()
+    DebugLog("SEA-TRAVEL", "Account requires V3 quest (Arowe NPC). Traveling to Sea 2 (TravelDressrosa)...")
+    task.spawn(function()
+        pcall(function()
+            if CommF_ then CommF_:InvokeServer("TravelDressrosa") end
+        end)
+    end)
+end
+
+-- ========================================================================================
+-- 7. PROGRESSION AUDIT: TIER V4, TRAIN, V3 & PULL LEVER
+-- ========================================================================================
+local TrialApp = {
+    RawCode     = nil,
+    TrialStatus = "Chưa kiểm tra",
+    IsTrained   = false,
+    HasChecked  = false
+}
+
+local function UpdateTrialStatus()
+    if not InSea3() then
+        TrialApp.HasChecked  = false
+        TrialApp.IsTrained   = false
+        TrialApp.TrialStatus = "Chưa kiểm tra (chưa ở Sea 3)"
+        return false
+    end
+
+    while not IsStopped() and InSea3() do
+        local ok, res = InvokeCFTimeout(6.0, "UpgradeRace", "Check")
+        if ok then
+            if res == 0 or res == "0" or res == nil or res == "nil" then
+                TrialApp.RawCode     = 0
+                TrialApp.IsTrained   = true
+                TrialApp.TrialStatus = "Ready for Trial [" .. tostring(res or "nil") .. "]"
+            else
+                TrialApp.RawCode     = res
+                TrialApp.IsTrained   = false
+                TrialApp.TrialStatus = "Need Training [" .. tostring(res) .. "]"
+            end
+            TrialApp.HasChecked = true
+            ST.tn = TrialApp.IsTrained
+            ST.ts = TrialApp.TrialStatus
+            return true
+        end
+
+        DebugWarn("TRAIN-CHECK", "Check train chưa có kết quả (%s). Đang thử lại...", tostring(res))
+        if TrialApp.HasChecked then
+            return true
+        end
+
+        TrialApp.RawCode     = "Wait"
+        TrialApp.TrialStatus = "Đang chờ kết quả check train (" .. tostring(res) .. ")..."
+        ST.ts = TrialApp.TrialStatus
+        task.wait(1.0)
+    end
+
+    return TrialApp.HasChecked
+end
+
+local lastTrainCheckClock = 0
+local function CheckTrained(force)
+    if not InSea3() then
+        TrialApp.HasChecked = false
+        return false, false
+    end
+    local now = os.clock()
+    if force or (not TrialApp.HasChecked) or (now - lastTrainCheckClock >= 2.5) then
+        lastTrainCheckClock = now
+        UpdateTrialStatus()
+    end
+    ST.ts = TrialApp.TrialStatus
+    return TrialApp.IsTrained, TrialApp.HasChecked
+end
+
+local function ExtractLiveV4Tier()
+    local tier = "0"
+    pcall(function()
+        local data = LocalPlayer:FindFirstChild("Data")
+        if data and data:FindFirstChild("Race") then
+            local raceFolder = data.Race
+            if raceFolder:FindFirstChild("C") then
+                tier = tostring(raceFolder.C.Value)
+            elseif raceFolder:FindFirstChild("Tier") then
+                tier = tostring(raceFolder.Tier.Value)
+            end
+        elseif LocalPlayer:GetAttribute("Tier") then
+            tier = tostring(LocalPlayer:GetAttribute("Tier"))
+        end
+    end)
+    return tonumber(tier) or 0
+end
+
+local function GetFragments()
+    local data = LocalPlayer:FindFirstChild("Data")
+    local f = data and (data:FindFirstChild("Fragments") or data:FindFirstChild("Fragment"))
+    return f and tonumber(f.Value) or 0
+end
+
+local TIER_UPGRADE_COSTS = {
+    [6]  = 3000,
+    [7]  = 3250,
+    [8]  = 3500,
+    [9]  = 3750,
+    [10] = 4000
+}
+
+local function GetRequiredFragments(targetRace)
+    if CLONES_MAP[PlayerName] and CFG.FarmTier10 and GetCurrentRace() == targetRace then
+        local liveTier = ExtractLiveV4Tier()
+        if liveTier >= 5 then
+            local totalNeeded = 0
+            for nextTier = liveTier + 1, 10 do
+                totalNeeded = totalNeeded + (TIER_UPGRADE_COSTS[nextTier] or 0)
+            end
+            return totalNeeded
+        end
+    end
+    return FRAG_MINIMUM
+end
+
+local function HasRaceV3()
+    local r = GetCurrentRace()
+    local ability = RACE_ABILITIES[r]
+    if not ability then return false end
+
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    local char = LocalPlayer.Character
+    if (backpack and backpack:FindFirstChild(ability)) or (char and char:FindFirstChild(ability)) then
+        v3CacheRace = r
+        return true
+    end
+    if v3CacheRace == r then
+        return true
+    end
+    return false
+end
+
+local function IsAccountReady(requiredRace)
+    local curRace = GetCurrentRace()
+    if curRace ~= requiredRace then
+        return false
+    end
+
+    local hum = GetHumanoid()
+    local alive = hum and hum.Health > 0 and GetRoot() ~= nil
+    if HasRaceV3() then
+        ST.v3 = true
+    elseif alive and LocalPlayer.Team ~= nil then
+        ST.v3 = (v3CacheRace == requiredRace)
+    end
+
+    if InSea3() then
+        local pulled = GetCached("check_lever", 6, function()
+            local ok, res = InvokeCFTimeout(3.0, "CheckTempleDoor")
+            return ok and res == true
+        end)
+        if pulled then
+            pullCache = true
+        end
+        ST.pull = pullCache
+    else
+        ST.pull = pullCache
+    end
+
+    return (curRace == requiredRace) and ST.v3 and ST.pull
+end
+
+-- ========================================================================================
+-- 8. SMOOTH MOON TIMING & NOTIFICATION LISTENER (THEO CƠ CHẾ PLAYERGUI.NOTIFICATIONS)
+-- ========================================================================================
+local BASE_TICK_RATE        = 1 / 60
+local anchorClock, anchorTime = nil, nil
+local firstMoonChecked      = false
+local moonRejectedShortMoon = false
+local currentMoonLabel      = "Không có full moon"
+
+local function BlacklistCurrentServer()
+    local bl = SafeReadJson(BLACKLIST_FILE)
+    bl[game.JobId] = os.time() + 600
+    SafeWriteJson(BLACKLIST_FILE, bl)
+    DebugLog("BLACKLIST", "Server %s blacklisted for 10 minutes", game.JobId)
+end
+
+local function GetSmoothClockTime()
+    local rawClock = Lighting.ClockTime
+    local now = os.clock()
+    if not anchorClock or not anchorTime then
+        anchorClock, anchorTime = rawClock, now
+        return rawClock
+    end
+    local predicted = (anchorClock + (now - anchorTime) * BASE_TICK_RATE) % 24
+    local diff = (rawClock - predicted + 12) % 24 - 12
+    if math.abs(diff) > 0.25 then
+        anchorClock, anchorTime = rawClock, now
+        return rawClock
+    else
+        anchorClock = (anchorClock + diff * 0.05) % 24
+        return (anchorClock + (now - anchorTime) * BASE_TICK_RATE) % 24
+    end
+end
+
+local function IsSupportPresentAndValid(sName, sRace, targetRace, st)
+    if not sRace or sRace == targetRace then return false end
+    if not Players:FindFirstChild(sName) then return false end
+    if type(st) == "table" then
+        if st.ph == "train" or st.ph == "frag" or st.ph == "v3"
+            or st.ph == "travel_sea2" or st.ph == "leave_3sp" or st.ph == "sp_extra" then
+            return false
+        end
+    end
+    return true
+end
+
+local function HasTwoSupportsInServer(targetRace)
+    local tr = targetRace or ST.tr
+    if not tr or tr == "" then return false end
+    local count = 0
+    local usedRaces = {}
+    for _, sInfo in ipairs(CFG.Supports) do
+        local sName, sRace = sInfo[1], sInfo[2]
+        local st = SafeReadJson(PROGRESS_DIR .. "/st_" .. sName .. ".json")
+        if not usedRaces[sRace] and IsSupportPresentAndValid(sName, sRace, tr, st) then
+            count = count + 1
+            usedRaces[sRace] = true
+        end
+    end
+    return count >= 2
+end
+
+local function CheckMoon()
+    if not InSea3() then
+        currentMoonLabel = "Đang ở Sea 2 (chỉ check Moon ở Sea 3)"
+        return 0, 0
+    end
+
+    local sky = Lighting:FindFirstChildOfClass("Sky")
+    if not sky then
+        currentMoonLabel = "Đang chờ Sky load..."
+        return 0, 0
+    end
+
+    local clock = GetSmoothClockTime()
+    if not tostring(sky.MoonTextureId):find("9709149431") then
+        firstMoonChecked = true
+        currentMoonLabel = "Không có full moon"
+        return 0, 0
+    end
+
+    local has2SupsHere = HasTwoSupportsInServer()
+    if has2SupsHere and moonRejectedShortMoon then
+        moonRejectedShortMoon = false
+    end
+
+    if moonRejectedShortMoon then
+        if SUPPORTS_MAP[PlayerName] then
+            currentMoonLabel = "Full Moon dưới 5p -> Bỏ qua (Support đứng chờ Moon mới)"
+        else
+            currentMoonLabel = "Full Moon dưới 5p -> Đã blacklist & đang hop"
+        end
+        return 0, 0
+    end
+
+    if clock >= 18 or clock < 5 then
+        local endMin = (5 - clock) % 24
+        if not firstMoonChecked then
+            firstMoonChecked = true
+            if endMin < 5 and not has2SupsHere then
+                moonRejectedShortMoon = true
+                BlacklistCurrentServer()
+                DebugWarn("MOON", "Full Moon has only %.1f minutes left (< 5m). Rejecting server %s", endMin, game.JobId)
+                currentMoonLabel = string.format("Full Moon còn %.1fp (dưới 5p) -> Bỏ qua!", endMin)
+                return 0, 0
+            end
+        end
+        currentMoonLabel = string.format("FULL MOON đang diễn ra! Còn %.1f phút", endMin)
+        return 2, endMin
+    end
+
+    local minToSunset = (18 - clock) % 24
+    firstMoonChecked = true
+    if minToSunset < 5 then
+        local totalRemaining = minToSunset + 11
+        currentMoonLabel = string.format("NEAR FULL MOON: còn %.1fp tối (tổng %.1fp)", minToSunset, totalRemaining)
+        return 1, totalRemaining
+    end
+
+    currentMoonLabel = string.format("Full moon đã qua (còn %.1f phút mới tối)", minToSunset)
+    return 0, 0
+end
+
+local isResettingCharacter = false
+local function ForceResetCharacter()
+    if isResettingCharacter then return end
+    isResettingCharacter = true
+    didTriggerV3AtDoor = false
+    v3TriggeredAtClock = 0
+    myDoorArriveMs = 0
+    all3InGameSinceMs = 0
+    doorV3VerifyToken = doorV3VerifyToken + 1
+    task.spawn(function()
+        pcall(function()
+            DebugLog("RESET", "Resetting character...")
+            local t0 = os.clock()
+            repeat
+                pcall(function()
+                    local char = LocalPlayer.Character
+                    if char then
+                        local hum = char:FindFirstChildOfClass("Humanoid")
+                        if hum then
+                            hum.Health = 0
+                            hum:ChangeState(Enum.HumanoidStateType.Dead)
+                        end
+                        local head = char:FindFirstChild("Head")
+                        if head then
+                            head:Destroy()
+                        end
+                        char:BreakJoints()
+                    end
+                end)
+                task.wait(0.15)
+                local humNow = GetHumanoid()
+            until IsStopped() or (os.clock() - t0 > 4) or (not humNow or humNow.Health <= 0)
+            task.wait(2.5)
+        end)
+        isResettingCharacter = false
+    end)
+end
+
+-- ========================================================================================
+-- NOTIFICATION WATCHER (THAM KHẢO TRỰC TIẾP TỪ BF NOTIFICATION CHECKER)
+-- ========================================================================================
+local notifConnections = {}
+local hookedLabels = setmetatable({}, { __mode = "k" })
+local lastCapturedNotif = ""
+local lastCapturedNotifClock = 0
+
+local function TrackNotifConn(conn)
+    table.insert(notifConnections, conn)
+    return conn
+end
+
+local function ProcessNotificationText(rawText)
+    if IsStopped() or type(rawText) ~= "string" then return end
+
+    local cleanText = rawText:gsub("<[^>]+>", ""):gsub("^%s*(.-)%s*$", "%1")
+    if cleanText == "" or cleanText == "Label" or cleanText == "TextLabel" then
+        return
+    end
+
+    if cleanText == lastCapturedNotif and (os.clock() - lastCapturedNotifClock) < 0.15 then
+        return
+    end
+    lastCapturedNotif = cleanText
+    lastCapturedNotifClock = os.clock()
+
+    lastNotifText = cleanText
+    lastNotifTime = os.time()
+    DebugLog("NOTIF", "%s", cleanText)
+
+    local lowerText = string.lower(cleanText)
+    if string.find(lowerText, "trials starting") or string.find(lowerText, "trial starting") then
+        eventTimers.start = os.clock()
+        ST.trialStarting = os.time()
+        DebugLog("EVENT", "Phát hiện 'Trials starting in...'! (%s)", cleanText)
+    elseif string.find(lowerText, "all trials have been completed") or string.find(lowerText, "there can only be one") then
+        eventTimers.done = os.clock()
+        lastTrainCheckClock = 0
+        didTriggerV3AtDoor = false
+        v3TriggeredAtClock = 0
+        myDoorArriveMs = 0
+        all3InGameSinceMs = 0
+        DebugLog("EVENT", "Phát hiện Trial hoàn tất! (%s)", cleanText)
+        if SUPPORTS_MAP[PlayerName] then
+            if getgenv().V4Hub == "gear" then
+                getgenv().V4Hub = nil
+            end
+            ForceResetCharacter()
+        else
+            task.delay(8, function()
+                if getgenv().V4Hub == "gear" then
+                    getgenv().V4Hub = nil
+                end
+            end)
+        end
+    end
+end
+
+local function HookNotificationLabel(obj)
+    if IsStopped() or hookedLabels[obj] then return end
+    if obj:IsA("TextLabel") then
+        hookedLabels[obj] = true
+
+        task.defer(function()
+            if not IsStopped() and obj.Parent then
+                ProcessNotificationText(obj.Text)
+            end
+        end)
+
+        TrackNotifConn(obj:GetPropertyChangedSignal("Text"):Connect(function()
+            if obj.Parent then
+                ProcessNotificationText(obj.Text)
+            end
+        end))
+    end
+end
+
+local function HookNotificationsGui(notifGui)
+    if not notifGui or IsStopped() then return end
+
+    for _, desc in ipairs(notifGui:GetDescendants()) do
+        HookNotificationLabel(desc)
+    end
+
+    TrackNotifConn(notifGui.DescendantAdded:Connect(function(desc)
+        HookNotificationLabel(desc)
+    end))
+end
+
+task.spawn(function()
+    local pg = LocalPlayer:WaitForChild("PlayerGui", 15)
+    if not pg or IsStopped() then return end
+
+    local existingNotif = pg:FindFirstChild("Notifications")
+    if existingNotif then
+        HookNotificationsGui(existingNotif)
+    end
+
+    TrackNotifConn(pg.ChildAdded:Connect(function(child)
+        if child.Name == "Notifications" then
+            HookNotificationsGui(child)
+        end
+    end))
 end)
 
-local toggleBtn = Instance.new("TextButton", card)
-toggleBtn.Size = UDim2.new(1, -20, 0, 26)
-toggleBtn.Position = UDim2.new(0, 10, 1, -34)
-toggleBtn.BackgroundColor3 = Color3.fromRGB(25, 135, 84)
-toggleBtn.Font = Enum.Font.GothamBold
-toggleBtn.TextSize = 11
-toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-toggleBtn.Text = "TRẠNG THÁI: ĐANG BẬT"
-Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 6)
+-- ========================================================================================
+-- 9. IN-GAME TEMPLE, TOP GREAT TREE PRIORITY & DOOR V3 SYNCHRONIZATION
+-- ========================================================================================
 
-toggleBtn.MouseButton1Click:Connect(function()
-    local cfg = GetCfg()
-    cfg.Enabled = not cfg.Enabled
+local function EnsureTempleLoaded()
+    local map = Workspace:FindFirstChild("Map")
+    if map and not map:FindFirstChild("Temple of Time") then
+        local stash = ReplicatedStorage:FindFirstChild("MapStash")
+        local temple = stash and stash:FindFirstChild("Temple of Time")
+        if temple then
+            temple.Parent = map
+        end
+    end
+    return map and map:FindFirstChild("Temple of Time")
+end
+
+local function IsInsideTemple()
+    local root = GetRoot()
+    if not root then return false end
+    if root.Position.Y > 4000 then return true end
+    return (root.Position - TEMPLE_CENTER_POS).Magnitude <= 4500
+end
+
+local function IsInActiveTrial6V4()
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    local raidTimer = pg and pg:FindFirstChild("Main")
+        and pg.Main:FindFirstChild("TopHUDList")
+        and pg.Main.TopHUDList:FindFirstChild("RaidTimer")
+    if raidTimer and raidTimer.Visible then
+        return true
+    end
+    local map = Workspace:FindFirstChild("Map")
+    local temple = map and map:FindFirstChild("Temple of Time")
+    local ff = temple and temple:FindFirstChild("FFABorder") and temple.FFABorder:FindFirstChild("Forcefield")
+    if ff and ff.Transparency ~= 1 then
+        return true
+    end
+    return false
+end
+
+local function GetDoorPosition(raceName)
+    local rKey = tostring(raceName or ""):lower()
+    if rKey == "" then return nil end
+
+    local temple = EnsureTempleLoaded()
+    if temple then
+        local titleRace = rKey:sub(1, 1):upper() .. rKey:sub(2)
+        local corridor = temple:FindFirstChild(titleRace .. "Corridor")
+        local door = corridor and corridor:FindFirstChild("Door")
+        local innerDoor = door and door:FindFirstChild("Door")
+        local rightDoor = innerDoor and innerDoor:FindFirstChild("RightDoor")
+        local union = rightDoor and rightDoor:FindFirstChild("Union")
+        if union then
+            return union.Position
+        end
+    end
+    return TEMPLE_DOORS[rKey]
+end
+
+local function IsAccAtDoorInGame(accName, targetRace)
+    if not InSea3() then return false end
+    local plr = Players:FindFirstChild(accName)
+    if not plr then return false end
+    local char = plr.Character
+    if not char then return false end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not (hrp and hum and hum.Health > 0) then return false end
+
+    local expectedRace = SUPPORTS_MAP[accName]
+    if not expectedRace then
+        local data = plr:FindFirstChild("Data")
+        local r = data and data:FindFirstChild("Race")
+        expectedRace = (r and tostring(r.Value):lower()) or targetRace
+    end
+
+    local doorPos = GetDoorPosition(expectedRace)
+    if doorPos and (hrp.Position - doorPos).Magnitude < 20 then
+        return true, expectedRace
+    end
+
+    for rName, dPos in pairs(TEMPLE_DOORS) do
+        if (hrp.Position - dPos).Magnitude < 20 then
+            return true, rName
+        end
+    end
+    return false
+end
+
+local function IsAccAtTopGreatTreeOrTemple(accName)
+    if not InSea3() then return false, false end
+    local plr = Players:FindFirstChild(accName)
+    local char = plr and plr.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not (hrp and hum and hum.Health > 0) then return false, false end
+
+    local inTemple = (hrp.Position - TEMPLE_CENTER_POS).Magnitude <= 3000
+    local atTopTree = (hrp.Position - TOP_GREAT_TREE_POS).Magnitude <= 45
+    return (inTemple or atTopTree), inTemple
+end
+
+-- Xác định Clone nào đến Top Great Tree sớm nhất để được phép vào Temple of Time
+local function GetPriorityTreeClone(others)
+    local bestClone = nil
+    local bestTime  = math.huge
+
+    for _, cName in ipairs(CFG.Clones) do
+        if Players:FindFirstChild(cName) then
+            local cSt = others and others[cName]
+            local isDone = (cSt and cSt.dn) or (ST.tr and isfile(PROGRESS_DIR .. "/c_" .. ST.tr .. "_" .. cName .. ".txt"))
+            if not isDone then
+                local reached, inTemple = IsAccAtTopGreatTreeOrTemple(cName)
+                if reached or (cSt and cSt.atTree) then
+                    local tArr = (cSt and cSt.treeTime and cSt.treeTime > 0) and cSt.treeTime or math.huge
+                    -- Ưu tiên người đã vào sẵn trong Temple nếu cùng thời điểm
+                    if inTemple and tArr == math.huge then
+                        tArr = os.time() - 1
+                    end
+                    if tArr < bestTime or (tArr == bestTime and (not bestClone or cName < bestClone)) then
+                        bestTime = tArr
+                        bestClone = cName
+                    end
+                end
+            end
+        end
+    end
+
+    return bestClone
+end
+
+local function GetNowMs()
+    local ok, ms = pcall(function()
+        return DateTime.now().UnixTimestampMillis
+    end)
+    if ok and type(ms) == "number" then
+        return ms
+    end
+    return math.floor(tick() * 1000)
+end
+
+local function TriggerDoorV3Ability()
+    if os.clock() - lastDoorV3Clock < 3.0 then return end
+    lastDoorV3Clock = os.clock()
+
+    DebugLog("DOOR-V3", "Cả 3 acc đã đứng ổn định tại cửa 0.5s -> Kích hoạt V3 đồng bộ!")
+
+    pcall(function()
+        if CommE then
+            CommE:FireServer("ActivateAbility")
+        end
+    end)
+    task.spawn(function()
+        pcall(function()
+            VirtualInputMgr:SendKeyEvent(true, Enum.KeyCode.T, false, game)
+            task.wait(0.05)
+            VirtualInputMgr:SendKeyEvent(false, Enum.KeyCode.T, false, game)
+        end)
+    end)
+
+    -- Sau 15s kể từ lần bật V3 đầu tiên nếu chưa dịch chuyển vào phòng Trial thì Reset nhân vật ngay
+    if not didTriggerV3AtDoor then
+        didTriggerV3AtDoor = true
+        v3TriggeredAtClock = os.clock()
+        doorV3VerifyToken = doorV3VerifyToken + 1
+        local myToken = doorV3VerifyToken
+
+        task.delay(15.0, function()
+            if IsStopped() or doorV3VerifyToken ~= myToken then return end
+            didTriggerV3AtDoor = false
+            v3TriggeredAtClock = 0
+            myDoorArriveMs = 0
+            all3InGameSinceMs = 0
+
+            local hum = GetHumanoid()
+            if not (hum and hum.Health > 0) then return end
+
+            if not GetAccTrialRoomName(PlayerName) then
+                DebugWarn("DOOR-V3", "Sau 15s bật V3 vẫn chưa vào phòng Trial -> Reset ngay!")
+                ST.door = false
+                ST.doorTime = 0
+                ForceResetCharacter()
+            end
+        end)
+    end
+end
+
+local function GetAccTrialRoomName(accName)
+    if not InSea3() then return nil end
+    local plr = Players:FindFirstChild(accName)
+    local char = plr and plr.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not (hrp and hum and hum.Health > 0) then return nil end
+
+    -- Toàn bộ 6 hành lang cửa trong Temple of Time nằm trong bán kính 1150 studs từ tâm Temple (Mink 882, Human 1004)
+    if (hrp.Position - TEMPLE_CENTER_POS).Magnitude <= 1150 then
+        return nil
+    end
+
+    -- Chặn nhận nhầm phòng Trial nếu nhân vật vẫn đang đứng gần bất kỳ cửa tộc nào
+    for _, dPos in pairs(TEMPLE_DOORS) do
+        if (hrp.Position - dPos).Magnitude <= 60 then
+            return nil
+        end
+    end
+
+    local worldOrigin = Workspace:FindFirstChild("_WorldOrigin")
+    local locs = worldOrigin and worldOrigin:FindFirstChild("Locations")
+    if locs then
+        local nearestTrial, minDist = nil, 1300
+        for _, tName in ipairs(TRIAL_ROOM_LIST) do
+            local part = locs:FindFirstChild(tName)
+            if part then
+                local dist = (hrp.Position - part.Position).Magnitude
+                if dist < minDist then
+                    minDist = dist
+                    nearestTrial = tName
+                end
+            end
+        end
+        if nearestTrial then
+            return nearestTrial
+        end
+    end
+    return nil
+end
+
+-- Vòng đồng bộ tốc độ cao (0.03s): Chờ 0.5s sau khi tween tới cửa -> Cả 3 acc bật V3 cùng 1 mili-giây + Reset chuẩn 15s
+task.spawn(function()
+    while task.wait(0.03) and not IsStopped() do
+        if not InSea3() then continue end
+
+        local inTrialNow = GetAccTrialRoomName(PlayerName) ~= nil
+
+        -- Đã vào phòng Trial thành công -> Xóa bộ đếm 15s & dọn trạng thái cửa
+        if inTrialNow then
+            if didTriggerV3AtDoor then
+                didTriggerV3AtDoor = false
+                v3TriggeredAtClock = 0
+            end
+            myDoorArriveMs = 0
+            all3InGameSinceMs = 0
+            continue
+        end
+
+        -- Failsafe: Quá 15s sau khi bật V3 mà chưa vào Trial -> Reset bắt buộc
+        if didTriggerV3AtDoor and v3TriggeredAtClock > 0 and (os.clock() - v3TriggeredAtClock >= 15.0) then
+            DebugWarn("DOOR-V3", "Quá 15s sau khi bật V3 chưa vào Trial (Failsafe) -> Reset ngay!")
+            didTriggerV3AtDoor = false
+            v3TriggeredAtClock = 0
+            myDoorArriveMs = 0
+            all3InGameSinceMs = 0
+            ST.door = false
+            ST.doorTime = 0
+            ForceResetCharacter()
+            continue
+        end
+
+        -- Đồng bộ 0.5s sau khi tween đến cửa cho cả 3 acc
+        if ST.m == 2 and not moonRejectedShortMoon and IsInsideTemple() then
+            local prioClone = activeDoorSyncTargets.priorityClone
+            local sups = activeDoorSyncTargets.sups
+            local isMyParticipant = prioClone and type(sups) == "table" and #sups >= 2
+                and (PlayerName == prioClone or PlayerName == sups[1] or PlayerName == sups[2])
+
+            local mySettledAtDoor = isMyParticipant
+                and (not activeTween)
+                and (not isMovePhysicsActive)
+                and IsAccAtDoorInGame(PlayerName, ST.tr)
+
+            if mySettledAtDoor then
+                local nowMs = GetNowMs()
+                if myDoorArriveMs == 0 then
+                    myDoorArriveMs = nowMs
+                    local syncData = SafeReadJson(DOOR_SYNC_FILE)
+                    syncData.arrived = type(syncData.arrived) == "table" and syncData.arrived or {}
+                    syncData.arrived[PlayerName] = myDoorArriveMs
+                    syncData.updated = nowMs
+                    SafeWriteJson(DOOR_SYNC_FILE, syncData)
+                end
+
+                local all3AtDoor = IsAccAtDoorInGame(prioClone, ST.tr)
+                    and IsAccAtDoorInGame(sups[1], ST.tr)
+                    and IsAccAtDoorInGame(sups[2], ST.tr)
+
+                if all3AtDoor then
+                    if all3InGameSinceMs == 0 then
+                        all3InGameSinceMs = nowMs
+                    end
+
+                    local pairKey = prioClone .. "|" .. sups[1] .. "|" .. sups[2]
+                    local syncData = SafeReadJson(DOOR_SYNC_FILE)
+                    syncData.arrived = type(syncData.arrived) == "table" and syncData.arrived or {}
+
+                    if syncData.pairKey ~= pairKey then
+                        syncData.pairKey = pairKey
+                        syncData.fireAt = nil
+                    end
+
+                    if not syncData.arrived[PlayerName] then
+                        syncData.arrived[PlayerName] = myDoorArriveMs
+                        syncData.updated = nowMs
+                        SafeWriteJson(DOOR_SYNC_FILE, syncData)
+                    end
+
+                    -- Lấy mốc thời gian người cuối cùng trong 3 acc chạm cửa (hoặc fallback mốc thấy đủ 3 acc in-game)
+                    local tClone = tonumber(syncData.arrived[prioClone]) or all3InGameSinceMs
+                    local tSup1  = tonumber(syncData.arrived[sups[1]]) or all3InGameSinceMs
+                    local tSup2  = tonumber(syncData.arrived[sups[2]]) or all3InGameSinceMs
+                    local latestArriveMs = math.max(tClone, tSup1, tSup2, all3InGameSinceMs)
+
+                    -- Đợi đủ 0.5s (500ms) sau khi cả 3 acc tween tới cửa
+                    if (nowMs - latestArriveMs) >= 500 then
+                        local fireAtMs = tonumber(syncData.fireAt)
+                        if not fireAtMs or (nowMs - fireAtMs) > 3500 then
+                            fireAtMs = nowMs + 150
+                            syncData.fireAt = fireAtMs
+                            syncData.updated = nowMs
+                            SafeWriteJson(DOOR_SYNC_FILE, syncData)
+                        end
+
+                        -- Đợi chính xác tới mili-giây fireAtMs để cả 3 acc bật V3 cùng lúc nhất
+                        local waitMs = fireAtMs - GetNowMs()
+                        if waitMs > 0 and waitMs <= 1000 then
+                            while GetNowMs() < fireAtMs and not IsStopped() do
+                                task.wait()
+                            end
+                        end
+
+                        if IsAccAtDoorInGame(PlayerName, ST.tr) and not GetAccTrialRoomName(PlayerName) then
+                            TriggerDoorV3Ability()
+                        end
+                    end
+                else
+                    all3InGameSinceMs = 0
+                end
+            else
+                if myDoorArriveMs ~= 0 then
+                    myDoorArriveMs = 0
+                    all3InGameSinceMs = 0
+                    local syncData = SafeReadJson(DOOR_SYNC_FILE)
+                    if type(syncData.arrived) == "table" and syncData.arrived[PlayerName] then
+                        syncData.arrived[PlayerName] = nil
+                        syncData.fireAt = nil
+                        syncData.updated = GetNowMs()
+                        SafeWriteJson(DOOR_SYNC_FILE, syncData)
+                    end
+                end
+            end
+        else
+            myDoorArriveMs = 0
+            all3InGameSinceMs = 0
+        end
+    end
 end)
 
-gui.Parent = (gethui and gethui()) or game:GetService("CoreGui")
+local function IsSupportEligible(sName, statusObj, targetRace)
+    local sRace = SUPPORTS_MAP[sName]
+    if not sRace or sRace == targetRace then return false end
+    if not statusObj then return false end
+    if not statusObj.rdy then return false end
+    if statusObj.tn ~= true then return false end
+    if statusObj.ph == "train" or statusObj.ph == "frag" or statusObj.ph == "v3" or statusObj.ph == "travel_sea3" or statusObj.ph == "travel_sea2" then
+        return false
+    end
+    return true
+end
 
--- ============================================================================
--- 3. VẬT LÝ DI CHUYỂN (NOCLIP + GIỮ CHỐNG RƠI AN TOÀN)
--- ============================================================================
+-- ========================================================================================
+-- 10. SWARM COORDINATION & MOON ARBITRATION (2-SERVER CONSENSUS)
+-- ========================================================================================
+local lastValidOthersCache = {}
+function GetOthersStatus(ttl)
+    local map = {}
+    local now = os.time()
+    for _, name in ipairs(ALL_ROSTER) do
+        if name ~= PlayerName then
+            local s, ok = SafeReadJsonStrict(PROGRESS_DIR .. "/st_" .. name .. ".json", 2)
+            if ok and type(s) == "table" and s.t then
+                lastValidOthersCache[name] = s
+            else
+                s = lastValidOthersCache[name]
+            end
+            if type(s) == "table" and s.t and (now - s.t < ttl) then
+                map[name] = s
+            end
+        end
+    end
+    map[PlayerName] = ST
+    return map
+end
+
+local function CheckThreeSupportsInCurrentServer(others, targetRace, cleanSups)
+    local supsInServer = {}
+    for _, sInfo in ipairs(CFG.Supports) do
+        local sName = sInfo[1]
+        local st = others and others[sName]
+        if Players:FindFirstChild(sName) ~= nil or (st and st.j == game.JobId) then
+            table.insert(supsInServer, sName)
+        end
+    end
+
+    if #supsInServer < 3 then
+        return false, false
+    end
+
+    if SUPPORTS_MAP[PlayerName] then
+        if SUPPORTS_MAP[PlayerName] == targetRace then
+            return true, true
+        end
+        if type(cleanSups) == "table" and #cleanSups == 2 and not table.find(cleanSups, PlayerName) then
+            return true, true
+        end
+        local keptSups = {}
+        for _, sInfo in ipairs(CFG.Supports) do
+            local sName, sRace = sInfo[1], sInfo[2]
+            if sRace ~= targetRace and #keptSups < 2 then
+                table.insert(keptSups, sName)
+            end
+        end
+        if not table.find(keptSups, PlayerName) then
+            return true, true
+        end
+    end
+
+    return true, false
+end
+
+local function CoordinateMoonServer(others, targetRace)
+    local now = os.time()
+    local lock = SafeReadJson(MOON_LOCK_FILE)
+    local bl   = SafeReadJson(BLACKLIST_FILE)
+
+    if InSea3() and ST.m > 0 and not moonRejectedShortMoon and (bl[game.JobId] or 0) >= now then
+        bl[game.JobId] = nil
+        SafeWriteJson(BLACKLIST_FILE, bl)
+    end
+
+    local serverMoons = {}
+    local serverEnds  = {}
+    local serverSups  = {}
+    local currentServerDead = InSea3() and (ST.m == 0 or moonRejectedShortMoon)
+
+    for accName, s in pairs(others) do
+        if (s.m or 0) > 0 and s.j and s.j ~= "" and (bl[s.j] or 0) < now and not (currentServerDead and s.j == game.JobId) then
+            serverMoons[s.j] = math.max(serverMoons[s.j] or 0, s.m)
+            serverEnds[s.j]  = math.max(serverEnds[s.j] or 0, tonumber(s.me) or 0)
+            if s.sup and IsSupportEligible(accName, s, targetRace) then
+                serverSups[s.j] = (serverSups[s.j] or 0) + 1
+            else
+                serverSups[s.j] = serverSups[s.j] or 0
+            end
+        end
+    end
+
+    if InSea3() and ST.m > 0 and game.JobId ~= "" and not moonRejectedShortMoon then
+        serverMoons[game.JobId] = math.max(serverMoons[game.JobId] or 0, ST.m)
+        serverEnds[game.JobId]  = math.max(serverEnds[game.JobId] or 0, tonumber(ST.me) or 0)
+        serverSups[game.JobId]  = serverSups[game.JobId] or 0
+    end
+
+    local sortedMoonJobs = {}
+    for j in pairs(serverMoons) do
+        table.insert(sortedMoonJobs, j)
+    end
+    table.sort(sortedMoonJobs, function(a, b)
+        local spA = math.min(serverSups[a] or 0, 2)
+        local spB = math.min(serverSups[b] or 0, 2)
+        if spA ~= spB then return spA > spB end
+        if serverMoons[a] ~= serverMoons[b] then return serverMoons[a] > serverMoons[b] end
+        if (serverEnds[a] or 0) ~= (serverEnds[b] or 0) then return (serverEnds[a] or 0) > (serverEnds[b] or 0) end
+        return a < b
+    end)
+
+    local bestJob = sortedMoonJobs[1]
+    local targetJob = nil
+    if lock.j and serverMoons[lock.j] and lock.tr == targetRace
+        and not ((serverSups[lock.j] or 0) < 2 and bestJob and (serverSups[bestJob] or 0) >= 2) then
+        targetJob = lock.j
+    else
+        targetJob = bestJob
+    end
+
+    local function IsValidBackupServer(j)
+        if not j or j == targetJob or not serverMoons[j] then return false end
+        return (serverMoons[j] or 0) == 1
+    end
+
+    local backupJob = nil
+    if lock.bj and IsValidBackupServer(lock.bj) and lock.tr == targetRace then
+        backupJob = lock.bj
+    else
+        local bestBackup, bestEnd = nil, -1
+        for _, j in ipairs(sortedMoonJobs) do
+            if IsValidBackupServer(j) then
+                local e = serverEnds[j] or 0
+                if e > bestEnd then
+                    bestEnd = e
+                    bestBackup = j
+                end
+            end
+        end
+        backupJob = bestBackup
+    end
+
+    local totalMoonCount = (targetJob and 1 or 0) + (backupJob and 1 or 0)
+    totalReportedMoons = totalMoonCount
+
+    local cleanSups, usedRaces = {}, {}
+
+    if targetJob then
+        for _, sInfo in ipairs(CFG.Supports) do
+            local sName, sRace = sInfo[1], sInfo[2]
+            local st = others[sName]
+            if IsSupportEligible(sName, st, targetRace) and st.j == targetJob and not usedRaces[sRace] and #cleanSups < 2 then
+                table.insert(cleanSups, sName)
+                usedRaces[sRace] = true
+            end
+        end
+    end
+
+    local previousLockedSups = (type(lock.sups) == "table" and lock.tr == targetRace) and lock.sups or {}
+    for _, sName in ipairs(previousLockedSups) do
+        local sRace = SUPPORTS_MAP[sName]
+        local st = others[sName]
+        if sRace and IsSupportEligible(sName, st, targetRace) and not usedRaces[sRace] and not table.find(cleanSups, sName) and #cleanSups < 2 then
+            table.insert(cleanSups, sName)
+            usedRaces[sRace] = true
+        end
+    end
+
+    for _, sInfo in ipairs(CFG.Supports) do
+        local sName, sRace = sInfo[1], sInfo[2]
+        local st = others[sName]
+        if IsSupportEligible(sName, st, targetRace) and not usedRaces[sRace] and not table.find(cleanSups, sName) and #cleanSups < 2 then
+            table.insert(cleanSups, sName)
+            usedRaces[sRace] = true
+        end
+    end
+
+    if SUPPORTS_MAP[PlayerName] and IsSupportEligible(PlayerName, ST, targetRace) and not usedRaces[SUPPORTS_MAP[PlayerName]] and not table.find(cleanSups, PlayerName) and #cleanSups < 2 then
+        table.insert(cleanSups, PlayerName)
+        usedRaces[SUPPORTS_MAP[PlayerName]] = true
+    end
+
+    if not targetJob then
+        SafeWriteJson(MOON_LOCK_FILE, {t = now, tr = targetRace, mc = 0, sups = cleanSups})
+        local isReg = table.find(cleanSups, PlayerName) ~= nil
+        return nil, isReg, false, 0, cleanSups, nil, 0, nil
+    end
+
+    local backupHolder = nil
+    if backupJob then
+        if lock.bh and others[lock.bh] and others[lock.bh].j == backupJob and (others[lock.bh].m or 0) > 0 and not table.find(cleanSups, lock.bh) then
+            backupHolder = lock.bh
+        else
+            local candidates = {}
+            for accName, s in pairs(others) do
+                if s.j == backupJob and (s.m or 0) > 0 and not table.find(cleanSups, accName) then
+                    table.insert(candidates, accName)
+                end
+            end
+            table.sort(candidates, function(a, b)
+                if (SUPPORTS_MAP[a] ~= nil) ~= (SUPPORTS_MAP[b] ~= nil) then
+                    return SUPPORTS_MAP[a] ~= nil
+                end
+                return a < b
+            end)
+            backupHolder = candidates[1]
+        end
+    end
+
+    local supsInTargetServer = 0
+    for _, sName in ipairs(cleanSups) do
+        local st = others[sName]
+        if st and st.j == targetJob and IsSupportEligible(sName, st, targetRace) then
+            supsInTargetServer = supsInTargetServer + 1
+        end
+    end
+
+    -- Support 1 mở khóa cho Clone join ngay khi thấy Support 2 vừa join vào server Moon
+    local fastReadyJob = (lock.tr == targetRace and (now - (lock.t or 0) < 20)) and lock.fastReadyJob or nil
+    if InSea3() and targetJob == game.JobId and SUPPORTS_MAP[PlayerName] and IsSupportEligible(PlayerName, ST, targetRace) then
+        if HasTwoSupportsInServer(targetRace) then
+            supsInTargetServer = 2
+            fastReadyJob = targetJob
+            ST.fast2sp = targetJob
+        else
+            ST.fast2sp = nil
+        end
+    else
+        ST.fast2sp = nil
+    end
+
+    if fastReadyJob == targetJob then
+        supsInTargetServer = 2
+    else
+        for _, sInfo in ipairs(CFG.Supports) do
+            local st = others[sInfo[1]]
+            if st and st.j == targetJob and st.fast2sp == targetJob and (now - (st.t or 0) < 15) then
+                supsInTargetServer = 2
+                fastReadyJob = targetJob
+                break
+            end
+        end
+    end
+
+    lock = {
+        j            = targetJob,
+        bj           = backupJob,
+        bh           = backupHolder,
+        mc           = totalMoonCount,
+        tr           = targetRace,
+        sups         = cleanSups,
+        fastReadyJob = fastReadyJob,
+        t            = now
+    }
+    SafeWriteJson(MOON_LOCK_FILE, lock)
+
+    local isRegisteredSupport = table.find(cleanSups, PlayerName) ~= nil
+    local clonesCanJoin = (supsInTargetServer >= 2)
+
+    return targetJob, isRegisteredSupport, clonesCanJoin, supsInTargetServer, cleanSups, backupJob, totalMoonCount, backupHolder
+end
+
+-- ========================================================================================
+-- 11. SERVER HOPPING & TELEPORTATION
+-- ========================================================================================
+local function TeleportToServer(jobId, isSpamMode)
+    if not InSea3() then
+        return TravelToSea3()
+    end
+    local targetId = tostring(jobId or "")
+    if targetId == "" or targetId == game.JobId then return true end
+
+    if SUPPORTS_MAP[PlayerName] then
+        local others = GetOthersStatus(25)
+        local countInTarget = 0
+        for _, sInfo in ipairs(CFG.Supports) do
+            local sName = sInfo[1]
+            if sName ~= PlayerName and others[sName] and others[sName].j == targetId then
+                countInTarget = countInTarget + 1
+            end
+        end
+        if countInTarget >= 2 then
+            DebugWarn("SUPPORT-JOIN", "Target server %s already has %d supports. Aborting join.", targetId, countInTarget)
+            return false
+        end
+    end
+
+    ReleaseTrainLock()
+    ST.t = os.time()
+    SafeWriteJson(STATUS_FILE, ST)
+
+    DebugLog("TELEPORT", "Invoking teleport to JobId: %s", targetId)
+    pcall(function()
+        local sb = ReplicatedStorage:FindFirstChild("__ServerBrowser") or ReplicatedStorage:WaitForChild("__ServerBrowser", 5)
+        if sb then
+            sb:InvokeServer("teleport", targetId)
+        end
+    end)
+    task.wait(4.5)
+
+    if CLONES_MAP[PlayerName] and game.JobId ~= targetId then
+        if not isSpamMode then
+            failedJoinJobs[targetId] = true
+        end
+        return false
+    end
+    return game.JobId == targetId
+end
+
+local function CheckHopInterruptForMoon()
+    if not InSea3() then return "stop" end
+
+    if SUPPORTS_MAP[PlayerName] then
+        local others = GetOthersStatus(25)
+        local targetJob, isRegSup, _, _, cleanSups = CoordinateMoonServer(others, ST.tr)
+        local has3Sups, amExtraSup = CheckThreeSupportsInCurrentServer(others, ST.tr, cleanSups)
+        if has3Sups and amExtraSup then
+            return nil
+        end
+        if ST.m > 0 and not moonRejectedShortMoon then
+            return "stop"
+        end
+        if ST.tr and targetJob and targetJob ~= game.JobId and isRegSup then
+            return "join", targetJob, true
+        end
+        return "stop"
+    end
+
+    if IsMoonDeadTimeWindow() then
+        return "stop"
+    end
+
+    if not ST.tr then return nil end
+    if ST.m == 2 and HasTwoSupportsInServer(ST.tr) then
+        return "stop"
+    end
+
+    local others = GetOthersStatus(25)
+    local targetJob, isRegSup, clonesCanJoin, _, _, backupJob, totalMoons, backupHolder = CoordinateMoonServer(others, ST.tr)
+
+    local mainMoon, mainEnd = 0, 0
+    if targetJob then
+        for _, s in pairs(others) do
+            if s.j == targetJob and (s.m or 0) > 0 then
+                mainMoon = math.max(mainMoon, s.m or 0)
+                mainEnd  = math.max(mainEnd, tonumber(s.me) or 0)
+            end
+        end
+    end
+
+    local needBackupSearch = (targetJob ~= nil) and (mainMoon == 2 and mainEnd < 5.0)
+    local shouldHoldBackup = needBackupSearch and backupJob and (game.JobId == backupJob or PlayerName == backupHolder)
+
+    if shouldHoldBackup then
+        return "stop"
+    end
+
+    if targetJob and targetJob ~= game.JobId then
+        if CLONES_MAP[PlayerName] and not ST.dn and not shouldHoldBackup then
+            return "join", targetJob, true
+        end
+    end
+
+    if not moonRejectedShortMoon and game.JobId == targetJob then
+        return "stop"
+    end
+
+    -- Nếu server chính đang Near Full Moon (1) hoặc Full Moon >= 5p -> Clone đứng đợi/join server chính, KHÔNG đi tìm moon
+    if CLONES_MAP[PlayerName] and targetJob and not needBackupSearch then
+        return "stop"
+    end
+
+    -- Nếu server chính < 5p và đã có sẵn server dự phòng Near Full Moon -> Dừng hop
+    if CLONES_MAP[PlayerName] and needBackupSearch and backupJob then
+        return "stop"
+    end
+
+    return nil
+end
+
+local function HopLowServer(allowCancelForMoon, forceLeave3Sup)
+    if SUPPORTS_MAP[PlayerName] and allowCancelForMoon and not forceLeave3Sup then
+        return
+    end
+    if SUPPORTS_MAP[PlayerName] and InSea3() and ST.m > 0 and not moonRejectedShortMoon and getgenv().V4Hub == "gear" and not forceLeave3Sup then
+        return
+    end
+    if isHopping then return end
+
+    if allowCancelForMoon then
+        local action, targetJob, spamMode = CheckHopInterruptForMoon()
+        if action == "join" and targetJob then
+            ST.ph = "join"
+            if TeleportToServer(targetJob, spamMode) then return end
+            if spamMode then return end
+        elseif action == "stop" then
+            return
+        end
+    end
+
+    isHopping = true
+    ReleaseTrainLock()
+
+    if InSea3() and (ST.m == 0 or moonRejectedShortMoon) and not forceLeave3Sup then
+        BlacklistCurrentServer()
+    end
+
+    ST.m  = 0
+    ST.me = 0
+    ST.t  = os.time()
+    SafeWriteJson(STATUS_FILE, ST)
+
+    task.spawn(function()
+        DebugLog("HOP", "Starting low player server query loop...")
+        while not IsStopped() do
+            if allowCancelForMoon and not forceLeave3Sup then
+                local action, targetJob, spamMode = CheckHopInterruptForMoon()
+                if action == "join" and targetJob then
+                    isHopping = false
+                    ST.ph = "join"
+                    TeleportToServer(targetJob, spamMode)
+                    return
+                elseif action == "stop" then
+                    isHopping = false
+                    return
+                end
+            end
+
+            local bl = SafeReadJson(BLACKLIST_FILE)
+            local serverBrowser = ReplicatedStorage:FindFirstChild("__ServerBrowser") or ReplicatedStorage:WaitForChild("__ServerBrowser", 5)
+            local serverPool, completedBatches = {}, 0
+
+            if serverBrowser then
+                for page = 1, 100 do
+                    task.delay(page * 0.02, function()
+                        local ok, res = pcall(function() return serverBrowser:InvokeServer(page) end)
+                        if ok and type(res) == "table" then
+                            for id, info in pairs(res) do
+                                if type(info) == "table" and id ~= game.JobId and (bl[id] or 0) < os.time() and not failedJoinJobs[id] then
+                                    serverPool[id] = tonumber(info.Count) or 99
+                                end
+                            end
+                        end
+                        completedBatches = completedBatches + 1
+                    end)
+                end
+
+                local deadline = os.clock() + 8.5
+                repeat task.wait(0.1) until completedBatches >= 100 or os.clock() > deadline
+
+                local sortedServers = {}
+                for id, count in pairs(serverPool) do
+                    table.insert(sortedServers, {id, count})
+                end
+                table.sort(sortedServers, function(a, b) return a[2] < b[2] end)
+
+                for _ = 1, math.min(#sortedServers, 6) do
+                    if allowCancelForMoon and not forceLeave3Sup then
+                        local action, targetJob, spamMode = CheckHopInterruptForMoon()
+                        if action == "join" and targetJob then
+                            isHopping = false
+                            ST.ph = "join"
+                            TeleportToServer(targetJob, spamMode)
+                            return
+                        elseif action == "stop" then
+                            isHopping = false
+                            return
+                        end
+                    end
+
+                    if #sortedServers == 0 then break end
+                    local choice = table.remove(sortedServers, math.random(1, math.min(#sortedServers, 3)))
+                    local chosenJob = tostring(choice[1] or "")
+                    ST.t = os.time()
+                    SafeWriteJson(STATUS_FILE, ST)
+                    if chosenJob ~= "" and chosenJob ~= game.JobId then
+                        DebugLog("HOP", "Attempting hop to Job: %s (Players: %d)", chosenJob, choice[2])
+                        pcall(function()
+                            serverBrowser:InvokeServer("teleport", chosenJob)
+                        end)
+                    end
+                    task.wait(6.5)
+                end
+            end
+            task.wait(2.5)
+        end
+        isHopping = false
+    end)
+end
+
+-- ========================================================================================
+-- 12. SAFE MOVEMENT & TWEENING (NOCLIP & ANTIGRAVITY - HỖ TRỢ KEEPFLOAT TRONG TRIAL)
+-- ========================================================================================
+local activeTween = nil
+local isMovePhysicsActive = false
+local keepFloatActive = false
+local cyborgHoldCF = nil
+
 local CORE_COLLIDE_PARTS = {
     HumanoidRootPart = true,
     Head = true,
@@ -167,255 +1714,397 @@ local CORE_COLLIDE_PARTS = {
     Torso = true
 }
 
-local function SetFloat(state)
-    floatEnabled = state
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if state then
-        workspace.Gravity = 0
-        if hrp then
-            hrp.AssemblyLinearVelocity = Vector3.zero
-            hrp.AssemblyAngularVelocity = Vector3.zero
-            if not hrp:FindFirstChild("V4Float") then
-                local bv = Instance.new("BodyVelocity")
-                bv.Name = "V4Float"
-                bv.Velocity = Vector3.zero
-                bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
-                bv.Parent = hrp
+local function EnsureFloatBV(root, enable)
+    if not root then return end
+    local bv = root:FindFirstChild("V4FloatBV")
+    if enable then
+        if not bv then
+            bv = Instance.new("BodyVelocity")
+            bv.Name = "V4FloatBV"
+            bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+            bv.Velocity = Vector3.zero
+            bv.Parent = root
+        else
+            bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+            bv.Velocity = Vector3.zero
+        end
+    else
+        if bv then bv:Destroy() end
+    end
+end
+
+local function SetMovePhysics(enable, keepFloat)
+    isMovePhysicsActive = enable
+    keepFloatActive = (keepFloat == true)
+
+    if enable or keepFloatActive then
+        Workspace.Gravity = 0
+        local char = LocalPlayer.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                if hum.Sit then hum.Sit = false end
+                if hum.PlatformStand then hum.PlatformStand = false end
+                if hum:GetState() == Enum.HumanoidStateType.Physics then
+                    hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                end
+            end
+            local root = char:FindFirstChild("HumanoidRootPart")
+            if root then
+                root.Anchored = false
+                root.AssemblyLinearVelocity = Vector3.zero
+                root.AssemblyAngularVelocity = Vector3.zero
+                EnsureFloatBV(root, true)
+            end
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.Anchored = false
+                    part.CanCollide = false
+                end
             end
         end
     else
-        workspace.Gravity = defaultGravity
-        if hrp and hrp:FindFirstChild("V4Float") then
-            hrp.V4Float:Destroy()
-        end
-    end
-end
-
-local function SetNoclip(state)
-    noclipEnabled = state
-    local char = LocalPlayer.Character
-    if not char then return end
-    if not state then
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") and CORE_COLLIDE_PARTS[part.Name] then
-                part.CanCollide = true
+        cyborgHoldCF = nil
+        Workspace.Gravity = DEFAULT_GRAVITY
+        local char = LocalPlayer.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum and hum:GetState() == Enum.HumanoidStateType.Physics then
+                hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+            end
+            local root = char:FindFirstChild("HumanoidRootPart")
+            if root then
+                EnsureFloatBV(root, false)
+                root.Anchored = false
+                root.AssemblyLinearVelocity = Vector3.zero
+                root.AssemblyAngularVelocity = Vector3.zero
+            end
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and CORE_COLLIDE_PARTS[part.Name] then
+                    part.CanCollide = true
+                end
             end
         end
     end
 end
 
-local steppedConn = RunService.Stepped:Connect(function()
-    if not isRunning then return end
+RunService.Stepped:Connect(function()
+    if IsStopped() then return end
+    if not (isMovePhysicsActive or keepFloatActive) then return end
+
+    Workspace.Gravity = 0
     local char = LocalPlayer.Character
     if not char then return end
-
-    if floatEnabled then
-        workspace.Gravity = 0
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            hrp.AssemblyLinearVelocity = Vector3.zero
-            if not hrp:FindFirstChild("V4Float") then
-                local bv = Instance.new("BodyVelocity")
-                bv.Name = "V4Float"
-                bv.Velocity = Vector3.zero
-                bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
-                bv.Parent = hrp
-            end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        if hum.Sit then hum.Sit = false end
+        if hum.PlatformStand then hum.PlatformStand = false end
+        if hum:GetState() == Enum.HumanoidStateType.Physics then
+            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
         end
     end
-
-    if noclipEnabled then
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") and part.CanCollide then
-                part.CanCollide = false
-            end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if root then
+        if root.Anchored then root.Anchored = false end
+        EnsureFloatBV(root, true)
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+        if cyborgHoldCF and not activeTween and (root.Position - cyborgHoldCF.Position).Magnitude <= 20 then
+            -- Tạo dao động vi mô 0.05 studs để Roblox liên tục replicate CFrame thật lên server
+            local jitterY = math.sin(os.clock() * 8) * 0.05
+            root.CFrame = cyborgHoldCF * CFrame.new(0, jitterY, 0)
+        end
+    end
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            if part.Anchored then part.Anchored = false end
+            if part.CanCollide then part.CanCollide = false end
         end
     end
 end)
 
-local function StopTween(keepFloat)
+local function RecoverToVerifiedSpot()
     if activeTween then
         pcall(function() activeTween:Cancel() end)
         activeTween = nil
     end
-    SetNoclip(false)
-    if not keepFloat then
-        SetFloat(false)
-    end
-end
+    SetMovePhysics(false, false)
+    local tStart = os.clock()
+    local lastPos = GetRoot() and GetRoot().Position or nil
+    local stableCount = 0
 
-local function TweenTo(targetCF, customSpeed, cancelCond, keepFloatAfter)
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    if not (hrp and hum and hum.Health > 0) then return false end
-
-    if hum.Sit then
-        hum.Sit = false
-        hum.Jump = true
-        task.wait(0.2)
-    end
-
-    local dist = (hrp.Position - targetCF.Position).Magnitude
-    if dist <= 6 then
-        hrp.CFrame = targetCF
-        SetNoclip(false)
-        SetFloat(keepFloatAfter == true)
-        return true
-    end
-
-    StopTween(true)
-    SetFloat(true)
-    SetNoclip(true)
-
-    local speed = math.min(customSpeed or GetCfg().TweenSpeed or 190, 200)
-    local duration = dist / speed
-    local tw = TweenService:Create(hrp, TweenInfo.new(duration, Enum.EasingStyle.Linear), { CFrame = targetCF })
-    activeTween = tw
-    tw:Play()
-
-    while tw.PlaybackState == Enum.PlaybackState.Playing do
-        if not isRunning or getgenv().V4Stop or not GetCfg().Enabled or (cancelCond and cancelCond()) then
-            StopTween(keepFloatAfter)
-            return false
-        end
-        local c = LocalPlayer.Character
-        local h = c and c:FindFirstChildOfClass("Humanoid")
-        if not (c and h and h.Health > 0) then
-            StopTween(false)
-            return false
-        end
-        task.wait(0.05)
-    end
-
-    StopTween(keepFloatAfter)
-    return (hrp.Position - targetCF.Position).Magnitude <= 15
-end
-
--- ============================================================================
--- 4. KIỂM TRA TRẠNG THÁI GAME, TRIAL & ĐẤU TRƯỜNG PVP
--- ============================================================================
-local function ShouldStop()
-    if not isRunning or getgenv().V4Stop then return true end
-    local cfg = GetCfg()
-    if cfg.Enabled == false then return true end
-    return false
-end
-
-local function GetMyRole()
-    local cfg = GetCfg()
-    local helpAccs = (cfg.Help and cfg.Help.Account) or {}
-    if table.find(helpAccs, LocalPlayer.Name) then
-        return "Help"
-    end
-    return "Main"
-end
-
-local function GetRace(plr)
-    plr = plr or LocalPlayer
-    local data = plr:FindFirstChild("Data")
-    local r = data and data:FindFirstChild("Race")
-    return r and tostring(r.Value) or ""
-end
-
-local function IsFullMoon()
-    local sky = Lighting:FindFirstChildOfClass("Sky")
-    local hasMoonTex = sky and tostring(sky.MoonTextureId):find("9709149431") ~= nil
-    local clock = Lighting.ClockTime
-    return hasMoonTex and (clock >= 18 or clock < 5)
-end
-
-local function EnsureTempleLoaded()
-    if not workspace.Map:FindFirstChild("Temple of Time") then
-        local stash = ReplicatedStorage:FindFirstChild("MapStash")
-        local temple = stash and stash:FindFirstChild("Temple of Time")
-        if temple then
-            temple.Parent = workspace.Map
-        end
-    end
-    return workspace.Map:FindFirstChild("Temple of Time")
-end
-
-local function IsInsideTemple()
-    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return false end
-    return (hrp.Position - TEMPLE_CENTER).Magnitude <= 3000
-end
-
-local function IsRaidOrForcefieldActive()
-    local pg = LocalPlayer:FindFirstChild("PlayerGui")
-    local raidTimer = pg and pg:FindFirstChild("Main")
-        and pg.Main:FindFirstChild("TopHUDList")
-        and pg.Main.TopHUDList:FindFirstChild("RaidTimer")
-    if raidTimer and raidTimer.Visible then
-        return true
-    end
-    local temple = workspace.Map:FindFirstChild("Temple of Time")
-    local ff = temple and temple:FindFirstChild("FFABorder") and temple.FFABorder:FindFirstChild("Forcefield")
-    if ff and ff.Transparency ~= 1 then
-        return true
-    end
-    return false
-end
-
--- Kiểm tra nhân vật đang ở trong 1 trong 6 phòng Trial cụ thể
-local function GetActiveTrialRoom()
-    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    local locs = workspace:FindFirstChild("_WorldOrigin") and workspace._WorldOrigin:FindFirstChild("Locations")
-    if not (hrp and locs) then return nil, nil end
-
-    -- Nếu đang đứng ngay tại sảnh chính Temple of Time (< 750 studs) thì KHÔNG phải phòng Trial
-    if (hrp.Position - TEMPLE_CENTER).Magnitude <= 750 then
-        return nil, nil
-    end
-
-    local nearestName, nearestPart, nearestDist = nil, nil, 1300
-    for _, name in ipairs(TRIAL_LOCATIONS) do
-        local loc = locs:FindFirstChild(name)
-        if loc then
-            local dist = (hrp.Position - loc.Position).Magnitude
-            if dist < nearestDist then
-                nearestDist = dist
-                nearestName = name
-                nearestPart = loc
+    while (os.clock() - tStart < 1.2) and not IsStopped() do
+        task.wait(0.1)
+        local root = GetRoot()
+        if not root then break end
+        root.Anchored = false
+        if lastPos and (root.Position - lastPos).Magnitude < 2.5 then
+            stableCount = stableCount + 1
+            if stableCount >= 4 and (os.clock() - tStart >= 0.5) then
+                break
             end
+        else
+            stableCount = 0
         end
+        lastPos = root.Position
     end
-
-    if nearestName then
-        return nearestName, nearestPart
-    end
-    return nil, nil
 end
 
--- Kiểm tra nhân vật đã hoàn thành phòng Trial và bị dịch chuyển lên Đấu Trường PvP (Temple of Time)
-local function IsInPvPArena()
-    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return false end
-    if (hrp.Position - TEMPLE_CENTER).Magnitude > 750 then
+local function SafeTween(destination, abortFn, keepFloatAfter)
+    local externalHub = getgenv().V4Hub
+    if externalHub and externalHub ~= "gear" then
+        HopLowServer(false)
         return false
     end
-    local temple = workspace.Map:FindFirstChild("Temple of Time")
-    local ff = temple and temple:FindFirstChild("FFABorder") and temple.FFABorder:FindFirstChild("Forcefield")
-    return ff ~= nil and ff.Transparency ~= 1
+
+    local speed = TWEEN_SPEED
+    local maxRetries = 8
+
+    for attempt = 1, maxRetries do
+        if IsStopped() or (getgenv().V4Hub and getgenv().V4Hub ~= "gear") or (abortFn and abortFn()) then
+            SetMovePhysics(false, keepFloatAfter)
+            return false
+        end
+
+        local root = GetRoot()
+        local hum  = GetHumanoid()
+        if not (root and hum and hum.Health > 0) then
+            SetMovePhysics(false, false)
+            return false
+        end
+
+        if destination.Y < 4000 and (root.Position.Y > 4000 or IsInsideTemple()) then
+            DebugWarn("TWEEN", "Đang ở trong Temple/Trial (Y=%.0f) -> Chặn tween ra ngoài & Reset ngay!", root.Position.Y)
+            SetMovePhysics(false, false)
+            ForceResetCharacter()
+            return false
+        end
+
+        if activeTween then
+            pcall(function() activeTween:Cancel() end)
+            activeTween = nil
+        end
+
+        SetMovePhysics(true, keepFloatAfter)
+        local startPos = root.Position
+        local distance = (startPos - destination).Magnitude
+        if distance <= 10 then
+            root.CFrame = CFrame.new(destination)
+            SetMovePhysics(false, keepFloatAfter)
+            return true
+        end
+
+        local duration = distance / speed
+        local tw = TweenService:Create(root, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = CFrame.new(destination)})
+        activeTween = tw
+        tw:Play()
+
+        local twStartTime = os.clock()
+        local lastCheckTime = twStartTime
+        local lastCheckPos = startPos
+        local minDistance = distance
+        local rubberbandDetected = false
+
+        while tw.PlaybackState == Enum.PlaybackState.Playing do
+            if IsStopped() or (getgenv().V4Hub and getgenv().V4Hub ~= "gear") or (abortFn and abortFn()) then
+                pcall(function() tw:Cancel() end)
+                activeTween = nil
+                SetMovePhysics(false, keepFloatAfter)
+                return false
+            end
+
+            local curRoot, curHum = GetRoot(), GetHumanoid()
+            if not (curRoot and curHum and curHum.Health > 0) then
+                pcall(function() tw:Cancel() end)
+                activeTween = nil
+                SetMovePhysics(false, false)
+                return false
+            end
+
+            local currentPos = curRoot.Position
+            local currentDist = (currentPos - destination).Magnitude
+            if currentDist <= 8 then
+                break
+            end
+
+            if currentDist < minDistance then
+                minDistance = currentDist
+            end
+
+            local elapsed = os.clock() - twStartTime
+            local alpha = math.clamp(elapsed / duration, 0, 1)
+            local expectedPos = startPos:Lerp(destination, alpha)
+
+            if (currentDist - minDistance > 18) or (currentPos - expectedPos).Magnitude > 35 then
+                rubberbandDetected = true
+                DebugWarn("TWEEN", "Rubberbanding detected! Distance jump: %.1f", (currentDist - minDistance))
+                break
+            end
+
+            if os.clock() - lastCheckTime >= 0.45 then
+                local expectedStep = speed * (os.clock() - lastCheckTime)
+                local actualStep = (currentPos - lastCheckPos).Magnitude
+                local progress = (lastCheckPos - destination).Magnitude - currentDist
+                if actualStep < expectedStep * 0.35 or progress < expectedStep * 0.35 then
+                    rubberbandDetected = true
+                    DebugWarn("TWEEN", "Stall detected! Recovering...")
+                    break
+                end
+                lastCheckTime = os.clock()
+                lastCheckPos = currentPos
+            end
+
+            task.wait(0.03)
+        end
+
+        if rubberbandDetected then
+            RecoverToVerifiedSpot()
+        else
+            pcall(function() tw:Cancel() end)
+            activeTween = nil
+            root = GetRoot()
+            if root and (root.Position - destination).Magnitude <= 20 then
+                -- Đồng bộ vị trí thực với server để tránh lỗi Fake CFrame (client tới nơi nhưng server vẫn ở chỗ cũ)
+                for step = 1, 3 do
+                    if IsStopped() then break end
+                    root = GetRoot()
+                    if not root then break end
+                    root.Anchored = false
+                    root.CFrame = CFrame.new(destination + Vector3.new(0, (step % 2 == 0) and 0.05 or -0.05, 0))
+                    root.AssemblyLinearVelocity = Vector3.new(0, 0.1, 0)
+                    root.AssemblyAngularVelocity = Vector3.zero
+                    task.wait(0.06)
+                end
+                SetMovePhysics(false, keepFloatAfter)
+                task.wait(0.08)
+                root = GetRoot()
+                if root and (root.Position - destination).Magnitude <= 14 then
+                    return true
+                end
+                DebugWarn("TWEEN", "Phát hiện Fake CFrame sau khi chạm đích (Lệch %.1f studs) -> Tween lại!", root and (root.Position - destination).Magnitude or 999)
+            end
+            RecoverToVerifiedSpot()
+        end
+    end
+
+    SetMovePhysics(false, keepFloatAfter)
+    return false
 end
 
-local function GetDoorCFrame(raceName)
-    local temple = EnsureTempleLoaded()
-    if not temple or raceName == "" then return nil end
-    local corridor = temple:FindFirstChild(raceName .. "Corridor")
-    local door = corridor and corridor:FindFirstChild("Door")
-    local innerDoor = door and door:FindFirstChild("Door")
-    local rightDoor = innerDoor and innerDoor:FindFirstChild("RightDoor")
-    local union = rightDoor and rightDoor:FindFirstChild("Union")
-    return union and union.CFrame or nil
+local function MoveToGreatTree()
+    if getgenv().V4Hub and getgenv().V4Hub ~= "gear" then HopLowServer(false) return end
+    if not InSea3() then return TravelToSea3() end
+    ST.ph = "idle"
+    local root = GetRoot()
+    if root and (root.Position - GREAT_TREE_POS).Magnitude > 150 then
+        local nearTemple = IsInsideTemple() or (root.Position.Y > 4000) or ((root.Position - TEMPLE_CENTER_POS).Magnitude <= 5000)
+        if not nearTemple then
+            for _, dPos in pairs(TEMPLE_DOORS) do
+                if (root.Position - dPos).Magnitude <= 5000 then
+                    nearTemple = true
+                    break
+                end
+            end
+        end
+        if nearTemple then
+            DebugLog("MOVE", "Đang ở trong Temple/Trial (Y=%.0f) -> Reset nhân vật để về Great Tree nhanh nhất!", root.Position.Y)
+            if activeTween then
+                pcall(function() activeTween:Cancel() end)
+                activeTween = nil
+            end
+            SetMovePhysics(false, false)
+            ForceResetCharacter()
+            return
+        end
+
+        DebugLog("MOVE", "Moving character to Great Tree safe spot...")
+        local abortForSupportMoon = nil
+        if SUPPORTS_MAP[PlayerName] and ST.tr and SUPPORTS_MAP[PlayerName] ~= ST.tr then
+            abortForSupportMoon = function()
+                if ST.m > 0 and not moonRejectedShortMoon then return false end
+                local othersNow = GetOthersStatus(25)
+                local tJob, isReg, _, _, _, bJob = CoordinateMoonServer(othersNow, ST.tr)
+                return (tJob ~= nil and tJob ~= game.JobId and isReg) or (bJob ~= nil and bJob ~= game.JobId)
+            end
+        end
+        SafeTween(GREAT_TREE_POS, abortForSupportMoon, false)
+    end
 end
 
--- ============================================================================
--- 5. HỆ THỐNG ĐÁNH QUÁI, GOM QUÁI & SKILL CHO TRIAL
--- ============================================================================
-local RERegisterAttack = ReplicatedStorage.Modules.Net:WaitForChild("RE/RegisterAttack")
+-- ========================================================================================
+-- 13. EXTERNAL HUBS (TRAIN / V3) & TÍCH HỢP TRỰC TIẾP V4 TRIAL + GEAR
+-- ========================================================================================
+local function WriteRealKidConfig(options)
+    for _, prefix in ipairs({"", "workspace/"}) do
+        pcall(makefolder, prefix .. "RealKidHub")
+        for _, sub in ipairs({"save", "save2"}) do
+            pcall(makefolder, prefix .. "RealKidHub/" .. sub)
+            local path = prefix .. "RealKidHub/" .. sub .. "/" .. PlayerName .. ".json"
+            local config = SafeReadJson(path)
+            for k, v in pairs(options) do
+                config[k] = v
+            end
+            SafeWriteJson(path, config)
+        end
+    end
+end
+
+local function LoadExternalScript(url)
+    ApplyRealKidKey()
+    DebugLog("SCRIPT-LOAD", "Fetching script from: %s", url)
+    local ok, source = pcall(function() return game:HttpGet(url) end)
+    if not ok or type(source) ~= "string" or #source < 10 then
+        error("HttpGet failed for " .. tostring(url))
+    end
+    local compiled, err = loadstring(source)
+    if not compiled then
+        error("loadstring compilation failed: " .. tostring(err))
+    end
+    return compiled()
+end
+
+local function RunHub(hubName, hubFunc)
+    if getgenv().V4Hub then
+        if getgenv().V4Hub ~= hubName then
+            DebugWarn("HUB", "Different hub (%s) already active. Hopping server...", getgenv().V4Hub)
+            HopLowServer(false)
+        end
+        return
+    end
+    SetMovePhysics(false, false)
+    getgenv().V4Hub = hubName
+    ApplyRealKidKey()
+    DebugLog("HUB", "Starting hub task: %s", hubName)
+    task.spawn(function()
+        local ok, err = pcall(hubFunc)
+        if not ok then
+            DebugWarn("HUB", "Hub [%s] encountered error: %s", tostring(hubName), tostring(err))
+            task.wait(2.5)
+            if getgenv().V4Hub == hubName then
+                getgenv().V4Hub = nil
+            end
+        end
+    end)
+end
+
+local function RunTrain()
+    ApplyRealKidKey()
+    WriteRealKidConfig({
+        AutoTrainV4           = true,
+        AutoBuyV4Gear         = true,
+        AutoCompleteTrialRace = false,
+        AutoChooseV4Gear      = false,
+        ResetAfterTrial       = false,
+        AutoPullLever         = false,
+        AutoUpgradeRaceV3     = false,
+    })
+    LoadExternalScript("https://raw.githubusercontent.com/realkidhub/realkid/refs/heads/main/main.lua")
+end
+
+-- ========================================================================================
+-- BỘ XỬ LÝ V4 NỘI BỘ (ĐÃ GỘP TỪ KAITUNV4HANDMAKE: TRIAL + BUY GEAR + SPEND GEAR)
+-- ========================================================================================
+local RERegisterAttack = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Net"):WaitForChild("RE/RegisterAttack")
 local RegisterHit      = require(ReplicatedStorage.Modules.Net):RemoteEvent("RegisterHit", true)
 local CombatUtil       = require(ReplicatedStorage.Modules.CombatUtil)
 
@@ -427,10 +2116,13 @@ local function EquipWeaponByType(tooltip)
     for _, tool in ipairs(char:GetChildren()) do
         if tool:IsA("Tool") and tool.ToolTip == tooltip then return tool.Name end
     end
-    for _, tool in ipairs(LocalPlayer.Backpack:GetChildren()) do
-        if tool:IsA("Tool") and tool.ToolTip == tooltip then
-            hum:EquipTool(tool)
-            return tool.Name
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if bp then
+        for _, tool in ipairs(bp:GetChildren()) do
+            if tool:IsA("Tool") and tool.ToolTip == tooltip then
+                hum:EquipTool(tool)
+                return tool.Name
+            end
         end
     end
 end
@@ -439,7 +2131,7 @@ local function BringTrialMobs(targetMob, centerPos)
     local tHrp = targetMob and targetMob:FindFirstChild("HumanoidRootPart")
     if not tHrp then return end
 
-    for _, enemy in ipairs(workspace.Enemies:GetChildren()) do
+    for _, enemy in ipairs(Workspace.Enemies:GetChildren()) do
         if enemy ~= targetMob then
             local eHrp = enemy:FindFirstChild("HumanoidRootPart")
             local eHum = enemy:FindFirstChildOfClass("Humanoid")
@@ -461,7 +2153,7 @@ local function AttackNearbyMobs(range)
 
     local hitPairs = {}
     local firstPart = nil
-    for _, enemy in ipairs(workspace.Enemies:GetChildren()) do
+    for _, enemy in ipairs(Workspace.Enemies:GetChildren()) do
         local eHrp = enemy:FindFirstChild("HumanoidRootPart")
         local eHum = enemy:FindFirstChildOfClass("Humanoid")
         if eHrp and eHum and eHum.Health > 0 and (eHrp.Position - hrp.Position).Magnitude <= (range or 80) then
@@ -485,7 +2177,7 @@ local function CastAllSkills()
         local name = EquipWeaponByType(toolType)
         if name then
             for _, key in ipairs(skillKeys) do
-                if ShouldStop() or not GetActiveTrialRoom() then return end
+                if IsStopped() or not GetAccTrialRoomName(PlayerName) then return end
                 VirtualInputMgr:SendKeyEvent(true, key, false, game)
                 task.wait(0.06)
                 VirtualInputMgr:SendKeyEvent(false, key, false, game)
@@ -495,38 +2187,45 @@ local function CastAllSkills()
     end
 end
 
--- ============================================================================
--- 6. XỬ LÝ VƯỢT ẢI TRIAL CHO TẤT CẢ CÁC TỘC
--- ============================================================================
-local function HandleTrialRoom(trialName, trialLoc)
-    local cfg = GetCfg()
-    if cfg.AutoTrial == false then
-        currentStatus = "Đang trong " .. trialName .. " (AutoTrial tắt)"
-        return
+local function IsInPvPArena()
+    local root = GetRoot()
+    if not root then return false end
+    if (root.Position - TEMPLE_CENTER_POS).Magnitude > 750 then
+        return false
     end
+    local map = Workspace:FindFirstChild("Map")
+    local temple = map and map:FindFirstChild("Temple of Time")
+    local ff = temple and temple:FindFirstChild("FFABorder") and temple.FFABorder:FindFirstChild("Forcefield")
+    return ff ~= nil and ff.Transparency ~= 1
+end
 
+local function HandleBuiltInTrialRoom(trialName)
+    if not CFG.AutoTrial then return end
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
 
-    local race = GetRace(LocalPlayer)
-    currentStatus = "Đang làm Trial: " .. race .. " (" .. trialName .. ")"
+    local race = GetCurrentRace()
+    local worldOrigin = Workspace:FindFirstChild("_WorldOrigin")
+    local locs = worldOrigin and worldOrigin:FindFirstChild("Locations")
+    local trialLoc = locs and locs:FindFirstChild(trialName)
 
-    -- Tự bật thức tỉnh V4 nếu đầy thanh nộ
+    -- Tự bật thức tỉnh V4 nếu đầy nộ
     pcall(function()
         local energy = char:FindFirstChild("RaceEnergy")
         local transformed = char:FindFirstChild("RaceTransformed")
-        local awk = LocalPlayer.Backpack:FindFirstChild("Awakening")
+        local bp = LocalPlayer:FindFirstChild("Backpack")
+        local awk = bp and bp:FindFirstChild("Awakening")
         if energy and energy.Value >= 1 and transformed and not transformed.Value and awk then
             awk.RemoteFunction:InvokeServer(true)
         end
     end)
 
-    -- 1. HUMAN (Trial of Strength) hoặc GHOUL (Trial of Carnage)
-    if trialName == "Trial of Strength" or trialName == "Trial of Carnage" or race == "Human" or race == "Ghoul" then
+    -- 1. HUMAN / GHOUL
+    if trialName == "Trial of Strength" or trialName == "Trial of Carnage" or race == "human" or race == "ghoul" then
         local centerPos = trialLoc and trialLoc.Position or hrp.Position
         local nearestMob, minDist = nil, 1000
-        for _, mob in ipairs(workspace.Enemies:GetChildren()) do
+        for _, mob in ipairs(Workspace.Enemies:GetChildren()) do
             local mHrp = mob:FindFirstChild("HumanoidRootPart")
             local mHum = mob:FindFirstChildOfClass("Humanoid")
             if mHrp and mHum and mHum.Health > 0 then
@@ -542,85 +2241,78 @@ local function HandleTrialRoom(trialName, trialLoc)
         if nearestMob then
             local mHrp = nearestMob:FindFirstChild("HumanoidRootPart")
             local mHum = nearestMob:FindFirstChildOfClass("Humanoid")
-            SetFloat(true)
-            SetNoclip(true)
-
-            -- Bay lơ lửng trên đầu quái 18 studs để không bị đánh chết và đánh liên tục
-            local hoverCF = mHrp.CFrame * CFrame.new(0, 18, 0)
-            if (hrp.Position - hoverCF.Position).Magnitude > 12 then
-                TweenTo(hoverCF, 200, function()
-                    return not GetActiveTrialRoom() or not mHum or mHum.Health <= 0
+            local hoverPos = mHrp.Position + Vector3.new(0, 18, 0)
+            if (hrp.Position - hoverPos).Magnitude > 12 then
+                SafeTween(hoverPos, function()
+                    return not GetAccTrialRoomName(PlayerName) or not mHum or mHum.Health <= 0
                 end, true)
             else
-                hrp.CFrame = hoverCF
+                SetMovePhysics(false, true)
+                hrp.CFrame = CFrame.new(hoverPos)
             end
-
             BringTrialMobs(nearestMob, centerPos)
             EquipWeaponByType("Melee")
             AttackNearbyMobs(80)
-        else
-            currentStatus = "Đang chờ quái spawn trong " .. trialName .. "..."
         end
 
-    -- 2. SKYPIEA (Trial of the King)
-    elseif trialName == "Trial of the King" or race == "Skypiea" then
-        local skyTrial = workspace.Map:FindFirstChild("SkyTrial")
+    -- 2. SKYPIEA
+    elseif trialName == "Trial of the King" or race == "skypiea" then
+        local map = Workspace:FindFirstChild("Map")
+        local skyTrial = map and map:FindFirstChild("SkyTrial")
         local model = skyTrial and skyTrial:FindFirstChild("Model")
         local finish = model and model:FindFirstChild("FinishPart")
         if finish then
-            SetFloat(true)
             if (hrp.Position - finish.Position).Magnitude > 6 then
-                TweenTo(finish.CFrame, 200, function()
-                    return not GetActiveTrialRoom()
+                SafeTween(finish.Position, function()
+                    return not GetAccTrialRoomName(PlayerName)
                 end, true)
             else
+                SetMovePhysics(false, true)
                 hrp.CFrame = finish.CFrame
-                currentStatus = "Đã chạm đích Trial Skypiea!"
             end
-        else
-            currentStatus = "Đang chờ map SkyTrial load..."
         end
 
-    -- 3. MINK (Trial of Speed)
-    elseif trialName == "Trial of Speed" or race == "Mink" then
-        local startPoint = workspace:FindFirstChild("StartPoint")
+    -- 3. MINK
+    elseif trialName == "Trial of Speed" or race == "mink" then
+        local startPoint = Workspace:FindFirstChild("StartPoint")
         if startPoint then
-            SetFloat(true)
-            local goalCF = startPoint.CFrame * CFrame.new(0, 3, 0)
-            if (hrp.Position - goalCF.Position).Magnitude > 6 then
-                TweenTo(goalCF, 200, function()
-                    return not GetActiveTrialRoom()
+            local goalPos = startPoint.Position + Vector3.new(0, 3, 0)
+            if (hrp.Position - goalPos).Magnitude > 6 then
+                SafeTween(goalPos, function()
+                    return not GetAccTrialRoomName(PlayerName)
                 end, true)
             else
-                hrp.CFrame = goalCF
-                currentStatus = "Đã chạm đích Trial Mink!"
+                SetMovePhysics(false, true)
+                hrp.CFrame = CFrame.new(goalPos)
             end
-        else
-            currentStatus = "Đang tìm đích Trial Mink..."
         end
 
-    -- 4. CYBORG (Trial of the Machine)
-    elseif trialName == "Trial of the Machine" or race == "Cyborg" then
-        SetFloat(true)
+    -- 4. CYBORG
+    elseif trialName == "Trial of the Machine" or race == "cyborg" then
         if (hrp.Position - CYBORG_SAFE_CF.Position).Magnitude > 6 then
-            TweenTo(CYBORG_SAFE_CF, 200, function()
-                return not GetActiveTrialRoom()
+            cyborgHoldCF = nil
+            SafeTween(CYBORG_SAFE_CF.Position, function()
+                return not GetAccTrialRoomName(PlayerName)
             end, true)
         else
+            SetMovePhysics(false, true)
+            cyborgHoldCF = CYBORG_SAFE_CF
             hrp.CFrame = CYBORG_SAFE_CF
-            currentStatus = "Đang né bom Trial Cyborg..."
         end
 
-    -- 5. FISHMAN (Trial of Water)
-    elseif trialName == "Trial of Water" or race == "Fishman" then
+    -- 5. FISHMAN
+    elseif trialName == "Trial of Water" or race == "fishman" then
         local centerPos = trialLoc and trialLoc.Position or hrp.Position
         local targetSB = nil
-        for _, sb in ipairs(workspace.SeaBeasts:GetChildren()) do
-            local sbHrp = sb:FindFirstChild("HumanoidRootPart")
-            local sbHealth = sb:FindFirstChild("Health")
-            if sbHrp and sbHealth and sbHealth.Value > 0 and (sbHrp.Position - centerPos).Magnitude <= 1500 then
-                targetSB = sb
-                break
+        local seaBeasts = Workspace:FindFirstChild("SeaBeasts")
+        if seaBeasts then
+            for _, sb in ipairs(seaBeasts:GetChildren()) do
+                local sbHrp = sb:FindFirstChild("HumanoidRootPart")
+                local sbHealth = sb:FindFirstChild("Health")
+                if sbHrp and sbHealth and sbHealth.Value > 0 and (sbHrp.Position - centerPos).Magnitude <= 1500 then
+                    targetSB = sb
+                    break
+                end
             end
         end
 
@@ -629,194 +2321,1172 @@ local function HandleTrialRoom(trialName, trialLoc)
             local sbHealth = targetSB:FindFirstChild("Health")
             getgenv().AutoV4AimPos = CFrame.new(sbHrp.Position.X, 40, sbHrp.Position.Z)
 
-            SetFloat(true)
             local hoverPos = Vector3.new(sbHrp.Position.X, math.max(sbHrp.Position.Y + 160, 140), sbHrp.Position.Z)
             if (hrp.Position - hoverPos).Magnitude > 15 then
-                TweenTo(CFrame.new(hoverPos), 200, function()
-                    return not GetActiveTrialRoom() or not sbHealth or sbHealth.Value <= 0
+                SafeTween(hoverPos, function()
+                    return not GetAccTrialRoomName(PlayerName) or not sbHealth or sbHealth.Value <= 0
                 end, true)
             else
+                SetMovePhysics(false, true)
                 hrp.CFrame = CFrame.new(hoverPos)
             end
 
             if LocalPlayer:DistanceFromCharacter(sbHrp.Position) < 450 then
                 CastAllSkills()
             end
-        else
-            currentStatus = "Đang chờ Sea Beast trong Trial Water..."
         end
     end
 end
 
--- ============================================================================
--- 7. TỰ ĐỘNG MUA GEAR & CỘNG ĐIỂM GEAR V4
--- ============================================================================
-local lastGearCheck = 0
+local lastAutoGearClock = 0
+local isAutoGearing = false
+local BUYABLE_UPGRADE_CODES = { [2] = true, [4] = true, [6] = true, [7] = true, [8] = true }
+
+local function TryBuyRaceUpgradeOnce()
+    local ok, code = InvokeCFTimeout(4.0, "UpgradeRace", "Check")
+    if not ok then return false end
+    local numCode = tonumber(code)
+    if numCode and BUYABLE_UPGRADE_CODES[numCode] then
+        local buyOk, buyRes = InvokeCFTimeout(4.0, "UpgradeRace", "Buy")
+        DebugLog("GEAR-BUY", "Đã tự động mua Gear V4! (Code: %s -> %s)", tostring(numCode), tostring(buyRes))
+        return buyOk == true
+    end
+    return false
+end
+
+local function TrySpendTempleClockPointOnce()
+    local ok, clockData = InvokeCFTimeout(4.0, "TempleClock", "Check")
+    if not ok or type(clockData) ~= "table" then return false end
+
+    local raceLevel = tonumber(clockData.RaceLevel) or 1
+    local hasPoint = (clockData.HadPoint == true) or (clockData.HadPoint == nil and raceLevel < 2)
+    if not hasPoint then return false end
+
+    local parts = string.split(CFG.GearPattern or "A-B-A", "-")
+    local mapType = { A = "Alpha", B = "Omega" }
+    local gears = (type(clockData.RaceDetails) == "table" and type(clockData.RaceDetails.Gears) == "table")
+        and clockData.RaceDetails.Gears or {}
+
+    local hasG1 = (gears.Gear1 ~= nil and gears.Gear1 ~= "") or (gears[1] ~= nil and gears[1] ~= "")
+    local hasG2 = (gears.Gear2 ~= nil and gears.Gear2 ~= "") or (gears[2] ~= nil and gears[2] ~= "")
+    local hasG3 = (gears.Gear3 ~= nil and gears.Gear3 ~= "") or (gears[3] ~= nil and gears[3] ~= "")
+    local hasG4 = (gears.Gear4 ~= nil and gears.Gear4 ~= "") or (gears[4] ~= nil and gears[4] ~= "")
+
+    local slotToSpend, gearType = nil, nil
+    if not hasG1 and raceLevel < 2 then
+        slotToSpend = "Gear1"
+        gearType = "Default"
+    elseif not hasG2 then
+        slotToSpend = "Gear2"
+        gearType = mapType[parts[1]] or "Alpha"
+    elseif not hasG3 then
+        slotToSpend = "Gear3"
+        gearType = mapType[parts[2]] or "Omega"
+    elseif not hasG4 then
+        slotToSpend = "Gear4"
+        gearType = mapType[parts[3]] or "Alpha"
+    end
+
+    if not slotToSpend then return false end
+
+    local spendOk, spendRes = InvokeCFTimeout(4.0, "TempleClock", "SpendPoint", slotToSpend, gearType)
+    DebugLog("GEAR-SPEND", "Đã cộng điểm %s -> %s (Res: %s)", slotToSpend, gearType, tostring(spendRes))
+    return spendOk == true
+end
+
 local function AutoUpgradeAndSpendGear()
-    if os.clock() - lastGearCheck < 2.0 then return end
-    lastGearCheck = os.clock()
+    if not CFG.AutoGear or not InSea3() then return end
+    if isAutoGearing or (os.clock() - lastAutoGearClock < 5.0) then return end
+    lastAutoGearClock = os.clock()
+    isAutoGearing = true
 
-    local cfg = GetCfg()
-    if not cfg.AutoUpgradeRace then return end
-
-    pcall(function()
-        local code = CommF_:InvokeServer("UpgradeRace", "Check")
-        if code == 2 or code == 4 or code == 7 then
-            CommF_:InvokeServer("UpgradeRace", "Buy")
+    task.spawn(function()
+        local boughtBefore = TryBuyRaceUpgradeOnce()
+        local spentPoint   = TrySpendTempleClockPointOnce()
+        local boughtAfter  = false
+        if spentPoint then
+            task.wait(0.25)
+            boughtAfter = TryBuyRaceUpgradeOnce()
         end
-    end)
 
-    pcall(function()
-        local clockData = CommF_:InvokeServer("TempleClock", "Check")
-        if type(clockData) == "table" and (clockData.HadPoint or (clockData.RaceLevel and clockData.RaceLevel < 2)) then
-            local patternStr = (cfg.Main and cfg.Main.Gear) or "A-B-A"
-            local parts = string.split(patternStr, "-")
-            local mapType = { A = "Alpha", B = "Omega" }
-
-            local gears = clockData.RaceDetails and clockData.RaceDetails.Gears or {}
-            local slotToSpend = "Gear1"
-            local gearType = "Default"
-
-            if (clockData.RaceLevel or 1) >= 2 then
-                if not gears[1] or gears[1] == "" then
-                    slotToSpend = "Gear2"
-                    gearType = mapType[parts[1]] or "Alpha"
-                elseif not gears[2] or gears[2] == "" then
-                    slotToSpend = "Gear3"
-                    gearType = mapType[parts[2]] or "Omega"
-                elseif not gears[3] or gears[3] == "" then
-                    slotToSpend = "Gear4"
-                    gearType = mapType[parts[3]] or "Alpha"
-                end
-            end
-
-            CommF_:InvokeServer("TempleClock", "SpendPoint", slotToSpend, gearType)
+        if boughtBefore or spentPoint or boughtAfter then
+            lastTrainCheckClock = 0
+            UpdateTrialStatus()
         end
+        isAutoGearing = false
     end)
 end
 
--- ============================================================================
--- 8. VÒNG LẶP CHÍNH
--- ============================================================================
-task.spawn(function()
-    while task.wait(0.15) do
-        if ShouldStop() then
-            StopTween(false)
-            getgenv().AutoV4AimPos = nil
-            currentStatus = "Đã dừng (6V4 Stop / Disabled)"
-            break
+-- Hàm điều phối luồng V4 tích hợp (Top Great Tree Priority -> Temple -> Door -> Trial -> Arena)
+local function RunBuiltInV4Step(isAllowedIntoTemple, priorityCloneName, presentSups)
+    activeDoorSyncTargets.priorityClone = priorityCloneName
+    activeDoorSyncTargets.sups = presentSups or {}
+
+    local root = GetRoot()
+    local hum  = GetHumanoid()
+    if not (root and hum and hum.Health > 0) then return end
+
+    -- 1. Đang ở trong phòng Trial -> Tất cả đều làm Trial để hoàn thành ải!
+    local trialRoom = GetAccTrialRoomName(PlayerName)
+    if trialRoom then
+        ST.ph = "trial_run"
+        HandleBuiltInTrialRoom(trialRoom)
+        return
+    end
+    cyborgHoldCF = nil
+    getgenv().AutoV4AimPos = nil
+
+    -- 2. Đã xong phòng Trial và lên Đấu trường PvP (Arena) -> Support Reset nhường Main thắng!
+    if IsInPvPArena() then
+        SetMovePhysics(false, false)
+        if SUPPORTS_MAP[PlayerName] and CFG.HelpReset then
+            ST.ph = "arena_reset"
+            ForceResetCharacter()
+        else
+            ST.ph = "arena_wait"
+        end
+        return
+    end
+
+    if keepFloatActive and not activeTween then
+        SetMovePhysics(false, false)
+    end
+
+    -- 3. Load sẵn map Temple of Time từ MapStash
+    EnsureTempleLoaded()
+
+    -- 4. Nếu CHƯA ở trong Temple of Time
+    if not IsInsideTemple() then
+        -- Nếu là Clone NHƯNG không phải người đến Top Great Tree đầu tiên -> Đứng chờ bên ngoài tại Top Great Tree!
+        if CLONES_MAP[PlayerName] and not isAllowedIntoTemple then
+            ST.ph = "wait_outside_temple"
+            if (root.Position - TOP_GREAT_TREE_POS).Magnitude > 35 then
+                SafeTween(TOP_GREAT_TREE_POS, function()
+                    return IsInsideTemple() or IsStopped()
+                end, false)
+            end
+            return
         end
 
-        pcall(function()
-            local char = LocalPlayer.Character
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
-            local hum = char and char:FindFirstChildOfClass("Humanoid")
-            if not (hrp and hum and hum.Health > 0) then
-                SetFloat(false)
-                SetNoclip(false)
-                currentStatus = "Đang chờ hồi sinh..."
-                return
+        -- Được phép vào Temple (là 1 trong 2 Support hoặc là Clone ưu tiên đến Top Great Tree sớm nhất)
+        ST.ph = "to_top_tree"
+        if (root.Position - TOP_GREAT_TREE_POS).Magnitude > 25 then
+            SafeTween(TOP_GREAT_TREE_POS, function()
+                return IsInsideTemple() or IsStopped()
+            end, false)
+        end
+
+        if (root.Position - TOP_GREAT_TREE_POS).Magnitude <= 35 and not IsInsideTemple() then
+            ST.ph = "enter_temple"
+            CommF_:InvokeServer("RaceV4Progress", "Teleport")
+            task.wait(0.6)
+        end
+        return
+    end
+
+    -- 5. ĐÃ Ở TRONG Temple of Time
+    -- Nếu là Clone đến sau nhưng lỡ ở trong Temple -> Bay ra ngoài Great Tree chờ nhường suất cho Clone ưu tiên
+    if CLONES_MAP[PlayerName] and not isAllowedIntoTemple and not IsInActiveTrial6V4() then
+        ST.ph = "wait_outside_temple"
+        SafeTween(TOP_GREAT_TREE_POS, function()
+            return IsInActiveTrial6V4() or IsStopped()
+        end, false)
+        return
+    end
+
+    local myRace = SUPPORTS_MAP[PlayerName] or GetCurrentRace()
+    local doorPos = GetDoorPosition(myRace)
+    if not doorPos then return end
+
+    if (root.Position - doorPos).Magnitude > 8 then
+        ST.ph = "to_door"
+        -- Bay tới điểm đứng ngay trước cửa bằng tốc độ khóa cứng 190 stud/s
+        local frontPos = doorPos + Vector3.new(0, 2, 0)
+        if SafeTween(frontPos, function()
+            return not IsInsideTemple() or GetAccTrialRoomName(PlayerName) ~= nil or IsStopped()
+        end, false) then
+            -- Tắt NoClip & bước bộ vật lý vào sát cửa để ép Server đồng bộ CFrame thật cho mọi acc khác
+            SetMovePhysics(false, false)
+            local hNow = GetHumanoid()
+            if hNow then
+                hNow:MoveTo(doorPos)
             end
+        end
+    else
+        ST.ph = "at_door"
+        SetMovePhysics(false, false)
+    end
+end
 
-            AutoUpgradeAndSpendGear()
-
-            -- 1. Đang ở trong 1 trong 6 phòng Trial -> Tất cả đều làm Trial để hoàn thành ải!
-            local trialName, trialLoc = GetActiveTrialRoom()
-            if trialName then
-                HandleTrialRoom(trialName, trialLoc)
-                return
+-- ========================================================================================
+-- PROGRESSION
+-- ========================================================================================
+local function GetCurrentTargetRace()
+    if CFG.OneRaceMode then
+        local singleRace = tostring(CFG.TargetOneRace or ""):lower()
+        local foundIdx = 1
+        for idx, rName in ipairs(ORDER) do
+            if rName == singleRace then
+                foundIdx = idx
+                break
             end
-            getgenv().AutoV4AimPos = nil
+        end
+        if singleRace ~= "" and not isfile(PROGRESS_DIR .. "/" .. foundIdx .. "race-" .. singleRace .. ".txt") then
+            return foundIdx, singleRace
+        end
+        return nil, nil
+    end
 
-            -- 2. Đã xong phòng Trial và được đưa lên Đấu trường PvP (Temple of Time):
-            -- Help sẽ Reset tại đây (nếu bật Help.Reset) để nhường Main thắng ngay lập tức!
-            if IsInPvPArena() then
-                StopTween(false)
-                local cfg = GetCfg()
-                if GetMyRole() == "Help" and cfg.Help and cfg.Help.Reset ~= false then
-                    currentStatus = "Đã xong Trial -> Support Reset tại Arena!"
-                    hum.Health = 0
-                else
-                    currentStatus = "Đang ở Arena chờ thắng Trial..."
-                end
-                return
-            end
+    for index, raceName in ipairs(ORDER) do
+        if not isfile(PROGRESS_DIR .. "/" .. index .. "race-" .. raceName .. ".txt") then
+            return index, raceName
+        end
+    end
+    return nil, nil
+end
 
-            -- Tắt float nếu đang đứng bình thường ngoài sảnh Temple of Time
-            if floatEnabled and not activeTween then
-                SetFloat(false)
-                SetNoclip(false)
-            end
+local function CheckRaceCompletion(raceIndex, raceName)
+    for _, cloneName in ipairs(CFG.Clones) do
+        if not isfile(PROGRESS_DIR .. "/c_" .. raceName .. "_" .. cloneName .. ".txt") then
+            return
+        end
+    end
+    local record = os.date() .. " | All Clones Done: " .. table.concat(CFG.Clones, ",")
+    writefile(PROGRESS_DIR .. "/" .. raceIndex .. "race-" .. raceName .. ".txt", record)
+    DebugLog("PROGRESSION", "RACE %s FULLY COMPLETED BY ALL CLONES!", raceName:upper())
+end
 
-            -- 3. Load map Temple of Time từ MapStash
-            EnsureTempleLoaded()
+-- ========================================================================================
+-- 14. MODERN ENHANCED GUI (HIỂN THỊ NOTIFICATION & TRẠNG THÁI TOP TREE / TRIAL)
+-- ========================================================================================
+local PHASE_DESCRIPTIONS = {
+    init                = "Khởi tạo hệ thống",
+    boot                = "Chọn team Marines & tải dữ liệu nhân vật",
+    check_train         = "Đang kiểm tra trạng thái Train (chờ kết quả remote)...",
+    v3                  = "Đang chạy script V3 + Pull cho race",
+    train               = "Đang chạy RealKid Hub: Auto Train & Buy Gear",
+    frag                = "Đang chạy script farm Fragment (dưới 3000)",
+    travel_sea3         = "Hoàn thành Sea 2 -> Đang dịch chuyển về Sea 3",
+    travel_sea2         = "Cần làm V3 -> Đang dịch chuyển sang Sea 2",
+    hunt                = "Clone đang hop server ít người tìm Moon",
+    join                = "Đang join vào server Moon chính",
+    spam_join           = "Đã đủ 2 server Moon -> Spam join server chính để Up Gear",
+    wait2sp             = "Đang ở server Moon, chờ đủ 2 Support vào",
+    hold_backup         = "Đang giữ server Moon dự phòng (> 5p hoặc Near Moon)",
+    idle_moon_off       = "Phút X:00 - X:09 (Nghỉ Moon) -> Dừng hop & đứng nghỉ",
+    deadtime_v3         = "Phút X:00 - X:09 -> Đang chạy Auto V3 Pull theo tộc",
+    canhmoon            = "Support đang chờ clone tìm thấy Moon",
+    sp_extra            = "Support dư (hoặc trùng race): Đang chờ ở Great Tree",
+    leave_3sp           = "Phát hiện 3 Support trong server -> Đang hop rời đi!",
+    idle                = "Đang đứng chờ an toàn tại Great Tree",
+    to_top_tree         = "Đang bay lên đỉnh Great Tree tranh suất vào Temple",
+    enter_temple        = "Đã tới đỉnh Great Tree -> Đang dịch chuyển vào Temple",
+    wait_outside_temple = "Clone khác đã vào Temple trước -> Đang chờ ở ngoài Great Tree",
+    to_door             = "Đã vào Temple -> Đang bay tới cửa tộc",
+    at_door             = "Đang đứng tại cửa tộc (Chờ đủ 3 acc để bật V3)",
+    trial_run           = "Đang thực hiện Trial V4!",
+    arena_reset         = "Xong Trial -> Support tự Reset ở Arena nhường Main",
+    arena_wait          = "Xong Trial -> Main đang chờ nhận chiến thắng ở Arena",
+    gear                = "Đang chạy V4 tích hợp",
+    one_race_done       = "ĐÃ XONG 1 RACE CHỈ ĐỊNH -> ĐANG ĐỨNG IDLE Ở GREAT TREE",
+    all_done            = "TẤT CẢ 6 RACE ĐÃ HOÀN THÀNH V4!"
+}
 
-            -- 4. Nếu chưa ở trong Temple of Time -> Tween lên đỉnh Great Tree rồi Teleport vào
-            if not IsInsideTemple() then
-                currentStatus = "Đang bay lên đỉnh Great Tree..."
-                local reachedTree = TweenTo(GREAT_TREE_TOP, GetCfg().TweenSpeed or 190, function()
-                    return IsInsideTemple() or ShouldStop()
-                end, false)
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "6V4_ModernUI"
+screenGui.ResetOnSpawn = false
 
-                if reachedTree and not IsInsideTemple() and not ShouldStop() then
-                    currentStatus = "Đang gọi Teleport vào Temple..."
-                    local timeout = os.clock()
-                    while not IsInsideTemple() and (os.clock() - timeout < 10) and not ShouldStop() do
-                        CommF_:InvokeServer("RaceV4Progress", "Teleport")
-                        task.wait(0.8)
-                    end
-                end
-                return
-            end
+local mainCard = Instance.new("Frame")
+mainCard.Name = "MainCard"
+mainCard.Size = UDim2.new(0, 540, 0, 445)
+mainCard.Position = UDim2.new(0, 15, 0, 45)
+mainCard.BackgroundColor3 = Color3.fromRGB(15, 17, 23)
+mainCard.BorderSizePixel = 0
+mainCard.Active = true
+mainCard.Draggable = false
+mainCard.Parent = screenGui
 
-            -- 5. Đã ở trong Temple of Time -> Tween tới cửa tộc đứng chờ 6V4 bật V3
-            if IsInsideTemple() then
-                local myRace = GetRace(LocalPlayer)
-                local doorCF = GetDoorCFrame(myRace)
+local cardCorner = Instance.new("UICorner")
+cardCorner.CornerRadius = UDim.new(0, 10)
+cardCorner.Parent = mainCard
 
-                if not doorCF then
-                    currentStatus = "Không tìm thấy cửa tộc: " .. myRace
-                    return
-                end
+local cardStroke = Instance.new("UIStroke")
+cardStroke.Color = Color3.fromRGB(38, 44, 62)
+cardStroke.Thickness = 1.2
+cardStroke.Parent = mainCard
 
-                if (hrp.Position - doorCF.Position).Magnitude > 6 then
-                    currentStatus = "Đang bay tới cửa tộc " .. myRace .. "..."
-                    TweenTo(doorCF, 200, function()
-                        return not IsInsideTemple() or GetActiveTrialRoom() ~= nil or ShouldStop()
-                    end, false)
-                else
-                    currentStatus = "Đã đứng tại cửa " .. myRace .. " (Chờ 6V4 bật V3)"
-                end
-            end
-        end)
+local headerFrame = Instance.new("Frame")
+headerFrame.Size = UDim2.new(1, 0, 0, 38)
+headerFrame.BackgroundColor3 = Color3.fromRGB(22, 25, 36)
+headerFrame.BorderSizePixel = 0
+headerFrame.Parent = mainCard
+
+local headerCorner = Instance.new("UICorner")
+headerCorner.CornerRadius = UDim.new(0, 10)
+headerCorner.Parent = headerFrame
+
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, -20, 1, 0)
+titleLabel.Position = UDim2.new(0, 12, 0, 0)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.TextSize = 13
+titleLabel.TextColor3 = Color3.fromRGB(0, 204, 255)
+titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+titleLabel.Text = "⚡ 6V4 AUTOMATION - INTEGRATED V4"
+titleLabel.Parent = headerFrame
+
+local isDraggingUI = false
+local dragStartPos = nil
+local cardStartPos = nil
+
+headerFrame.Active = true
+headerFrame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        isDraggingUI = true
+        dragStartPos = input.Position
+        cardStartPos = mainCard.Position
     end
 end)
 
-task.spawn(function()
-    while task.wait(0.3) and isRunning do
-        local cfg = GetCfg()
-        local enabled = (cfg.Enabled ~= false) and (not getgenv().V4Stop)
-        toggleBtn.BackgroundColor3 = enabled and Color3.fromRGB(25, 135, 84) or Color3.fromRGB(180, 45, 45)
-        toggleBtn.Text = enabled and "TRẠNG THÁI: ĐANG BẬT" or "TRẠNG THÁI: ĐANG TẮT"
-
-        local helpResetOn = not (cfg.Help and cfg.Help.Reset == false)
-        helpResetBtn.BackgroundColor3 = helpResetOn and Color3.fromRGB(40, 85, 140) or Color3.fromRGB(90, 95, 110)
-        helpResetBtn.Text = helpResetOn and "HELP RESET Ở ARENA: BẬT" or "HELP RESET Ở ARENA: TẮT"
-
-        infoLabel.Text = string.format(
-            "<b>Vai trò:</b> <font color='#00FF88'>%s</font> | <b>Tộc:</b> %s | <b>Moon:</b> %s\n<b>Tiến trình:</b> <font color='#FFFF77'>%s</font>",
-            GetMyRole(),
-            GetRace(LocalPlayer),
-            IsFullMoon() and "<font color='#00FF88'>FM</font>" or "<font color='#FF6666'>Off</font>",
-            currentStatus
+UserInputService.InputChanged:Connect(function(input)
+    if not isDraggingUI then return end
+    if input.UserInputType == Enum.UserInputType.MouseMovement then
+        if not UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
+            isDraggingUI = false
+            return
+        end
+        local delta = input.Position - dragStartPos
+        mainCard.Position = UDim2.new(
+            cardStartPos.X.Scale,
+            cardStartPos.X.Offset + delta.X,
+            cardStartPos.Y.Scale,
+            cardStartPos.Y.Offset + delta.Y
+        )
+    elseif input.UserInputType == Enum.UserInputType.Touch then
+        local delta = input.Position - dragStartPos
+        mainCard.Position = UDim2.new(
+            cardStartPos.X.Scale,
+            cardStartPos.X.Offset + delta.X,
+            cardStartPos.Y.Scale,
+            cardStartPos.Y.Offset + delta.Y
         )
     end
 end)
 
-getgenv().AutoV4Cleanup = function()
-    isRunning = false
-    StopTween(false)
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        isDraggingUI = false
+    end
+end)
+
+UserInputService.WindowFocusReleased:Connect(function()
+    isDraggingUI = false
+end)
+
+local separator = Instance.new("Frame")
+separator.Size = UDim2.new(1, -24, 0, 1)
+separator.Position = UDim2.new(0, 12, 0, 42)
+separator.BackgroundColor3 = Color3.fromRGB(35, 40, 55)
+separator.BorderSizePixel = 0
+separator.Parent = mainCard
+
+local contentLabel = Instance.new("TextLabel")
+contentLabel.Size = UDim2.new(1, -24, 1, -90)
+contentLabel.Position = UDim2.new(0, 12, 0, 48)
+contentLabel.BackgroundTransparency = 1
+contentLabel.Font = Enum.Font.GothamMedium
+contentLabel.TextSize = 12
+contentLabel.TextColor3 = Color3.fromRGB(225, 230, 240)
+contentLabel.TextXAlignment = Enum.TextXAlignment.Left
+contentLabel.TextYAlignment = Enum.TextYAlignment.Top
+contentLabel.RichText = true
+contentLabel.TextWrapped = true
+contentLabel.Parent = mainCard
+
+local unloadButton = Instance.new("TextButton")
+unloadButton.Size = UDim2.new(1, -24, 0, 30)
+unloadButton.Position = UDim2.new(0, 12, 1, -38)
+unloadButton.BackgroundColor3 = Color3.fromRGB(180, 45, 45)
+unloadButton.Font = Enum.Font.GothamBold
+unloadButton.TextSize = 12
+unloadButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+unloadButton.Text = "DỪNG TOÀN BỘ SCRIPT (UNLOAD)"
+unloadButton.Parent = mainCard
+
+local btnCorner = Instance.new("UICorner")
+btnCorner.CornerRadius = UDim.new(0, 6)
+btnCorner.Parent = unloadButton
+
+unloadButton.MouseButton1Click:Connect(function()
+    DebugWarn("GUI", "Unload requested by user. Terminating script...")
+    getgenv().V4Stop = true
+    getgenv().V4Hub = nil
     getgenv().AutoV4AimPos = nil
-    if steppedConn then pcall(function() steppedConn:Disconnect() end) end
-    if gui then pcall(function() gui:Destroy() end) end
+    for _, conn in ipairs(notifConnections) do
+        if conn.Connected then pcall(function() conn:Disconnect() end) end
+    end
+    table.clear(notifConnections)
+    ReleaseTrainLock()
+    if activeTween then pcall(function() activeTween:Cancel() end) end
+    SetMovePhysics(false, false)
+    pcall(delfile, STATUS_FILE)
+    screenGui:Destroy()
+end)
+
+screenGui.Parent = (gethui and gethui()) or GetService("CoreGui")
+
+LocalPlayer.Idled:Connect(function()
+    VirtualUser:CaptureController()
+    VirtualUser:ClickButton2(Vector2.new())
+end)
+
+-- ========================================================================================
+-- 15. BOOT SEQUENCE: TEAM SELECTION & CHARACTER READINESS
+-- ========================================================================================
+local isBootCompleted = false
+ST.ph = "boot"
+
+task.spawn(function()
+    DebugLog("BOOT", "Initializing boot sequence: Selecting Marines team...")
+    getgenv().Team = "Marines"
+    while not IsStopped() do
+        if LocalPlayer.Team and tostring(LocalPlayer.Team) ~= "Neutral" then break end
+        task.spawn(function()
+            if CommF_ then pcall(function() CommF_:InvokeServer("SetTeam", "Marines") end) end
+        end)
+        pcall(function()
+            local pg = LocalPlayer:FindFirstChild("PlayerGui")
+            if not pg then return end
+            for _, uiName in ipairs({"Main", "Main (minimal)"}) do
+                local mainGui = pg:FindFirstChild(uiName)
+                local chooseTeam = mainGui and mainGui:FindFirstChild("ChooseTeam")
+                local container = chooseTeam and chooseTeam:FindFirstChild("Container")
+                local marines = container and container:FindFirstChild("Marines")
+                local frame = marines and marines:FindFirstChild("Frame")
+                local btn = frame and (frame:FindFirstChild("TextButton") or frame:FindFirstChildOfClass("TextButton"))
+                if btn then
+                    if getconnections then
+                        for _, sig in ipairs({btn.MouseButton1Click, btn.Activated}) do
+                            for _, conn in ipairs(getconnections(sig)) do
+                                pcall(function() conn.Function() end)
+                            end
+                        end
+                    elseif firesignal then
+                        firesignal(btn.MouseButton1Click)
+                    end
+                end
+            end
+        end)
+        task.wait(0.5)
+    end
+
+    DebugLog("BOOT", "Waiting for Character and Data to load...")
+    while not IsStopped() do
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        local data = LocalPlayer:FindFirstChild("Data")
+        local hasFrag = data and (data:FindFirstChild("Fragments") or data:FindFirstChild("Fragment"))
+        if char and char:FindFirstChild("HumanoidRootPart") and hum and hum.Health > 0
+            and LocalPlayer:FindFirstChild("Backpack") and data and data:FindFirstChild("Race")
+            and data:FindFirstChild("Level") and hasFrag then
+            break
+        end
+        task.wait(0.3)
+    end
+    task.wait(3.0)
+
+    if InSea3() then
+        ST.ph = "check_train"
+        UpdateTrialStatus()
+        if IsStopped() then return end
+        ST.tn = TrialApp.IsTrained
+        ST.ts = TrialApp.TrialStatus
+        previousTrainedState = ST.tn
+    end
+
+    isBootCompleted = true
+    ST.ph = "init"
+    DebugLog("BOOT", "Boot sequence complete! Account is fully loaded.")
+end)
+
+-- ========================================================================================
+-- 16. IN-GAME DOOR & ROSTER STATE EVALUATOR
+-- ========================================================================================
+local function GetRosterDoorAndServerState(targetRace, others, priorityClone)
+    local supsAtDoor = {}
+    local clonesAtDoor = {}
+    local coloredAccountList = {}
+
+    for _, sInfo in ipairs(CFG.Supports) do
+        local sName, sRace = sInfo[1], sInfo[2]
+        if Players:FindFirstChild(sName) then
+            if IsAccAtDoorInGame(sName, targetRace) then
+                table.insert(supsAtDoor, sName)
+                table.insert(coloredAccountList, string.format('<font color="#00CCFF">%s [SP-%s: Ở CỬA]</font>', sName, sRace:upper()))
+            else
+                table.insert(coloredAccountList, string.format('<font color="#FFBB33">%s [SP-%s]</font>', sName, sRace:upper()))
+            end
+        end
+    end
+
+    for _, cName in ipairs(CFG.Clones) do
+        if Players:FindFirstChild(cName) then
+            local atDoor = IsAccAtDoorInGame(cName, targetRace)
+            local atTree = IsAccAtTopGreatTreeOrTemple(cName)
+            if atDoor then
+                table.insert(clonesAtDoor, cName)
+                local tag = (cName == priorityClone) and " ★ [ƯU TIÊN - Ở CỬA]" or " [Ở CỬA]"
+                table.insert(coloredAccountList, string.format('<font color="#00FF88"><b>%s%s</b></font>', cName, tag))
+            elseif cName == priorityClone then
+                table.insert(coloredAccountList, string.format('<font color="#00FF88"><b>%s ★ [TOP TREE]</b></font>', cName))
+            elseif atTree then
+                table.insert(coloredAccountList, string.format('<font color="#FFFF77">%s [CHỜ NGOÀI]</font>', cName))
+            else
+                table.insert(coloredAccountList, string.format('<font color="#CCCCCC">%s</font>', cName))
+            end
+        end
+    end
+
+    return supsAtDoor, clonesAtDoor, coloredAccountList
+end
+
+-- ========================================================================================
+-- 17. LIVE GUI REFRESH & HEARTBEAT BACKGROUND LOOP
+-- ========================================================================================
+task.spawn(function()
+    while task.wait(0.5) and not IsStopped() do
+        ST.j    = game.JobId
+        ST.t    = os.time()
+        ST.np   = #Players:GetPlayers()
+        ST.race = GetCurrentRace()
+
+        if not isHopping then
+            local mState, mEnd = 0, 0
+            pcall(function() mState, mEnd = CheckMoon() end)
+            ST.m  = mState or 0
+            ST.me = mEnd or 0
+        end
+
+        ST.frag = GetFragments()
+        ST.tier = ExtractLiveV4Tier()
+
+        -- Cập nhật trạng thái tới Top Great Tree / trong Temple
+        local reachedTree, inTemple = IsAccAtTopGreatTreeOrTemple(PlayerName)
+        if reachedTree then
+            if not ST.atTree or (ST.treeTime or 0) == 0 then
+                ST.treeTime = os.time()
+            end
+            ST.atTree = true
+        else
+            ST.atTree = false
+            ST.treeTime = 0
+        end
+
+        local atDoorNow = IsAccAtDoorInGame(PlayerName, ST.tr)
+        if atDoorNow then
+            if not ST.door or (ST.doorTime or 0) == 0 then
+                ST.doorTime = os.time()
+            end
+            ST.door = true
+        else
+            ST.door = false
+            ST.doorTime = 0
+        end
+
+        ST.trialLoc      = GetAccTrialRoomName(PlayerName) or ""
+        ST.trialStarting = (eventTimers.start > 0 and (os.clock() - eventTimers.start) < 15) and os.time() or 0
+
+        if ST.ph == "train" then
+            UpdateTrainLockHeartbeat()
+        end
+
+        if isBootCompleted then
+            AutoUpgradeAndSpendGear()
+        end
+
+        SafeWriteJson(STATUS_FILE, ST)
+
+        -- Update GUI content
+        pcall(function()
+            local others = GetOthersStatus(25)
+            local targetRace = ST.tr or "?"
+            local priorityClone = GetPriorityTreeClone(others)
+            currentPriorityClone = priorityClone
+
+            local _, _, coloredList = GetRosterDoorAndServerState(targetRace, others, priorityClone)
+            local accountListFormatted = (#coloredList > 0) and table.concat(coloredList, ", ") or "Chưa có acc nào khác trong server"
+
+            local completedClonesCount = 0
+            for _, c in ipairs(CFG.Clones) do
+                if ST.tr and isfile(PROGRESS_DIR .. "/c_" .. ST.tr .. "_" .. c .. ".txt") then
+                    completedClonesCount = completedClonesCount + 1
+                end
+            end
+
+            local seaTitle = InSea3() and "Sea 3" or (InSea2() and "Sea 2" or "Sea 1")
+            local v3Badge = ST.v3
+                and '<font color="#00FF88"><b>ĐÃ CÓ V3</b></font>'
+                or '<font color="#FF4444"><b>CHƯA CÓ V3</b></font>'
+
+            local pullBadge = ST.pull
+                and '<font color="#00FF88"><b>ĐÃ PULL</b></font>'
+                or '<font color="#FF4444"><b>CHƯA PULL</b></font>'
+
+            local doorBadge = ST.door
+                and '<font color="#00FF88"><b>ĐÃ ĐẾN CỬA</b></font>'
+                or (inTemple and '<font color="#00CCFF">Trong Temple</font>' or '<font color="#AAAAAA">Ngoài Temple</font>')
+
+            local helpersBadge = (#currentActiveHelpers == 2)
+                and string.format('<font color="#00CCFF">%s, %s</font>', currentActiveHelpers[1], currentActiveHelpers[2])
+                or '<font color="#AAAAAA">Chưa khóa đủ 2 SP</font>'
+
+            local tier10Tag = CFG.FarmTier10 and " + T10" or ""
+            local modeBadge = CFG.OneRaceMode
+                and string.format("<font color='#FF66FF'><b>1 RACE (%s%s)</b></font>", tostring(CFG.TargetOneRace or "?"):upper(), tier10Tag)
+                or string.format("<font color='#00FF88'><b>6V4%s</b></font>", tier10Tag)
+
+            local function EscapeRichText(str)
+                return tostring(str or ""):gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;")
+            end
+
+            local v3Elapsed = (didTriggerV3AtDoor and v3TriggeredAtClock > 0) and math.max(0, os.clock() - v3TriggeredAtClock) or 0
+            local v3TimerBadge = (didTriggerV3AtDoor and v3TriggeredAtClock > 0)
+                and string.format('<font color="%s"><b>%.1fs / 15.0s</b></font>', v3Elapsed >= 12.0 and "#FF4444" or "#FFD700", v3Elapsed)
+                or ((all3InGameSinceMs > 0 and ST.ph == "at_door")
+                    and '<font color="#00CCFF"><b>Đang chờ 0.5s đồng bộ...</b></font>'
+                    or '<font color="#AAAAAA">Chưa bật</font>')
+
+            local rawPhaseDesc = PHASE_DESCRIPTIONS[ST.ph] or tostring(ST.ph)
+            if didTriggerV3AtDoor and v3TriggeredAtClock > 0 and ST.ph == "at_door" then
+                rawPhaseDesc = string.format("Đã bật V3 đồng bộ tại cửa (%.1fs / 15.0s - Tự reset nếu lỗi)", v3Elapsed)
+            elseif all3InGameSinceMs > 0 and ST.ph == "at_door" then
+                rawPhaseDesc = "Đủ 3 acc tại cửa -> Đang chờ 0.5s bật V3 cùng lúc"
+            end
+
+            local safeTrialStatus = EscapeRichText(ST.ts)
+            local safeMoonLabel   = EscapeRichText(currentMoonLabel)
+            local safePhaseDesc   = EscapeRichText(rawPhaseDesc)
+            local safeNotif       = EscapeRichText(lastNotifText)
+            local notifColor      = string.find(string.lower(lastNotifText), "trials starting") and "#FFD700" or "#66D9FF"
+
+            -- Danh sách acc đang Trial cùng Main
+            local trialEntries = {}
+            local isRecentStart = (eventTimers.start > 0 and (os.clock() - eventTimers.start) < 120)
+            local trialStartedNow = IsInActiveTrial6V4() or isRecentStart
+
+            for _, accName in ipairs(ALL_ROSTER) do
+                local plr = Players:FindFirstChild(accName)
+                if plr then
+                    local accRace = SUPPORTS_MAP[accName]
+                    if not accRace or accRace == "" then
+                        local d = plr:FindFirstChild("Data")
+                        local r = d and d:FindFirstChild("Race")
+                        accRace = (r and tostring(r.Value):lower()) or (others[accName] and others[accName].race) or ""
+                    end
+
+                    local roomName = GetAccTrialRoomName(accName)
+                    if (not roomName or roomName == "") and others[accName] and others[accName].trialLoc ~= "" then
+                        roomName = others[accName].trialLoc
+                    end
+
+                    if not roomName and isRecentStart and (os.clock() - eventTimers.start) < 10 then
+                        if IsAccAtDoorInGame(accName, targetRace) and accRace ~= "" then
+                            roomName = RACE_TRIAL_NAMES[accRace]
+                        end
+                    end
+
+                    if roomName and roomName ~= "" then
+                        trialStartedNow = true
+                        local roleTag = SUPPORTS_MAP[accName] and "SP" or "Main"
+                        local colorHex = SUPPORTS_MAP[accName] and "#66D9FF" or "#00FF88"
+                        table.insert(trialEntries, string.format(
+                            '<font color="%s">%s (%s - %s: %s)</font>',
+                            colorHex,
+                            EscapeRichText(accName),
+                            roleTag,
+                            EscapeRichText(accRace:upper()),
+                            EscapeRichText(roomName)
+                        ))
+                    end
+                end
+            end
+
+            local activeTrialDisplay = (#trialEntries > 0)
+                and table.concat(trialEntries, ", ")
+                or (trialStartedNow and '<font color="#FFFF77">Đang dịch chuyển vào phòng Trial...</font>' or '<font color="#AAAAAA">Chưa bắt đầu Trial</font>')
+
+            local trainBadgeSafe = (InSea3() and not TrialApp.HasChecked)
+                and string.format('<font color="#00CCFF"><b>ĐANG KIỂM TRA...</b></font> (%s)', safeTrialStatus)
+                or (ST.tn
+                    and string.format('<font color="#00FF88"><b>ĐÃ TRAIN</b></font> (%s)', safeTrialStatus)
+                    or string.format('<font color="#FF9900"><b>CẦN TRAIN</b></font> (%s)', safeTrialStatus))
+
+            local priorityDisplay = priorityClone
+                and string.format('<font color="#00FF88"><b>%s</b></font>', EscapeRichText(priorityClone))
+                or '<font color="#AAAAAA">Chưa có ai lên đỉnh cây</font>'
+
+            local reqFragUI = ST.tr and GetRequiredFragments(ST.tr) or FRAG_MINIMUM
+
+            contentLabel.RichText = true
+            contentLabel.Text = table.concat({
+                string.format("<b>Acc:</b> <font color='#FFFFFF'>%s</font> | <b>Role:</b> %s | <b>Vị trí:</b> %s",
+                    EscapeRichText(PlayerName), SUPPORTS_MAP[PlayerName] and ("Support [Khóa: " .. SUPPORTS_MAP[PlayerName]:upper() .. "]") or "Clone Up Gear", seaTitle),
+                string.format("<b>Tier V4:</b> <font color='#00FF88'><b>%d</b></font> | <b>Train:</b> %s", ST.tier, trainBadgeSafe),
+                string.format("<b>Chế độ:</b> %s | <b>Race:</b> %s | <b>Target:</b> <font color='#00CCFF'><b>%s</b></font>",
+                    modeBadge, ST.race ~= "" and EscapeRichText(ST.race:upper()) or "Loading...", EscapeRichText(tostring(targetRace):upper())),
+                string.format("<b>V3:</b> %s | <b>Pull:</b> %s | <b>Vị trí:</b> %s | <b>V3 Cửa:</b> %s",
+                    v3Badge, pullBadge, doorBadge, v3TimerBadge),
+                string.format("<b>Fragment:</b> %d / %d (%s) | <b>2 Support đã chọn:</b> %s",
+                    ST.frag, reqFragUI, ST.frag >= reqFragUI and '<font color="#00FF88">Đủ</font>' or '<font color="#FF4444">Thiếu</font>', helpersBadge),
+                string.format("<b>Mặt trăng:</b> %s | <b>Số server trăng:</b> <font color='#00FF88'><b>%d/2</b></font>", safeMoonLabel, totalReportedMoons),
+                string.format("<b>Notification:</b> <font color='%s'><b>%s</b></font>", notifColor, safeNotif),
+                string.format("<b>Trạng thái:</b> <font color='#FFFF77'><b>%s</b></font> | <b>Đang hop:</b> %s",
+                    safePhaseDesc, isHopping and "Có" or "Không"),
+                string.format("<b>Tiến độ V4 (%s):</b> <font color='#00FF88'><b>%d/%d</b></font> | <b>Suất vào Temple:</b> %s",
+                    EscapeRichText(tostring(targetRace):upper()), completedClonesCount, #CFG.Clones, priorityDisplay),
+                "<b>Đang Trial cùng Main:</b> " .. activeTrialDisplay,
+                "<b>Acc trong server:</b> " .. accountListFormatted
+            }, "\n")
+        end)
+    end
+end)
+
+-- ========================================================================================
+-- 18. STATE TRANSITION REFRESH (TRAIN <-> TRIAL HOP LOW)
+-- ========================================================================================
+local function CheckStateTransition(isTrained)
+    if previousTrainedState == nil then
+        previousTrainedState = isTrained
+        return false
+    end
+
+    if previousTrainedState ~= isTrained then
+        if not previousTrainedState and isTrained then
+            DebugLog("TRANSITION", "State transition: TRAIN -> TRIAL. Hopping low to search for moon servers...")
+            previousTrainedState = isTrained
+            HopLowServer(false)
+            return true
+        elseif previousTrainedState and not isTrained then
+            DebugLog("TRANSITION", "State transition: TRIAL -> TRAIN. Hopping low to find training server...")
+            previousTrainedState = isTrained
+            HopLowServer(false)
+            return true
+        end
+    end
+    return false
+end
+
+-- ========================================================================================
+-- 19. MAIN ORCHESTRATOR DECISION ENGINE
+-- ========================================================================================
+local function TickOrchestrator()
+    if isHopping or not isBootCompleted then return end
+
+    local targetIndex, targetRace = GetCurrentTargetRace()
+    if not targetIndex then
+        ST.rdy = false
+        ST.m   = 0
+        ST.me  = 0
+        ReleaseTrainLock()
+        if CFG.OneRaceMode then
+            ST.tr = tostring(CFG.TargetOneRace or ""):lower()
+            getgenv().V4Hub = nil
+            ST.ph = "one_race_done"
+            SafeWriteJson(STATUS_FILE, ST)
+            MoveToGreatTree()
+            return
+        end
+        ST.ph = "all_done"
+        SafeWriteJson(STATUS_FILE, ST)
+        getgenv().V4Stop = true
+        DebugLog("MAIN", "All 6 races awakened! Orchestrator terminating cleanly.")
+        return
+    end
+    ST.tr = targetRace
+    CheckRaceCompletion(targetIndex, targetRace)
+
+    local hum = GetHumanoid()
+    if not (hum and hum.Health > 0 and GetRoot() and LocalPlayer:FindFirstChild("Backpack")) then
+        return
+    end
+
+    -- Tự động mua Gear & cộng điểm Gear nếu đủ điều kiện trong Sea 3
+    AutoUpgradeAndSpendGear()
+
+    local moonState, moonEndMinutes = CheckMoon()
+    ST.m  = moonState
+    ST.me = moonEndMinutes
+
+    local isCurrentlyTrained, hasValidTrainResult = CheckTrained()
+    if InSea3() and not hasValidTrainResult then
+        ST.ph  = "check_train"
+        ST.rdy = false
+        SafeWriteJson(STATUS_FILE, ST)
+        return
+    end
+    ST.tn = isCurrentlyTrained
+
+    -- Kiểm tra Clone hiện tại đã hoàn thành FG race chưa (tùy chọn dừng ở Tier 5 cần train hoặc farm lên Tier 10)
+    local cloneDoneFile = PROGRESS_DIR .. "/c_" .. targetRace .. "_" .. PlayerName .. ".txt"
+    if InSea3() and CLONES_MAP[PlayerName] and not isfile(cloneDoneFile) and GetCurrentRace() == targetRace then
+        local liveTier = ExtractLiveV4Tier()
+        local isTierCompleted = CFG.FarmTier10
+            and (liveTier >= 10)
+            or (liveTier >= 6 or (liveTier == 5 and not ST.tn))
+        if isTierCompleted then
+            writefile(cloneDoneFile, os.date())
+            DebugLog("MAIN", "Clone %s completed race %s (Tier: %d)!", PlayerName, targetRace, liveTier)
+        end
+    end
+    ST.dn = CLONES_MAP[PlayerName] and isfile(cloneDoneFile) or false
+
+    local requiredRace = SUPPORTS_MAP[PlayerName] or targetRace
+    local requiredFrag = GetRequiredFragments(targetRace)
+    local isFragDeficient = (GetFragments() < requiredFrag)
+    local isRaceReady = IsAccountReady(requiredRace)
+    ST.sr = isRaceReady and not isFragDeficient
+
+    -- Clone đã xong Race -> Đứng nghỉ tại Great Tree
+    if ST.dn and (CFG.OneRaceMode or not isFragDeficient) then
+        getgenv().V4Hub = nil
+        ST.rdy = false
+        ReleaseTrainLock()
+        SafeWriteJson(STATUS_FILE, ST)
+        if not InSea3() then
+            return TravelToSea3()
+        end
+        return MoveToGreatTree()
+    end
+
+    -- Chưa có V3 hoặc chưa Pull lever -> Chạy script V3 Pull
+    if not isRaceReady then
+        ST.ph  = "v3"
+        ST.rdy = false
+        ReleaseTrainLock()
+        SafeWriteJson(STATUS_FILE, ST)
+        if getgenv().V4Hub and getgenv().V4Hub ~= "v3" then
+            getgenv().V4Hub = nil
+        end
+        RunHub("v3", function() LoadExternalScript(V3_BASE_URL .. V3_SCRIPTS[requiredRace]) end)
+        return
+    end
+
+    -- Giờ X:00 -> X:09: CHỈ acc đã train xong (ST.tn == true) và đủ Fragment mới chạy auto V3 pull
+    local DEADTIME_V3_RACES = { cyborg = true, ghoul = true, skypiea = true }
+    if CLONES_MAP[PlayerName] and not ST.dn and ST.tn and not isFragDeficient and IsMoonDeadTimeWindow() and DEADTIME_V3_RACES[targetRace] then
+        if not GetAccTrialRoomName(PlayerName) and not IsInPvPArena() then
+            ST.ph  = "deadtime_v3"
+            ST.rdy = false
+            ReleaseTrainLock()
+            SafeWriteJson(STATUS_FILE, ST)
+            if getgenv().V4Hub and getgenv().V4Hub ~= "v3" then
+                getgenv().V4Hub = nil
+            end
+            RunHub("v3", function() LoadExternalScript(V3_BASE_URL .. V3_SCRIPTS[targetRace]) end)
+            return
+        end
+    end
+
+    -- Đổi trạng thái Train <-> Trial thì hop server mới
+    if InSea3() and CheckStateTransition(isCurrentlyTrained) then
+        return
+    end
+
+    -- Chống 3 Support trong 1 server
+    if SUPPORTS_MAP[PlayerName] then
+        local othersCheck = GetOthersStatus(25)
+        local _, _, _, _, cleanSupsCheck = CoordinateMoonServer(othersCheck, targetRace)
+        local has3Sups, amExtraSup = CheckThreeSupportsInCurrentServer(othersCheck, targetRace, cleanSupsCheck)
+        if has3Sups and amExtraSup then
+            ST.ph = "leave_3sp"
+            DebugWarn("ANTI-3SP", "3 Supports detected in server! Leaving immediately...")
+            return HopLowServer(false, true)
+        end
+    end
+
+    -- Nếu đang ở Sea 2 (đã xong V3) -> Farm Frag nếu thiếu hoặc bay về Sea 3
+    if not InSea3() then
+        ST.rdy = false
+        ReleaseTrainLock()
+        SafeWriteJson(STATUS_FILE, ST)
+
+        if isFragDeficient then
+            ST.ph = "frag"
+            local activeHub = getgenv().V4Hub
+            if activeHub and activeHub ~= "frag" then return HopLowServer(false) end
+            RunHub("frag", function() LoadExternalScript(V3_BASE_URL .. "autofarmfragment") end)
+            return
+        end
+
+        return TravelToSea3()
+    end
+
+    -- Thiếu Fragment hoặc cần Train năng lượng tộc -> Chạy hub farm
+    local pendingRequirement = isFragDeficient and "frag" or (not ST.tn) and "train" or nil
+    if pendingRequirement then
+        ST.ph  = pendingRequirement
+        ST.rdy = false
+        SafeWriteJson(STATUS_FILE, ST)
+
+        local others = GetOthersStatus(25)
+        local _, _, _, _, cleanSups = CoordinateMoonServer(others, targetRace)
+        currentActiveHelpers = (#cleanSups == 2) and cleanSups or {}
+
+        if pendingRequirement == "train" then
+            if not ClaimTrainLock() then
+                return HopLowServer(false)
+            end
+        else
+            ReleaseTrainLock()
+        end
+
+        local activeHub = getgenv().V4Hub
+        if activeHub and activeHub ~= pendingRequirement then
+            return HopLowServer(false)
+        end
+
+        if pendingRequirement == "frag" then
+            RunHub("frag", function() LoadExternalScript(V3_BASE_URL .. "autofarmfragment") end)
+        elseif pendingRequirement == "train" then
+            RunHub("train", RunTrain)
+        end
+        return
+    end
+
+    -- Đã đủ mọi điều kiện -> Sẵn sàng đi Trial V4!
+    ReleaseTrainLock()
+    ST.rdy = true
+    SafeWriteJson(STATUS_FILE, ST)
+
+    local others = GetOthersStatus(25)
+    local targetJob, isRegisteredSup, clonesCanJoin, _, cleanSups, backupJob, totalMoons, backupHolder = CoordinateMoonServer(others, targetRace)
+    currentActiveHelpers = (#cleanSups == 2) and cleanSups or {}
+
+    if getgenv().V4Hub and getgenv().V4Hub ~= "gear" then
+        return HopLowServer(false)
+    end
+
+    -- ====================================================================================
+    -- LUỒNG SUPPORT (VÀO TEMPLE KHI CÓ FULL MOON + ÍT NHẤT 1 CLONE & 2 SUPPORT)
+    -- ====================================================================================
+    if SUPPORTS_MAP[PlayerName] then
+        local has3Sups, amExtraSup = CheckThreeSupportsInCurrentServer(others, targetRace, cleanSups)
+        if has3Sups and amExtraSup then
+            ST.ph = "leave_3sp"
+            return HopLowServer(false, true)
+        end
+
+        if SUPPORTS_MAP[PlayerName] == targetRace then
+            getgenv().V4Hub = nil
+            MoveToGreatTree()
+            ST.ph = "sp_extra"
+            return
+        end
+
+        if backupJob and game.JobId == backupJob and ST.m > 0 and not isRegisteredSup then
+            getgenv().V4Hub = nil
+            MoveToGreatTree()
+            ST.ph = "hold_backup"
+            return
+        end
+
+        if ST.m > 0 and not moonRejectedShortMoon then
+            local presentSups = {}
+            for _, sInfo in ipairs(CFG.Supports) do
+                local sName, sRace = sInfo[1], sInfo[2]
+                if IsSupportPresentAndValid(sName, sRace, targetRace, others[sName]) then
+                    table.insert(presentSups, sName)
+                end
+            end
+
+            local presentClones = {}
+            for _, cName in ipairs(CFG.Clones) do
+                if Players:FindFirstChild(cName) and not (others[cName] and others[cName].dn) then
+                    table.insert(presentClones, cName)
+                end
+            end
+
+            if (#presentSups == 2) and (#presentClones >= 1) and ST.m == 2 and table.find(presentSups, PlayerName) then
+                getgenv().V4Hub = "gear"
+                local prioClone = GetPriorityTreeClone(others)
+                RunBuiltInV4Step(true, prioClone, presentSups)
+                return
+            end
+
+            getgenv().V4Hub = nil
+            MoveToGreatTree()
+            if game.JobId == targetJob then
+                ST.ph = (#presentSups ~= 2) and "wait2sp" or "canhmoon"
+            elseif game.JobId == backupJob then
+                ST.ph = "hold_backup"
+            else
+                ST.ph = "canhmoon"
+            end
+            return
+        end
+
+        getgenv().V4Hub = nil
+        if targetJob and isRegisteredSup and game.JobId ~= targetJob then
+            ST.ph = "join"
+            DebugLog("SUPPORT", "Joining Moon server %s immediately!", targetJob)
+            return TeleportToServer(targetJob, true)
+        end
+
+        if backupJob and backupJob ~= game.JobId then
+            ST.ph = "join"
+            DebugLog("SUPPORT", "Main moon ended! Switching to backup moon server %s...", backupJob)
+            return TeleportToServer(backupJob, true)
+        end
+
+        MoveToGreatTree()
+        ST.ph = isRegisteredSup and "canhmoon" or "sp_extra"
+        return
+    end
+
+    -- ====================================================================================
+    -- LUỒNG CLONE (AI ĐẾN TOP GREAT TREE TRƯỚC THÌ VÀO TEMPLE, CÒN LẠI Ở NGOÀI)
+    -- ====================================================================================
+    if IsMoonDeadTimeWindow() and ST.m == 0 then
+        getgenv().V4Hub = nil
+        MoveToGreatTree()
+        ST.ph = "idle_moon_off"
+        return
+    end
+
+    if moonRejectedShortMoon then
+        BlacklistCurrentServer()
+        if IsMoonDeadTimeWindow() then
+            MoveToGreatTree()
+            ST.ph = "idle_moon_off"
+            return
+        end
+        ST.ph = "hunt"
+        return HopLowServer(true)
+    end
+
+    if CLONES_MAP[PlayerName] then
+        -- Nếu đang ở server Full Moon (m == 2) có đủ 2 Support hợp lệ -> Tham gia tranh suất tại Top Great Tree!
+        if ST.m == 2 then
+            local directSups = {}
+            for _, sInfo in ipairs(CFG.Supports) do
+                local sName, sRace = sInfo[1], sInfo[2]
+                if IsSupportPresentAndValid(sName, sRace, targetRace, others[sName]) then
+                    table.insert(directSups, sName)
+                end
+            end
+            if #directSups == 2 then
+                getgenv().V4Hub = "gear"
+                local prioClone = GetPriorityTreeClone(others)
+                local amPriority = (prioClone == nil) or (prioClone == PlayerName)
+                RunBuiltInV4Step(amPriority, prioClone or PlayerName, directSups)
+                return
+            end
+        end
+
+        local mainMoon, mainEnd = 0, 0
+        if targetJob then
+            for _, s in pairs(others) do
+                if s.j == targetJob and (s.m or 0) > 0 then
+                    mainMoon = math.max(mainMoon, s.m or 0)
+                    mainEnd  = math.max(mainEnd, tonumber(s.me) or 0)
+                end
+            end
+        end
+
+        -- Chỉ tìm server dự phòng (bắt buộc Near Full Moon) khi server chính còn dưới 5 phút
+        local needBackupSearch = (targetJob ~= nil) and (mainMoon == 2 and mainEnd < 5.0)
+
+        -- Giữ server Near Full Moon dự phòng khi server chính còn < 5p
+        if needBackupSearch and backupJob and (game.JobId == backupJob or PlayerName == backupHolder) and ST.m == 1 then
+            getgenv().V4Hub = nil
+            MoveToGreatTree()
+            ST.ph = "hold_backup"
+            return
+        end
+
+        -- Ở server Moon chính
+        if targetJob then
+            if game.JobId == targetJob then
+                if clonesCanJoin then
+                    local presentSups = {}
+                    for _, sInfo in ipairs(CFG.Supports) do
+                        local sName, sRace = sInfo[1], sInfo[2]
+                        if IsSupportPresentAndValid(sName, sRace, targetRace, others[sName]) then
+                            table.insert(presentSups, sName)
+                        end
+                    end
+
+                    if (#presentSups == 2) and ST.m == 2 then
+                        getgenv().V4Hub = "gear"
+                        local prioClone = GetPriorityTreeClone(others)
+                        local amPriority = (prioClone == nil) or (prioClone == PlayerName)
+                        RunBuiltInV4Step(amPriority, prioClone or PlayerName, presentSups)
+                        return
+                    end
+
+                    if getgenv().V4Hub == "gear" and ST.m ~= 2 then
+                        getgenv().V4Hub = nil
+                        return HopLowServer(false)
+                    end
+                    MoveToGreatTree()
+                    return
+                else
+                    MoveToGreatTree()
+                    ST.ph = "wait2sp"
+                    return
+                end
+            else
+                -- Nếu server chính đang trên 5p hoặc Near Full Moon -> Đứng đợi & cố join server chính, không đi tìm moon
+                if not needBackupSearch then
+                    getgenv().V4Hub = nil
+                    MoveToGreatTree()
+                    ST.ph = "spam_join"
+                    TeleportToServer(targetJob, true)
+                    return
+                end
+
+                -- Server chính dưới 5p: nếu đã có dự phòng Near Full Moon thì join server chính; chưa có thì hop tìm Near Full Moon
+                if backupJob then
+                    getgenv().V4Hub = nil
+                    MoveToGreatTree()
+                    ST.ph = "spam_join"
+                    TeleportToServer(targetJob, true)
+                    return
+                end
+            end
+        end
+    end
+
+    getgenv().V4Hub = nil
+
+    if ST.m > 0 and game.JobId == targetJob then
+        MoveToGreatTree()
+        ST.ph = "wait2sp"
+        return
+    end
+
+    if IsMoonDeadTimeWindow() then
+        MoveToGreatTree()
+        ST.ph = "idle_moon_off"
+        return
+    end
+
+    if (os.time() - ST.jt < 4) and not (targetJob and failedJoinJobs[targetJob]) then
+        return
+    end
+
+    ST.ph = "hunt"
+    return HopLowServer(true)
+end
+
+-- ========================================================================================
+-- 20. MAIN LOOP STARTUP
+-- ========================================================================================
+DebugLog("INIT", "6V4 Auto Upgear Orchestrator (Integrated V4) initialized for account %s.", PlayerName)
+while task.wait(0.35) and not IsStopped() do
+    local ok, err = pcall(TickOrchestrator)
+    if not ok then
+        DebugWarn("MAIN-LOOP", "Unhandled exception in tick loop: %s", tostring(err))
+    end
 end
