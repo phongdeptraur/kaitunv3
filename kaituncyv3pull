@@ -239,6 +239,7 @@ local function WriteMainConfig(overrides)
     EnsureFolders()
     local cfg = HttpService:JSONDecode(BASE_MAIN_JSON)
     for k, v in pairs(overrides or {}) do cfg[k] = v end
+    cfg.StopWhenChalice = false
     writefile("RealKidHub/save2/" .. LocalPlayer.Name .. ".json", HttpService:JSONEncode(cfg))
 end
 
@@ -2649,10 +2650,21 @@ local hasV2 = HasRaceV2()
 if not hasV3 then
     UnregisterCoopLaw()
     local reqBeli = hasV2 and 2000000 or 2500000 -- 500k cho V2 (nếu chưa V2) + 2M cho V3
+    local needBeliForV3 = GetBeli() < reqBeli
+    local needFragForV3 = (GetSea() == 2 and GetFragments() < 3000) or (GetSea() ~= 2 and GetFragments() < 10000)
 
-    if GetBeli() < reqBeli then
+    if needBeliForV3 or needFragForV3 then
         if GetSea() ~= 3 then TravelToSea(3) end
-        if not Stopped() and LaunchRealKidMain({ Chest = true }, ("Farm Chest lấy Beli (%d/%d)"):format(GetBeli(), reqBeli)) then
+        if Stopped() then return end
+
+        local chestOverrides = {
+            Chest = true,
+            MaxChestHop = 30,
+            AutoHopChest = true,
+            StopWhenChalice = false,
+        }
+
+        if LaunchRealKidMain(chestOverrides, ("Sea 3 Chest Hop (Beli: %d/%d | Frag: %d)"):format(GetBeli(), reqBeli, GetFragments())) then
             while not Stopped() and task.wait(1.5) do
                 local hasChalice, chaliceName = HasGodChaliceItem()
                 if hasChalice then
@@ -2670,32 +2682,18 @@ if not hasV3 then
                         task.wait(0.2)
                     end
                 end
-                SetStatus(("Đang farm Beli: %d / %d"):format(GetBeli(), reqBeli))
-                if GetBeli() >= reqBeli then
-                    SetStatus("Đã đủ Beli! Hop Low để refresh...")
+
+                local curBeli = GetBeli()
+                local curFrag = GetFragments()
+                SetStatus(("Chưa đủ V3 -> Sea 3 Chest Hop | Beli: %d/%d | Frag: %d/10000"):format(curBeli, reqBeli, curFrag))
+
+                if curBeli >= reqBeli and curFrag >= 10000 then
+                    SetStatus("Đã đủ Beli & Fragment cho Cyborg V3! Hop Low để refresh...")
                     HopLow()
                     return
                 end
             end
         end
-        return
-    end
-
-    local needFragForV3 = (GetSea() == 2 and GetFragments() < 3000) or (GetSea() ~= 2 and GetFragments() < 10000)
-    if needFragForV3 then
-        RunSea3BossTarget(
-            DESTINATIONS.CAKE_PRINCE,
-            POS_CAKE_LOAF,
-            function() return ("Đang farm Fragment (Cake Prince): %d / 10000"):format(GetFragments()) end,
-            function()
-                if GetFragments() >= 10000 then
-                    SetStatus("Đã đủ 10k Fragment! Hop Low để refresh...")
-                    HopLow()
-                    return true
-                end
-                return false
-            end
-        )
         return
     end
 
