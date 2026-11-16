@@ -1,4 +1,4 @@
--- // AUTO FARM FRAGMENT (BASE HOP CONFIG + PRE-TWEEN CAKE LOAF + REALKID HOP)
+-- // AUTO FARM FRAGMENT (BASE HOP CONFIG + PRE-TWEEN TIKI OUTPOST + REALKID HOP)
 repeat task.wait() until game:IsLoaded()
 
 local Players = game:GetService("Players")
@@ -18,12 +18,12 @@ local function ResolveRealKidKey()
 end
 local REALKID_KEY   = ResolveRealKidKey()
 local URL_HOP       = "https://raw.githubusercontent.com/realkidhub/realkid/refs/heads/main/RealKidHop.lua"
-local POS_CAKE_LOAF = Vector3.new(-1954.96, 37.83, -11875.87)
+local POS_TIKI_OUTPOST = Vector3.new(-16226.41, 9.37, 518.02)
 local TWEEN_SPEED   = 190
 local SCRIPT_FILE   = "AutoFarmFrag.lua"
 
 -- BASE CONFIG CHUẨN CỦA REALKID HOP (CHỨA ĐỦ TẤT CẢ CÁC TRƯỜNG THIẾT YẾU)
-local BASE_HOP_JSON = [[{"VisitedJobs":{},"PortalEnabled":true,"RaceV4Enabled":false,"WeaponCategory":"Melee","SearchEnabled":true,"DebugEnabled":false,"FruitWebhookEnabled":false,"WebhookEnabled":false,"AttackEnabled":true,"PullLeverEnabled":false,"FruitEnabled":false,"RandomEnabled":false,"Destination":"Cake Prince","RaidEnabled":false,"GunHeight":35,"AttackHeight":30,"GhostFruitEnabled":false,"SearchPause":5,"BerryEnabled":false,"BuyLegendaryEnabled":false,"RaceV3Enabled":false,"BossEnabled":true,"StoreEnabled":false,"KenEnabled":false,"WebhookAddress":"","MovementSpeed":200,"AuraEnabled":true,"InitialSide":"Marines","ChestEnabled":false,"AutoLoadEnabled":false,"Language":"Tiếng Việt"}]]
+local BASE_HOP_JSON = [[{"VisitedJobs":{},"PortalEnabled":true,"RaceV4Enabled":false,"WeaponCategory":"Melee","SearchEnabled":true,"DebugEnabled":false,"FruitWebhookEnabled":false,"WebhookEnabled":false,"AttackEnabled":true,"PullLeverEnabled":false,"FruitEnabled":false,"RandomEnabled":false,"Destination":"Tyrant of Skies","RaidEnabled":false,"GunHeight":35,"AttackHeight":30,"GhostFruitEnabled":false,"SearchPause":5,"BerryEnabled":false,"BuyLegendaryEnabled":false,"RaceV3Enabled":false,"BossEnabled":true,"StoreEnabled":false,"KenEnabled":false,"WebhookAddress":"","MovementSpeed":200,"AuraEnabled":true,"InitialSide":"Marines","ChestEnabled":false,"AutoLoadEnabled":false,"Language":"Tiếng Việt"}]]
 
 -- ============================================================================
 -- 1. CHỌN TEAM & KIỂM TRA SEA 3
@@ -88,9 +88,9 @@ local function WriteHopConfig(overrides)
 end
 
 -- ============================================================================
--- 4. PRE-TWEEN ĐẾN CAKE LOAF (190 STUD/S + NOCLIP)
+-- 4. PRE-TWEEN ĐẾN TIKI OUTPOST (190 STUD/S + NOCLIP)
 -- ============================================================================
-local function PreTweenCakeLoaf()
+local function PreTweenTikiOutpost()
     local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     local hum  = char:WaitForChild("Humanoid")
     local hrp  = char:WaitForChild("HumanoidRootPart")
@@ -101,10 +101,10 @@ local function PreTweenCakeLoaf()
         task.wait(0.2)
     end
 
-    local dist = (hrp.Position - POS_CAKE_LOAF).Magnitude
+    local dist = (hrp.Position - POS_TIKI_OUTPOST).Magnitude
     if dist <= 15 then return true end
 
-    print(("[AutoFrag] Pre-Tween đến Cake Loaf (khoảng cách: %.0f studs)..."):format(dist))
+    print(("[AutoFrag] Pre-Tween đến Tiki Outpost (khoảng cách: %.0f studs)..."):format(dist))
 
     local bv = Instance.new("BodyVelocity")
     bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
@@ -119,11 +119,11 @@ local function PreTweenCakeLoaf()
         end
     end)
 
-    local tw = TweenService:Create(hrp, TweenInfo.new(dist / TWEEN_SPEED, Enum.EasingStyle.Linear), { CFrame = CFrame.new(POS_CAKE_LOAF) })
+    local tw = TweenService:Create(hrp, TweenInfo.new(dist / TWEEN_SPEED, Enum.EasingStyle.Linear), { CFrame = CFrame.new(POS_TIKI_OUTPOST) })
     tw:Play()
 
     while tw.PlaybackState == Enum.PlaybackState.Playing do
-        if not char.Parent or hum.Health <= 0 or (hrp.Position - POS_CAKE_LOAF).Magnitude <= 15 then
+        if not char.Parent or hum.Health <= 0 or (hrp.Position - POS_TIKI_OUTPOST).Magnitude <= 15 then
             break
         end
         task.wait(0.1)
@@ -132,24 +132,24 @@ local function PreTweenCakeLoaf()
     pcall(function() tw:Cancel() end)
     pcall(function() noclip:Disconnect() end)
     pcall(function() bv:Destroy() end)
-    return (hrp.Position - POS_CAKE_LOAF).Magnitude <= 20
+    return (hrp.Position - POS_TIKI_OUTPOST).Magnitude <= 20
 end
 
 -- ============================================================================
 -- 5. THỰC THI CHÍNH
 -- ============================================================================
--- 1. Pre-Tween nhân vật lại vị trí Cake Loaf trước
-PreTweenCakeLoaf()
+-- 1. Pre-Tween nhân vật lại vị trí Tiki Outpost trước
+PreTweenTikiOutpost()
 
--- 2. Ghi đè Base Config với mục tiêu Cake Prince và lưu vào file
+-- 2. Ghi đè Base Config với mục tiêu Tyrant of Skies và lưu vào file
 WriteHopConfig({
-    Destination = "Cake Prince",
+    Destination = "Tyrant of Skies",
     BossEnabled = true,
     AttackEnabled = true
 })
 
 -- 3. Khởi chạy RealKid Hop
-print("[AutoFrag] Khởi chạy RealKid Hop (Cake Prince)...")
+print("[AutoFrag] Khởi chạy RealKid Hop (Tyrant of Skies)...")
 REALKID_KEY = ResolveRealKidKey()
 getgenv().Key = REALKID_KEY
 loadstring(game:HttpGet(URL_HOP))()
