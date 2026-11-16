@@ -12,7 +12,11 @@ local CommF = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommF_")
 -- ============================================================================
 -- CẤU HÌNH & HẰNG SỐ
 -- ============================================================================
-local REALKID_KEY   = "TRAU_PREMIUM_306B4DB2D52F3D14BAB7247D2CC4B53D8E3C8EC77B572154"
+local DEFAULT_REALKID_KEY = "TRAU_PREMIUM_306B4DB2D52F3D14BAB7247D2CC4B53D8E3C8EC77B572154"
+local function ResolveRealKidKey()
+    return (type(getgenv) == "function" and ((type(getgenv().RealKidKey) == "string" and getgenv().RealKidKey ~= "" and getgenv().RealKidKey) or (type(getgenv().Key) == "string" and getgenv().Key ~= "" and getgenv().Key))) or DEFAULT_REALKID_KEY
+end
+local REALKID_KEY   = ResolveRealKidKey()
 local URL_HOP       = "https://raw.githubusercontent.com/realkidhub/realkid/refs/heads/main/RealKidHop.lua"
 local POS_CAKE_LOAF = Vector3.new(-1954.96, 37.83, -11875.87)
 local TWEEN_SPEED   = 190
@@ -40,7 +44,8 @@ if qot then
     LocalPlayer.OnTeleport:Connect(function(state)
         if state == Enum.TeleportState.Started then
             if isfile and isfile(SCRIPT_FILE) then
-                qot(('loadfile(%q)()'):format(SCRIPT_FILE))
+                local activeKey = ResolveRealKidKey()
+                qot(('if type(getgenv) == "function" then local env = getgenv(); env.RealKidKey = (type(env.RealKidKey) == "string" and env.RealKidKey ~= "" and env.RealKidKey) or %q; env.Key = (type(env.Key) == "string" and env.Key ~= "" and env.Key) or env.RealKidKey end; loadfile(%q)()'):format(activeKey, SCRIPT_FILE))
             end
         end
     end)
@@ -145,5 +150,6 @@ WriteHopConfig({
 
 -- 3. Khởi chạy RealKid Hop
 print("[AutoFrag] Khởi chạy RealKid Hop (Cake Prince)...")
+REALKID_KEY = ResolveRealKidKey()
 getgenv().Key = REALKID_KEY
 loadstring(game:HttpGet(URL_HOP))()
