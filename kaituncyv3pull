@@ -1248,10 +1248,22 @@ local function HasRaceV3()
     return false
 end
 
+local V2_CACHE_FILE = LOG_FOLDER .. "/v2_" .. LocalPlayer.Name .. ".txt"
+
 local function HasRaceV2()
-    if HasRaceV3() then return true end
+    if HasRaceV3() then
+        if writefile then pcall(writefile, V2_CACHE_FILE, "1") end
+        return true
+    end
+    if IsCyborg() and isfile and isfile(V2_CACHE_FILE) then
+        return true
+    end
     local ok, st = pcall(function() return CommF:InvokeServer("Alchemist", "1") end)
-    return ok and st == -2
+    if ok and tonumber(st) == -2 then
+        if IsCyborg() and writefile then pcall(writefile, V2_CACHE_FILE, "1") end
+        return true
+    end
+    return false
 end
 
 -- Nhận diện & tự động Store toàn bộ Fruit trong túi đồ trước khi sang Sea 3
@@ -2656,11 +2668,43 @@ local hasV2 = HasRaceV2()
 
 if not hasV3 then
     UnregisterCoopLaw()
+
+    -- Chỉ cần tối thiểu 3000 Fragment để đứng Sea 2 làm V2-V3 (không dùng Chest Hop để farm Frag)
+    if GetFragments() < 3000 then
+        RunSea3BossTarget(
+            DESTINATIONS.CAKE_PRINCE,
+            POS_CAKE_LOAF,
+            function() return ("Thiếu Frag làm Cyborg V2-V3 -> Farm Cake Prince | Frag: %d / 3000"):format(GetFragments()) end,
+            function()
+                if GetFragments() >= 3000 then
+                    SetStatus("Đã đủ 3k Fragment cho Cyborg V2-V3! Hop Low để refresh...")
+                    HopLow()
+                    return true
+                end
+                return false
+            end
+        )
+        return
+    end
+
+    -- Nếu đang ở Sea 3 mà chưa xác nhận được V2 (do Alchemist ở Sea 2) nhưng đã có >= 2M Beli -> Sang Sea 2 check V2/mua V3 luôn
+    if GetSea() ~= 2 and not hasV2 and GetBeli() >= 2000000 then
+        SetStatus(("Đang ở Sea %d với %d Beli -> Sang Sea 2 kiểm tra V2 & nâng cấp V3..."):format(GetSea(), GetBeli()))
+        TravelToSea(2)
+        if Stopped() then return end
+        hasV2 = HasRaceV2()
+        hasV3 = HasRaceV3()
+        if hasV3 then
+            EnsureNoFruitInInventory()
+            TravelToSea(3)
+            return
+        end
+    end
+
     local reqBeli = hasV2 and 2000000 or 2500000 -- 500k cho V2 (nếu chưa V2) + 2M cho V3
     local needBeliForV3 = GetBeli() < reqBeli
-    local needFragForV3 = (GetSea() == 2 and GetFragments() < 3000) or (GetSea() ~= 2 and GetFragments() < 10000)
 
-    if needBeliForV3 or needFragForV3 then
+    if needBeliForV3 then
         if GetSea() ~= 3 then TravelToSea(3) end
         if Stopped() then return end
 
@@ -2671,8 +2715,14 @@ if not hasV3 then
             StopWhenChalice = false,
         }
 
-        if LaunchRealKidMain(chestOverrides, ("Sea 3 Chest Hop (Beli: %d/%d | Frag: %d)"):format(GetBeli(), reqBeli, GetFragments())) then
+        if LaunchRealKidMain(chestOverrides, ("Sea 3 Chest Hop (Beli: %d/%d)"):format(GetBeli(), reqBeli)) then
             while not Stopped() and task.wait(1.5) do
+                if HasRaceV3() then
+                    SetStatus("Đã có Cyborg V3! Đang chuyển sang bước Pull Lever...")
+                    HopLow()
+                    return
+                end
+
                 local hasChalice, chaliceName = HasGodChaliceItem()
                 if hasChalice then
                     SetStatus(("Phát hiện %s trong túi khi farm Chest -> Đang reset nhân vật..."):format(tostring(chaliceName)))
@@ -2691,12 +2741,11 @@ if not hasV3 then
                 end
 
                 local curBeli = GetBeli()
-                local curFrag = GetFragments()
-                SetStatus(("Chưa đủ V3 -> Sea 3 Chest Hop | Beli: %d/%d | Frag: %d/10000"):format(curBeli, reqBeli, curFrag))
+                SetStatus(("Thiếu Beli V2-V3 -> Sea 3 Chest Hop | Beli: %d/%d | Frag: %d"):format(curBeli, reqBeli, GetFragments()))
 
-                if curBeli >= reqBeli and curFrag >= 10000 then
-                    SetStatus("Đã đủ Beli & Fragment cho Cyborg V3! Hop Low để refresh...")
-                    HopLow()
+                if curBeli >= reqBeli then
+                    SetStatus(("Đã đủ %d/%d Beli cho Cyborg %s! Chuyển sang Sea 2 nâng cấp..."):format(curBeli, reqBeli, hasV2 and "V3" or "V2-V3"))
+                    TravelToSea(2)
                     return
                 end
             end
@@ -2712,6 +2761,14 @@ if not hasV3 then
     if CheckAutoCyCollision() then return end
 
     local v2Done = HasRaceV2()
+    local curReqBeli = v2Done and 2000000 or 2500000
+    if GetBeli() < curReqBeli then
+        SetStatus(("Thiếu Beli up Cyborg %s (%d/%d) -> Sang Sea 3 farm Chest..."):format(v2Done and "V3" or "V2", GetBeli(), curReqBeli))
+        EnsureNoFruitInInventory()
+        TravelToSea(3)
+        return
+    end
+
     if not v2Done and not HasBlueFlower() and not IsNight() then
         SetStatus(("Đang up V2 nhưng trời sáng (Clock: %.1f) -> Hop Low tìm trời tối..."):format(Lighting.ClockTime))
         HopLow()
@@ -2729,13 +2786,20 @@ if not hasV3 then
             if not v2Done then
                 v2Done = HasRaceV2()
             end
+            local liveReqBeli = v2Done and 2000000 or 2500000
+            if not HasRaceV3() and GetBeli() < liveReqBeli then
+                SetStatus(("Thiếu Beli up Cyborg %s (%d/%d) -> Sang Sea 3 farm Chest..."):format(v2Done and "V3" or "V2", GetBeli(), liveReqBeli))
+                EnsureNoFruitInInventory()
+                TravelToSea(3)
+                return
+            end
             if not v2Done and not HasBlueFlower() and not IsNight() then
                 SetStatus(("Đang up V2 mà trời chuyển sáng (Clock: %.1f) -> Hop Low tìm trời tối..."):format(Lighting.ClockTime))
                 HopLow()
                 return
             end
 
-            SetStatus(("Đang làm Cyborg %s ở Sea 2 (Frag: %d)..."):format(v2Done and "V3" or "V2", GetFragments()))
+            SetStatus(("Đang làm Cyborg %s ở Sea 2 (Beli: %d | Frag: %d)..."):format(v2Done and "V3" or "V2", GetBeli(), GetFragments()))
             if HasRaceV3() then
                 SetStatus("Đã xong Cyborg V3! Đang kiểm tra & cất Fruit vào kho trước khi qua Sea 3...")
                 EnsureNoFruitInInventory()
