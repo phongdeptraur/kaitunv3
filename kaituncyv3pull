@@ -2002,7 +2002,7 @@ local function RunCoopSupplyCoreBrain(TravelToSeaFn)
         if GetFragments() < 3000 then
             UnregisterCoopLaw()
             CleanupMovement()
-            SetStatus(("Fragment tụt dưới 3k (%d/3000) -> TP sang Sea 3 farm lại 10k Frag!"):format(GetFragments()))
+            SetStatus(("Fragment tụt dưới 3k (%d/3000) -> TP sang Sea 3 farm lại 30k Frag!"):format(GetFragments()))
             TravelToSeaFn(3)
             return
         end
@@ -2553,18 +2553,18 @@ end
 EnsureTeam()
 if Stopped() then return end
 
--- 1. CHƯA CÓ TỘC CYBORG -> KIỂM TRA FRAGMENT (3K / 10K) & LẤY CYBORG V1 Ở SEA 2
+-- 1. CHƯA CÓ TỘC CYBORG -> KIỂM TRA FRAGMENT (3K / 30K) & LẤY CYBORG V1 Ở SEA 2
 if not IsCyborg() then
-    local needFarmFrag = (GetSea() == 2 and GetFragments() < 3000) or (GetSea() ~= 2 and GetFragments() < 10000)
+    local needFarmFrag = (GetSea() == 2 and GetFragments() < 3000) or (GetSea() ~= 2 and GetFragments() < 30000)
 
     if needFarmFrag then
         RunSea3BossTarget(
             DESTINATIONS.CAKE_QUEEN,
             POS_CAKE_QUEEN,
-            function() return ("Farm đủ 10k Frag trước khi về Sea 2 làm Cyborg | Frag: %d / 10000"):format(GetFragments()) end,
+            function() return ("Farm đủ 30k Frag trước khi về Sea 2 làm Cyborg | Frag: %d / 30000"):format(GetFragments()) end,
             function()
-                if GetFragments() >= 10000 then
-                    SetStatus("Đã đủ 10k Fragment! Chuyển sang Sea 2 lấy tộc Cyborg...")
+                if GetFragments() >= 30000 then
+                    SetStatus("Đã đủ 30k Fragment! Chuyển sang Sea 2 lấy tộc Cyborg...")
                     TravelToSea(2)
                     return true
                 end
