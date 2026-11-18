@@ -62,7 +62,7 @@ local URL_HOP  = "https://raw.githubusercontent.com/realkidhub/realkid/refs/head
 
 local TWEEN_SPEED      = 190 -- Khóa cứng 190 stud/s
 local POS_CAKE_LOAF    = Vector3.new(-1954.96, 37.83, -11875.87)
-local POS_CAKE_QUEEN   = Vector3.new(-1762.00, 38.00, -11878.00)
+local POS_CAKE_PRINCE   = Vector3.new(-1762.00, 38.00, -11878.00)
 local POS_SEA_CASTLE   = Vector3.new(-5021.44, 314.55, -3003.93)
 local POS_LAW_PEDESTAL = Vector3.new(-6473, 250, -4493)
 local POS_LAW_BUYER    = Vector3.new(-5530.50, 229.80, -5852.00)
@@ -85,14 +85,14 @@ local SEA_PLACES = {
 }
 
 local DESTINATIONS = {
-    CAKE_QUEEN  = "Cake Queen",
+    CAKE_PRINCE  = "Cake Prince",
     DOUGH_KING  = "Dough King",
     RIP_INDRA   = "Rip Indra",
 }
 
 local BASE_MAIN_JSON = [[{"EspSeaEventIsland":false,"UpgradeDragonTalon":false,"ChangeTransparencyCanSee":false,"LeviathanMultiCannon":false,"RemoveHitVFX":false,"ValueDamageMultiSegments":60000,"SafeMode":false,"AutoTrainV4":false,"TweenSpeedV4":190,"WaitForHeartIce":false,"AutoMelee":false,"AttackMultiSegmentsLeviathan":false,"farm_m1_gun_sea":false,"DungeonAccountStart":false,"prehistoric_skull_guitar":true,"AutoV3Target_Toggle":false,"selected_fighting_style":"Black Leg","ResetAfterTrial":false,"InterfaceLanguage":"Tiếng Việt","AutoCollectGear":false,"PvPAimRadius":150,"AutoTpAncientClock":false,"selected_team":"Marines","AutoSwords":false,"AutoRemoveSkyFog":false,"FastAttackPlayers":false,"auto_multi_raid":false,"Select_Boss_Farm":"","AutoEliteQuest":false,"AutoDojoTrainer":false,"AutoDracoFully":false,"attack_method_golem":"Attack","BaitSelection":"Basic Bait","auto_pirate_raid":false,"AntiAFK":true,"ResetVolcanoAfterCollectingLoot":false,"auto_farm_sea_event":false,"AutoGun":false,"AutoFindMirageIsland":false,"AutoAwakening":false,"AutoSlapDodgeAABB":false,"EspChests":false,"ChooseSeaLevel":"Lv 5","AzureEmberToTrade":1,"AutoTweenEventFishingSpot":false,"selected_farm_target":"Bones","selected_sea_events":[],"discord_notice_mirage":false,"AutoTpAncientOne":false,"HalloweenCandyPotion":false,"Berry":false,"AutoHopChest":true,"AutoFireShootHeartLeviathan":false,"AutoLookAtMoon":false,"card_selection":[],"EspAdvancedFruitsDealer":false,"account_pick_slot_raid":false,"autotwfruits":false,"discord_notice_spy":false,"AutoCollectDragonEggs":false,"AutoYamaCDK":false,"HalloweenSummonJack":false,"JumpPowerSliderV2":50,"EspAuraColourDealers":false,"AutoCraftEnchantScroll":false,"farm_height_2":30,"auto_farm_nearest_range":500,"auto_zou_quest":false,"AutoFarmObservationHop":false,"auto_dragon_hunter":false,"global_skill_hold_x":10,"AutoBloxFruit":false,"SwapDragoRace":false,"HalloweenJack":false,"global_skill_hold_z":10,"AutoPhoenixDungeon":false,"AutoOpenMenuHopFarm":false,"HalloweenPumpkins":false,"AutoBossToggle":false,"AutoPickDungeonCards":false,"BringMobMax":"6","SelectedV4Gear2":"Alpha","RaceV4Aura":false,"AutoCollectMirageChest":false,"ignore_cake_prince":false,"TeleportToPlayer":false,"AutoResetWhenCompleteVolcano":false,"AutoStackDarkbeard":false,"AutoValkyrie":false,"AutoRelicDragoTrial":false,"auto_travel_dressrosa":false,"auto_mastery_fruits":false,"discord_ping_mode":"Không ping","GoToSharkmanNPC":false,"AutoTrainDragoV4":false,"auto_farm_materials":false,"EspGears":false,"AutoTushitaSword":false,"global_skill_keys":["Z","X","C"],"AutoDriveToHydraIsland":false,"auto_buy_style":false,"RandomAround":false,"JumpPower":false,"global_skill_delay":100,"AutoTeleportBarista":false,"global_skill_weapons":["Melee","Sword","Blox Fruit","Gun"],"AutoBuyV4Gear":false,"SelectBoatTarget":"My Boat","DungeonAutoJoin":false,"HalloweenHellfire":false,"AutoEscapeRoughSea":true,"EspBerries":false,"EnchantScrollType":"CommonScroll","AutoCollectAzureEmber":false,"HopBerry":false,"discord_notice_stored_fruit":false,"HalloweenWerewolf":false,"auto_patch_prehistoric":false,"auto_farm_general":false,"AutoUnlockDoughDungeon":false,"AutoFindPrehistoricIsland":false,"accept_quests":false,"WalkSpeed":false,"AutoDefense":false,"auto_destroy_lava":true,"AutoHiddenQuest":false,"TweenToDragoTrials":false,"FarmMastery_G":false,"AutoFindLeviathan":false,"BusuAura":true,"Chest":false,"AutoTryLuck":false,"AutoDragoV3":false,"auto_citizen_quest":false,"AutoTravel":false,"AutoBuyHakiRecipes":false,"AcceptRainbowQuest":false,"AutoTweenHighestPoint":false,"AutoPullLever":false,"AutoTradeAzureEmber":false,"auto_load_script":false,"discord_fruit_rarities":["Common","Uncommon","Rare","Legendary","Mythical"],"global_skill_hold_v":10,"AutoPrayGravestone":false,"WalkSpeedSliderV2":100,"discord_notice_prehistoric":false,"auto_farm_nearest":false,"AutoDragoV2":false,"multi_raid_players":[],"StopWhenChalice":false,"AutoCraftVolcanicMagnet":false,"BringMode":"400","auto_farm_tyrant":false,"AutoSellFish":false,"auto_farm_leviathan":false,"auto_factory_raid":false,"global_skill_hold_f":10,"AutoBuyChipFruit":false,"discord_notice_profile":false,"HalloweenRandom":false,"EspPlayers":false,"weapon_choice":"Melee","AutoSkullGuitar":false,"discord_notice_frozen":false,"auto_training_dummy":false,"AutoRedeemCodes":false,"EspFruits":false,"AutoSelectDungeon":false,"auto_sea_event_friend":false,"AutoSpawnPrehistoricIsland":true,"AutoSoulReaper":false,"AutoCompleteTrialRace":false,"DungeonMinPlayers":2,"SelectedV4GearSlot":"Auto","AutoUnlockedPuzzle":false,"RaceV3Aura":false,"AutoYamaSword":false,"AutoHopSecretHint":false,"KenAura2":false,"AutoTeleportToShrineActived":false,"HalloweenAutoHat":false,"AutoLeiAccessory":false,"tyrant_skull_guitar":false,"AutoStoreFruitFlag":false,"MaxChestHop":30,"AutoBuyFruitsFlag":false,"farm_m1_fruit_sea":false,"BoatSpeedV7":"220","AutoBigmom":false,"AutoRainbowColors":false,"AutoSailBoat":false,"HalloweenSeedHop":false,"AutoGetCDK":false,"DungeonDifficulty":"Normal","AutoTweenAdvancedFruitDealer":false,"AutoRandomBones":false,"AutoCanvendishSword":false,"ChooseBoats":"MarineGrandBrigade","AutoTeleportFrozenDimension":false,"Initialize":true,"AutoFarmMaterialSkullGuitar":false,"AutoStartRaid":false,"SpectatePlayer":false,"AutoSerpentBow":false,"AutoDragoV1":false,"global_skill_hold_c":10,"AutoCollectDinoBones":false,"AutoFindKitsuneIsland":false,"RemoveDeathRespawnVFX":false,"AutoChooseV4Gear":false,"HalloweenOniChoice":"Celestial (Right)","AutoObservationV2":false,"AutoTushitaCDK":false,"auto_low_cpu_once":false,"AutoMirror":false,"MagicFruits":false,"raidnew":false,"AutoDriveToTikiOutport":false,"AutoFarmObservation":false,"autoshootgun":true,"mastery_health_percent":30,"AutoSpawnRipIndra":false,"HalloweenDoors":false,"hopantirs":false,"AutoTwinHooks":false,"auto_break_bottle":false,"RodSelection":"Fishing Rod","Bringmob":true,"DisableNotify":false,"AutoKillPlayerAfterTrial":false,"AutoHydraLantern":false,"EspIslandLocation":false,"MasterySword":false,"AutoResetLostBoat":true,"AutoPrehistoricFully":false,"AutoQuestBoss":false}]]
 
-local BASE_HOP_JSON = [[{"VisitedJobs":{},"PortalEnabled":true,"RaceV4Enabled":false,"WeaponCategory":"Melee","SearchEnabled":true,"DebugEnabled":false,"FruitWebhookEnabled":false,"WebhookEnabled":false,"AttackEnabled":true,"PullLeverEnabled":false,"FruitEnabled":false,"RandomEnabled":false,"Destination":"Cake Queen","RaidEnabled":false,"GunHeight":35,"AttackHeight":30,"GhostFruitEnabled":false,"SearchPause":5,"BerryEnabled":false,"BuyLegendaryEnabled":false,"RaceV3Enabled":false,"BossEnabled":true,"StoreEnabled":false,"KenEnabled":false,"WebhookAddress":"","MovementSpeed":200,"AuraEnabled":true,"InitialSide":"Marines","ChestEnabled":false,"AutoLoadEnabled":false,"Language":"Tiếng Việt"}]]
+local BASE_HOP_JSON = [[{"VisitedJobs":{},"PortalEnabled":true,"RaceV4Enabled":false,"WeaponCategory":"Melee","SearchEnabled":true,"DebugEnabled":false,"FruitWebhookEnabled":false,"WebhookEnabled":false,"AttackEnabled":true,"PullLeverEnabled":false,"FruitEnabled":false,"RandomEnabled":false,"Destination":"Cake Prince","RaidEnabled":false,"GunHeight":35,"AttackHeight":30,"GhostFruitEnabled":false,"SearchPause":5,"BerryEnabled":false,"BuyLegendaryEnabled":false,"RaceV3Enabled":false,"BossEnabled":true,"StoreEnabled":false,"KenEnabled":false,"WebhookAddress":"","MovementSpeed":200,"AuraEnabled":true,"InitialSide":"Marines","ChestEnabled":false,"AutoLoadEnabled":false,"Language":"Tiếng Việt"}]]
 
 local function EnsureFolders()
     if isfolder and makefolder then
@@ -2349,13 +2349,13 @@ local function RunBackHelpCoopLaw(TravelToSeaFn)
             if lawBoss and lawHum and lawHum.Health > 0 then
                 FightLawBossLoop(1, 1, true)
             else
-                -- CHẾ ĐỘ VỪA FARM FRAG VỪA TRỰC CHỜ: Sang Sea 3 săn Cake Queen, ngay khi có Coop thì ngắt quay lại Sea 2
-                SetStatus("[BackHelp Trực Chờ] Chưa có Group Law phù hợp -> Vừa farm Frag (Cake Queen) vừa trực chờ...")
+                -- CHẾ ĐỘ VỪA FARM FRAG VỪA TRỰC CHỜ: Sang Sea 3 săn Cake Prince, ngay khi có Coop thì ngắt quay lại Sea 2
+                SetStatus("[BackHelp Trực Chờ] Chưa có Group Law phù hợp -> Vừa farm Frag (Cake Prince) vừa trực chờ...")
                 RunSea3BossTarget(
-                    DESTINATIONS.CAKE_QUEEN,
-                    POS_CAKE_QUEEN,
+                    DESTINATIONS.CAKE_PRINCE,
+                    POS_CAKE_PRINCE,
                     function()
-                        return ("[BackHelp Trực Chờ] Đang farm Frag (Cake Queen | Frag: %d) | Chờ Group Law..."):format(GetFragments())
+                        return ("[BackHelp Trực Chờ] Đang farm Frag (Cake Prince | Frag: %d) | Chờ Group Law..."):format(GetFragments())
                     end,
                     function()
                         local _, gCheck = SyncAndRebalanceCoop(false, true)
@@ -2559,8 +2559,8 @@ if not IsCyborg() then
 
     if needFarmFrag then
         RunSea3BossTarget(
-            DESTINATIONS.CAKE_QUEEN,
-            POS_CAKE_QUEEN,
+            DESTINATIONS.CAKE_PRINCE,
+            POS_CAKE_PRINCE,
             function() return ("Farm đủ 30k Frag trước khi về Sea 2 làm Cyborg | Frag: %d / 30000"):format(GetFragments()) end,
             function()
                 if GetFragments() >= 30000 then
@@ -2673,9 +2673,9 @@ if not hasV3 then
     -- Chỉ cần tối thiểu 3000 Fragment để đứng Sea 2 làm V2-V3 (không dùng Chest Hop để farm Frag)
     if GetFragments() < 3000 then
         RunSea3BossTarget(
-            DESTINATIONS.CAKE_QUEEN,
-            POS_CAKE_QUEEN,
-            function() return ("Thiếu Frag làm Cyborg V2-V3 -> Farm Cake Queen | Frag: %d / 3000"):format(GetFragments()) end,
+            DESTINATIONS.CAKE_PRINCE,
+            POS_CAKE_PRINCE,
+            function() return ("Thiếu Frag làm Cyborg V2-V3 -> Farm Cake Prince | Frag: %d / 3000"):format(GetFragments()) end,
             function()
                 if GetFragments() >= 3000 then
                     SetStatus("Đã đủ 3k Fragment cho Cyborg V2-V3! Hop Low để refresh...")
@@ -2828,8 +2828,8 @@ if Stopped() then return end
 
 if GetFragments() < 10000 then
     RunSea3BossTarget(
-        DESTINATIONS.CAKE_QUEEN,
-        POS_CAKE_QUEEN,
+        DESTINATIONS.CAKE_PRINCE,
+        POS_CAKE_PRINCE,
         function() return ("Đã có Cyborg V3 | Farm nốt Frag: %d / 10000"):format(GetFragments()) end,
         function()
             if GetFragments() >= 10000 then
