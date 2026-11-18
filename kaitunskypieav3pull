@@ -1,13 +1,8 @@
--- // AUTO SKYPIEA V3 + PULL LEVER (REALKID + NIGHT HUB + LOCK 3M/SAFEZONE + COOP/BACK-HELP)
+-- // AUTO MINK V3 + PULL LEVER (REALKID MAIN/HOP + NIGHT HUB API)
 repeat task.wait() until game:IsLoaded()
-if getgenv()._AutoSkypieaV3PullLoaded then return end
-getgenv()._AutoSkypieaV3PullLoaded = true
-getgenv()._AutoSkypieaV3Stop = false
-getgenv()._AutoSkypieaAimHRP = nil
-getgenv()._AutoSkypieaAimPos = nil
-getgenv()._AutoSkypieaAimCamPos = nil
-getgenv()._AutoSkypieaAimCam = nil
-getgenv()._AutoSkypieaMyChar = nil
+if getgenv()._AutoMinkV3PullLoaded then return end
+getgenv()._AutoMinkV3PullLoaded = true
+getgenv()._AutoMinkV3Stop = false
 
 local Players = game:GetService("Players")
 while not Players.LocalPlayer do task.wait() end
@@ -19,13 +14,12 @@ local HttpService = game:GetService("HttpService")
 local TeleportService = game:GetService("TeleportService")
 local RunService = game:GetService("RunService")
 local Lighting = game:GetService("Lighting")
-local VIM = game:GetService("VirtualInputManager")
 
 local CommF = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommF_")
 local request_ = request or http_request or (syn and syn.request) or (fluxus and fluxus.request) or (Krnl and Krnl.request)
 
 local function Stopped()
-    return getgenv()._AutoSkypieaV3Stop == true
+    return getgenv()._AutoMinkV3Stop == true
 end
 
 -- ============================================================================
@@ -40,15 +34,8 @@ local URL_MAIN = "https://raw.githubusercontent.com/realkidhub/realkid/refs/head
 local URL_HOP  = "https://raw.githubusercontent.com/realkidhub/realkid/refs/heads/main/RealKidHop.lua"
 
 local TWEEN_SPEED = 190 -- Khóa cứng 190 stud/s
-local MAX_PVP_DIST = 50000
-local LOCK_TIMEOUT = 3 * 60 -- 3 phút mỗi mục tiêu
-local SKYPIEA_V3_TIMEOUT = 45 * 60 -- 45 phút
-local REROLL_COST = 3000 -- 3,000 Fragment mỗi lần Roll Race
-local SESSION_FILE = "skypieasession.txt"
-local SESSION_TTL = 60 -- Quá 60s không cập nhật coi như acc đã tắt
-
 local POS_CAKE_LOAF    = Vector3.new(-1954.96, 37.83, -11875.87)
-local POS_CAKE_QUEEN   = Vector3.new(-1762.00, 38.00, -11878.00)
+local POS_CAKE_PRINCE   = Vector3.new(-1762.00, 38.00, -11878.00)
 local POS_SEA_CASTLE   = Vector3.new(-5021.44, 314.55, -3003.93)
 
 local SEA_PLACES = {
@@ -59,8 +46,15 @@ local SEA_PLACES = {
     [100117331123089] = 3,
 }
 
+--[[
+    NOTE CÁC DESTINATION PHỔ BIẾN CHO REALKID HOP (dùng sau này chỉ cần đổi Destination):
+    - "Cake Prince"      : Farm Fragment / Cake Prince (chạy RealKidHop)
+    - "Dough King"      : Săn Dough King lấy Mirror Fractal (chạy chung Night Hub API + RealKidHop)
+    - "Rip Indra"       : Săn Rip Indra lấy Valkyrie Helm (chạy chung Night Hub API + RealKidHop)
+    - "Server 4 Hours"  : Săn server 4 tiếng (Full Moon / Mirage / ...)
+]]
 local DESTINATIONS = {
-    CAKE_QUEEN      = "Cake Queen",
+    CAKE_PRINCE      = "Cake Prince",
     DOUGH_KING      = "Dough King",
     RIP_INDRA       = "Rip Indra",
     SERVER_4H       = "Server 4 Hours",
@@ -68,7 +62,7 @@ local DESTINATIONS = {
 
 local BASE_MAIN_JSON = [[{"EspSeaEventIsland":false,"UpgradeDragonTalon":false,"ChangeTransparencyCanSee":false,"LeviathanMultiCannon":false,"RemoveHitVFX":false,"ValueDamageMultiSegments":60000,"SafeMode":false,"AutoTrainV4":false,"TweenSpeedV4":190,"WaitForHeartIce":false,"AutoMelee":false,"AttackMultiSegmentsLeviathan":false,"farm_m1_gun_sea":false,"DungeonAccountStart":false,"prehistoric_skull_guitar":true,"AutoV3Target_Toggle":false,"selected_fighting_style":"Black Leg","ResetAfterTrial":false,"InterfaceLanguage":"Tiếng Việt","AutoCollectGear":false,"PvPAimRadius":150,"AutoTpAncientClock":false,"selected_team":"Marines","AutoSwords":false,"AutoRemoveSkyFog":false,"FastAttackPlayers":false,"auto_multi_raid":false,"Select_Boss_Farm":"","AutoEliteQuest":false,"AutoDojoTrainer":false,"AutoDracoFully":false,"attack_method_golem":"Attack","BaitSelection":"Basic Bait","auto_pirate_raid":false,"AntiAFK":true,"ResetVolcanoAfterCollectingLoot":false,"auto_farm_sea_event":false,"AutoGun":false,"AutoFindMirageIsland":false,"AutoAwakening":false,"AutoSlapDodgeAABB":false,"EspChests":false,"ChooseSeaLevel":"Lv 5","AzureEmberToTrade":1,"AutoTweenEventFishingSpot":false,"selected_farm_target":"Bones","selected_sea_events":[],"discord_notice_mirage":false,"AutoTpAncientOne":false,"HalloweenCandyPotion":false,"Berry":false,"AutoHopChest":true,"AutoFireShootHeartLeviathan":false,"AutoLookAtMoon":false,"card_selection":[],"EspAdvancedFruitsDealer":false,"account_pick_slot_raid":false,"autotwfruits":false,"discord_notice_spy":false,"AutoCollectDragonEggs":false,"AutoYamaCDK":false,"HalloweenSummonJack":false,"JumpPowerSliderV2":50,"EspAuraColourDealers":false,"AutoCraftEnchantScroll":false,"farm_height_2":30,"auto_farm_nearest_range":500,"auto_zou_quest":false,"AutoFarmObservationHop":false,"auto_dragon_hunter":false,"global_skill_hold_x":10,"AutoBloxFruit":false,"SwapDragoRace":false,"HalloweenJack":false,"global_skill_hold_z":10,"AutoPhoenixDungeon":false,"AutoOpenMenuHopFarm":false,"HalloweenPumpkins":false,"AutoBossToggle":false,"AutoPickDungeonCards":false,"BringMobMax":"6","SelectedV4Gear2":"Alpha","RaceV4Aura":false,"AutoCollectMirageChest":false,"ignore_cake_prince":false,"TeleportToPlayer":false,"AutoResetWhenCompleteVolcano":false,"AutoStackDarkbeard":false,"AutoValkyrie":false,"AutoRelicDragoTrial":false,"auto_travel_dressrosa":false,"auto_mastery_fruits":false,"discord_ping_mode":"Không ping","GoToSharkmanNPC":false,"AutoTrainDragoV4":false,"auto_farm_materials":false,"EspGears":false,"AutoTushitaSword":false,"global_skill_keys":["Z","X","C"],"AutoDriveToHydraIsland":false,"auto_buy_style":false,"RandomAround":false,"JumpPower":false,"global_skill_delay":100,"AutoTeleportBarista":false,"global_skill_weapons":["Melee","Sword","Blox Fruit","Gun"],"AutoBuyV4Gear":false,"SelectBoatTarget":"My Boat","DungeonAutoJoin":false,"HalloweenHellfire":false,"AutoEscapeRoughSea":true,"EspBerries":false,"EnchantScrollType":"CommonScroll","AutoCollectAzureEmber":false,"HopBerry":false,"discord_notice_stored_fruit":false,"HalloweenWerewolf":false,"auto_patch_prehistoric":false,"auto_farm_general":false,"AutoUnlockDoughDungeon":false,"AutoFindPrehistoricIsland":false,"accept_quests":false,"WalkSpeed":false,"AutoDefense":false,"auto_destroy_lava":true,"AutoHiddenQuest":false,"TweenToDragoTrials":false,"FarmMastery_G":false,"AutoFindLeviathan":false,"BusuAura":true,"Chest":false,"AutoTryLuck":false,"AutoDragoV3":false,"auto_citizen_quest":false,"AutoTravel":false,"AutoBuyHakiRecipes":false,"AcceptRainbowQuest":false,"AutoTweenHighestPoint":false,"AutoPullLever":false,"AutoTradeAzureEmber":false,"auto_load_script":false,"discord_fruit_rarities":["Common","Uncommon","Rare","Legendary","Mythical"],"global_skill_hold_v":10,"AutoPrayGravestone":false,"WalkSpeedSliderV2":100,"discord_notice_prehistoric":false,"auto_farm_nearest":false,"AutoDragoV2":false,"multi_raid_players":[],"StopWhenChalice":false,"AutoCraftVolcanicMagnet":false,"BringMode":"400","auto_farm_tyrant":false,"AutoSellFish":false,"auto_farm_leviathan":false,"auto_factory_raid":false,"global_skill_hold_f":10,"AutoBuyChipFruit":false,"discord_notice_profile":false,"HalloweenRandom":false,"EspPlayers":false,"weapon_choice":"Melee","AutoSkullGuitar":false,"discord_notice_frozen":false,"auto_training_dummy":false,"AutoRedeemCodes":false,"EspFruits":false,"AutoSelectDungeon":false,"auto_sea_event_friend":false,"AutoSpawnPrehistoricIsland":true,"AutoSoulReaper":false,"AutoCompleteTrialRace":false,"DungeonMinPlayers":2,"SelectedV4GearSlot":"Auto","AutoUnlockedPuzzle":false,"RaceV3Aura":false,"AutoYamaSword":false,"AutoHopSecretHint":false,"KenAura2":false,"AutoTeleportToShrineActived":false,"HalloweenAutoHat":false,"AutoLeiAccessory":false,"tyrant_skull_guitar":false,"AutoStoreFruitFlag":false,"MaxChestHop":30,"AutoBuyFruitsFlag":false,"farm_m1_fruit_sea":false,"BoatSpeedV7":"220","AutoBigmom":false,"AutoRainbowColors":false,"AutoSailBoat":false,"HalloweenSeedHop":false,"AutoGetCDK":false,"DungeonDifficulty":"Normal","AutoTweenAdvancedFruitDealer":false,"AutoRandomBones":false,"AutoCanvendishSword":false,"ChooseBoats":"MarineGrandBrigade","AutoTeleportFrozenDimension":false,"Initialize":true,"AutoFarmMaterialSkullGuitar":false,"AutoStartRaid":false,"SpectatePlayer":false,"AutoSerpentBow":false,"AutoDragoV1":false,"global_skill_hold_c":10,"AutoCollectDinoBones":false,"AutoFindKitsuneIsland":false,"RemoveDeathRespawnVFX":false,"AutoChooseV4Gear":false,"HalloweenOniChoice":"Celestial (Right)","AutoObservationV2":false,"AutoTushitaCDK":false,"auto_low_cpu_once":false,"AutoMirror":false,"MagicFruits":false,"raidnew":false,"AutoDriveToTikiOutport":false,"AutoFarmObservation":false,"autoshootgun":true,"mastery_health_percent":30,"AutoSpawnRipIndra":false,"HalloweenDoors":false,"hopantirs":false,"AutoTwinHooks":false,"auto_break_bottle":false,"RodSelection":"Fishing Rod","Bringmob":true,"DisableNotify":false,"AutoKillPlayerAfterTrial":false,"AutoHydraLantern":false,"EspIslandLocation":false,"MasterySword":false,"AutoResetLostBoat":true,"AutoPrehistoricFully":false,"AutoQuestBoss":false}]]
 
-local BASE_HOP_JSON = [[{"VisitedJobs":{"a403930c-1443-4f12-ab49-a594cc627cf9":true,"3056d8e0-9d8b-406f-9693-faf642d0c02a":true,"caed7da4-7cc6-4693-907b-e335a16ff45c":true,"8958fa92-fbc2-47cc-9035-ab54a836ad79":true,"b47e14dd-925c-4c73-83f7-f216a1bf3214":true},"PortalEnabled":true,"RaceV4Enabled":false,"WeaponCategory":"Melee","SearchEnabled":true,"DebugEnabled":false,"FruitWebhookEnabled":false,"WebhookEnabled":false,"AttackEnabled":true,"PullLeverEnabled":false,"FruitEnabled":false,"RandomEnabled":false,"Destination":"Cake Queen","RaidEnabled":false,"GunHeight":35,"AttackHeight":30,"GhostFruitEnabled":false,"SearchPause":5,"BerryEnabled":false,"BuyLegendaryEnabled":false,"RaceV3Enabled":false,"BossEnabled":true,"StoreEnabled":false,"KenEnabled":false,"WebhookAddress":"","MovementSpeed":200,"AuraEnabled":true,"InitialSide":"Marines","ChestEnabled":false,"AutoLoadEnabled":false,"Language":"Tiếng Việt"}]]
+local BASE_HOP_JSON = [[{"VisitedJobs":{"a403930c-1443-4f12-ab49-a594cc627cf9":true,"3056d8e0-9d8b-406f-9693-faf642d0c02a":true,"caed7da4-7cc6-4693-907b-e335a16ff45c":true,"8958fa92-fbc2-47cc-9035-ab54a836ad79":true,"b47e14dd-925c-4c73-83f7-f216a1bf3214":true},"PortalEnabled":true,"RaceV4Enabled":false,"WeaponCategory":"Melee","SearchEnabled":true,"DebugEnabled":false,"FruitWebhookEnabled":false,"WebhookEnabled":false,"AttackEnabled":true,"PullLeverEnabled":false,"FruitEnabled":false,"RandomEnabled":false,"Destination":"Cake Prince","RaidEnabled":false,"GunHeight":35,"AttackHeight":30,"GhostFruitEnabled":false,"SearchPause":5,"BerryEnabled":false,"BuyLegendaryEnabled":false,"RaceV3Enabled":false,"BossEnabled":true,"StoreEnabled":false,"KenEnabled":false,"WebhookAddress":"","MovementSpeed":200,"AuraEnabled":true,"InitialSide":"Marines","ChestEnabled":false,"AutoLoadEnabled":false,"Language":"Tiếng Việt"}]]
 
 -- ============================================================================
 -- STATUS UI (TÁCH LUỒNG RENDER) + NÚT X UNLOAD TOÀN BỘ + AUTO-REQUEUE
@@ -89,18 +83,18 @@ do
 end
 
 pcall(function()
-    local old = UIParent:FindFirstChild("AutoSkypieaV3Status")
+    local old = UIParent:FindFirstChild("AutoMinkV3Status")
     if old then old:Destroy() end
 end)
 
 local Gui = Instance.new("ScreenGui")
-Gui.Name = "AutoSkypieaV3Status"
+Gui.Name = "AutoMinkV3Status"
 Gui.ResetOnSpawn = false
 Gui.Parent = UIParent
 
 local Bar = Instance.new("Frame")
-Bar.Size = UDim2.new(0, 520, 0, 30)
-Bar.Position = UDim2.new(0.5, -260, 0, 8)
+Bar.Size = UDim2.new(0, 470, 0, 30)
+Bar.Position = UDim2.new(0.5, -235, 0, 8)
 Bar.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
 Bar.BackgroundTransparency = 0.12
 Bar.BorderSizePixel = 0
@@ -119,7 +113,7 @@ StatusLbl.Font = Enum.Font.GothamBold
 StatusLbl.TextSize = 12
 StatusLbl.TextXAlignment = Enum.TextXAlignment.Left
 StatusLbl.TextTruncate = Enum.TextTruncate.AtEnd
-StatusLbl.Text = "[AutoSkypieaV3] Đang khởi tạo..."
+StatusLbl.Text = "[AutoMinkV3] Đang khởi tạo..."
 StatusLbl.Parent = Bar
 
 local CloseBtn = Instance.new("TextButton")
@@ -134,92 +128,30 @@ CloseBtn.AutoButtonColor = true
 CloseBtn.Parent = Bar
 Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 5)
 
-local ActiveTween, ActiveNoclip, ActiveBV, ActiveBG, ActivePvPConn, TeleportConn
-local hoverAboveMode = false
-local PendingStatus = "[AutoSkypieaV3] Đang khởi tạo..."
+local ActiveTween, ActiveNoclip, ActiveBV, TeleportConn
+local PendingStatus = "[AutoMinkV3] Đang khởi tạo..."
 local LastRenderedStatus = ""
 
-local function ClearAimState()
-    getgenv()._AutoSkypieaAimHRP = nil
-    getgenv()._AutoSkypieaAimPos = nil
-    getgenv()._AutoSkypieaAimCamPos = nil
-    getgenv()._AutoSkypieaAimCam = nil
-    getgenv()._AutoSkypieaMyChar = nil
-end
-
-local function CancelActiveTween()
-    if ActiveTween then
-        pcall(function() ActiveTween:Cancel(); ActiveTween:Destroy() end)
-        ActiveTween = nil
-    end
-end
-
-local function EnsureAntiGravity(hrp)
-    if not hrp or not hrp.Parent then return end
-    if not ActiveBV or ActiveBV.Parent ~= hrp then
-        if ActiveBV then pcall(function() ActiveBV:Destroy() end) end
-        ActiveBV = Instance.new("BodyVelocity")
-        ActiveBV.Name = "AutoSkypieaBV"
-        ActiveBV.MaxForce = Vector3.new(9e9, 9e9, 9e9)
-        ActiveBV.P = 9e9
-        ActiveBV.Velocity = Vector3.zero
-        ActiveBV.Parent = hrp
-    else
-        ActiveBV.Velocity = Vector3.zero
-    end
-    if not ActiveBG or ActiveBG.Parent ~= hrp then
-        if ActiveBG then pcall(function() ActiveBG:Destroy() end) end
-        ActiveBG = Instance.new("BodyGyro")
-        ActiveBG.Name = "AutoSkypieaBG"
-        ActiveBG.MaxTorque = Vector3.new(9e9, 0, 9e9)
-        ActiveBG.P = 9e9
-        ActiveBG.CFrame = hrp.CFrame
-        ActiveBG.Parent = hrp
-    end
-end
-
 local function CleanupMovement()
-    CancelActiveTween()
+    if ActiveTween then pcall(function() ActiveTween:Cancel() end) ActiveTween = nil end
     if ActiveNoclip then pcall(function() ActiveNoclip:Disconnect() end) ActiveNoclip = nil end
-    if ActiveBV then pcall(function() if ActiveBV.Parent then ActiveBV:Destroy() end end) ActiveBV = nil end
-    if ActiveBG then pcall(function() if ActiveBG.Parent then ActiveBG:Destroy() end end) ActiveBG = nil end
-    pcall(function()
-        local ch = LocalPlayer.Character
-        local hum = ch and ch:FindFirstChildOfClass("Humanoid")
-        if hum then
-            hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
-            hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, true)
-        end
-        local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            hrp.AssemblyLinearVelocity = Vector3.zero
-            hrp.AssemblyAngularVelocity = Vector3.zero
-        end
-    end)
+    if ActiveBV then pcall(function() if ActiveBV.Parent then ActiveBV:Destroy() end end) end
+    ActiveBV = nil
 end
-
-local function StopPvPTween()
-    ClearAimState()
-    if ActivePvPConn then pcall(function() ActivePvPConn:Disconnect() end) ActivePvPConn = nil end
-    CleanupMovement()
-end
-
--- Forward declare RemoveFromSkypieaSession cho UnloadAll
-local RemoveFromSkypieaSession
 
 local function UnloadAll()
-    getgenv()._AutoSkypieaV3Stop = true
-    getgenv()._AutoSkypieaV3PullLoaded = false
-    getgenv()._HoppingServer = false
-    StopPvPTween()
-    if RemoveFromSkypieaSession then pcall(RemoveFromSkypieaSession) end
+    getgenv()._AutoMinkV3Stop = true
+    getgenv()._AutoMinkV3PullLoaded = false
+    getgenv()._HoppingLow = false
+    CleanupMovement()
     if TeleportConn then pcall(function() TeleportConn:Disconnect() end) TeleportConn = nil end
     pcall(function() if Gui and Gui.Parent then Gui:Destroy() end end)
-    print("[AutoSkypieaV3] Đã unload toàn bộ script!")
+    print("[AutoMinkV3] Đã unload toàn bộ script!")
 end
 
 CloseBtn.MouseButton1Click:Connect(UnloadAll)
 
+-- Luồng riêng cập nhật UI (không bao giờ đụng require -> giữ nguyên capability)
 task.spawn(function()
     while not Stopped() do
         if PendingStatus ~= LastRenderedStatus then
@@ -237,7 +169,7 @@ end)
 
 local function SetStatus(msg)
     if Stopped() then return end
-    PendingStatus = "[AutoSkypieaV3] " .. tostring(msg)
+    PendingStatus = "[AutoMinkV3] " .. tostring(msg)
     print(PendingStatus)
 end
 
@@ -249,14 +181,14 @@ end
 
 do
     local qot = queue_on_teleport or (syn and syn.queue_on_teleport) or queueonteleport
-    local scriptPath = getgenv().AutoSkypieaScriptPath or "AutoSkypieaV3Pull.lua"
+    local scriptPath = getgenv().AutoMinkScriptPath or "AutoMinkV3Pull.lua"
     if qot and isfile and isfile(scriptPath) then
         local queued = false
         TeleportConn = LocalPlayer.OnTeleport:Connect(function(state)
             if not Stopped() and state == Enum.TeleportState.Started and not queued then
                 queued = true
-                REALKID_KEY = ResolveRealKidKey()
-                qot(('getgenv().RealKidKey = %q; getgenv().Key = %q; loadfile(%q)()'):format(REALKID_KEY, REALKID_KEY, scriptPath))
+                local resolvedKey = ResolveRealKidKey()
+                qot(('if type(getgenv) == "function" then getgenv().RealKidKey = %q; getgenv().Key = %q end; loadfile(%q)()'):format(resolvedKey, resolvedKey, scriptPath))
             end
         end)
     end
@@ -297,7 +229,7 @@ local function WriteHopConfig(overrides)
 end
 
 -- ============================================================================
--- CACHE SERVER ĐÃ GHÉ & TELEPORT + HOP LOW / HOP HIGH (11/12 PLAYER)
+-- CACHE SERVER ĐÃ GHÉ & TELEPORT CHUNG
 -- ============================================================================
 local function LoadJobCache(file, ttl)
     local cache = {}
@@ -330,15 +262,17 @@ local function DirectTeleport(jobId, placeId)
     pcall(function() TeleportService:TeleportToPlaceInstance(placeId or game.PlaceId, jobId, LocalPlayer) end)
 end
 
-local HOP_CACHE_FILE = "AutoSkypieaV3_HopCache.json"
+-- ============================================================================
+-- HOP LOW (RÚT GỌN: ƯU TIÊN PING THẤP + PLAYER THẤP + CACHE TRÁNH LẶP)
+-- ============================================================================
+local HOP_CACHE_FILE = "AutoMinkV3_HopCache.json"
 local TriedJobs = LoadJobCache(HOP_CACHE_FILE, 180)
 TriedJobs[tostring(game.JobId)] = os.time()
 
-local function HopServer(mode)
-    if Stopped() or getgenv()._HoppingServer then return end
-    getgenv()._HoppingServer = true
-    local isHigh = (mode == "high")
-    SetStatus(isHigh and "Đang tìm server đông (11/12 player)..." or "Đang tìm server low player & ping thấp để refresh...")
+local function HopLow()
+    if Stopped() or getgenv()._HoppingLow then return end
+    getgenv()._HoppingLow = true
+    SetStatus("Đang tìm server low player & ping thấp để refresh...")
 
     while not Stopped() and task.wait(0.3) do
         local list = {}
@@ -358,7 +292,7 @@ local function HopServer(mode)
                                     local cnt = (type(d) == "table" and tonumber(d.Count)) or tonumber(d) or 1
                                     local reg = (type(d) == "table" and tostring(d.Region or "")) or ""
                                     local ping = reg:find("Sing") and 40 or reg:find("Japan") and 95 or reg:find("Germ") and 190 or (reg:find("US") or reg:find("United States")) and 230 or 140
-                                    if (isHigh and cnt >= 6 and cnt < 12) or (not isHigh and cnt >= 1 and cnt < 11) then
+                                    if cnt >= 1 and cnt < 11 then
                                         byJob[id] = { id = id, playing = cnt, ping = ping }
                                     end
                                 end
@@ -379,11 +313,10 @@ local function HopServer(mode)
 
         if #list == 0 then
             local cursor = ""
-            local sortDir = isHigh and "Desc" or "Asc"
             for _ = 1, 5 do
                 if Stopped() then break end
-                local url = ("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=%s&limit=100%s")
-                    :format(game.PlaceId, sortDir, cursor ~= "" and ("&cursor=" .. cursor) or "")
+                local url = ("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100%s")
+                    :format(game.PlaceId, cursor ~= "" and ("&cursor=" .. cursor) or "")
                 local ok, raw = pcall(function() return game:HttpGet(url) end)
                 local okJ, data = false, nil
                 if ok and raw then okJ, data = pcall(function() return HttpService:JSONDecode(raw) end) end
@@ -392,7 +325,7 @@ local function HopServer(mode)
                     local id = tostring(s.id)
                     local cnt = tonumber(s.playing) or 0
                     local maxP = tonumber(s.maxPlayers) or 12
-                    if not TriedJobs[id] and cnt < maxP and ((isHigh and cnt >= 6) or (not isHigh and cnt >= 1)) then
+                    if not TriedJobs[id] and cnt >= 1 and cnt < maxP then
                         table.insert(list, { id = id, playing = cnt, ping = tonumber(s.ping) or 999 })
                     end
                 end
@@ -407,44 +340,31 @@ local function HopServer(mode)
             TriedJobs = { [tostring(game.JobId)] = os.time() }
         else
             local pool = {}
-            if isHigh then
-                for _, s in ipairs(list) do
-                    if s.playing == 11 then table.insert(pool, s) end
-                end
-                if #pool == 0 then pool = list end
-                table.sort(pool, function(a, b)
-                    if a.playing ~= b.playing then return a.playing > b.playing end
-                    return a.ping < b.ping
-                end)
-            else
-                for _, s in ipairs(list) do
-                    if s.ping <= 70 and s.playing <= 8 then table.insert(pool, s) end
-                end
-                if #pool == 0 then pool = list end
-                table.sort(pool, function(a, b)
-                    local aTier, bTier = math.floor(a.ping / 30), math.floor(b.ping / 30)
-                    if aTier ~= bTier then return aTier < bTier end
-                    if a.playing ~= b.playing then return a.playing < b.playing end
-                    return a.ping < b.ping
-                end)
+            for _, s in ipairs(list) do
+                if s.ping <= 70 and s.playing <= 8 then table.insert(pool, s) end
             end
+            if #pool == 0 then pool = list end
+
+            table.sort(pool, function(a, b)
+                local aTier, bTier = math.floor(a.ping / 30), math.floor(b.ping / 30)
+                if aTier ~= bTier then return aTier < bTier end
+                if a.playing ~= b.playing then return a.playing < b.playing end
+                return a.ping < b.ping
+            end)
 
             for i = 1, math.min(#pool, 5) do
                 if Stopped() then break end
                 local target = pool[i]
                 RecordJobCache(HOP_CACHE_FILE, TriedJobs, target.id)
-                SetStatus(("%s -> %s | Players: %d | Ping: %dms"):format(isHigh and "Hop High" or "Hop Low", target.id:sub(1, 8), target.playing, target.ping))
+                SetStatus(("Hop Low -> %s | Players: %d | Ping: %dms"):format(target.id:sub(1, 8), target.playing, target.ping))
                 DirectTeleport(target.id, game.PlaceId)
                 if not SleepCheck(3) then break end
             end
         end
         if not SleepCheck(1) then break end
     end
-    getgenv()._HoppingServer = false
+    getgenv()._HoppingLow = false
 end
-
-local function HopLow()  HopServer("low")  end
-local function HopHigh() HopServer("high") end
 
 -- ============================================================================
 -- NIGHT HUB API HOP (RÚT GỌN: DOUGH KING, RIP INDRA, CAKE PRINCE)
@@ -638,6 +558,7 @@ local function TryNightHubHop(targetName, doneCheckFn)
     end
     if #cands == 0 then return false end
 
+    -- Ưu tiên ít player nhất, bằng nhau thì bottom-up (lấy server cuối danh sách)
     table.sort(cands, function(a, b)
         if a.Players ~= b.Players then return a.Players < b.Players end
         return a.Idx > b.Idx
@@ -654,6 +575,9 @@ local function TryNightHubHop(targetName, doneCheckFn)
     return false
 end
 
+-- ============================================================================
+-- CHECK LIVE BOSS SEA 3 (ENEMIES / CHARACTERS / REPLICATEDSTORAGE)
+-- ============================================================================
 local function FindBossAlive(aliases)
     local folders = {
         workspace:FindFirstChild("Enemies"),
@@ -720,16 +644,15 @@ local function TweenTo(targetPos)
         if dist <= 8 then return true end
 
         SetStatus(("Pre-Tween (190 stud/s) -> còn %.0f studs"):format(dist))
-        EnsureAntiGravity(hrp)
+        ActiveBV = Instance.new("BodyVelocity")
+        ActiveBV.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+        ActiveBV.Velocity = Vector3.zero
+        ActiveBV.Parent = hrp
 
         ActiveNoclip = RunService.Stepped:Connect(function()
             if char and char.Parent then
                 for _, p in ipairs(char:GetDescendants()) do
                     if p:IsA("BasePart") and p.CanCollide then p.CanCollide = false end
-                end
-                if hrp and hrp.Parent then
-                    hrp.AssemblyLinearVelocity = Vector3.zero
-                    hrp.AssemblyAngularVelocity = Vector3.zero
                 end
             end
         end)
@@ -759,7 +682,7 @@ local function TweenTo(targetPos)
 end
 
 -- ============================================================================
--- KHỞI TẠO HUB & DATA CƠ BẢN
+-- KHỞI TẠO HUB (MỖI SERVER CHỈ CHẠY TỐI ĐA 1 HUB)
 -- ============================================================================
 local function LaunchRealKidMain(overrides, desc)
     if Stopped() then return false end
@@ -775,7 +698,7 @@ local function LaunchRealKidMain(overrides, desc)
     SetStatus("Chạy RealKid Main: " .. (desc or "Custom"))
     task.spawn(function()
         local ok, err = pcall(function() loadstring(game:HttpGet(URL_MAIN))() end)
-        if not ok then warn("[AutoSkypieaV3] Lỗi load RealKid Main:", err) end
+        if not ok then warn("[AutoMinkV3] Lỗi load RealKid Main:", err) end
     end)
     return true
 end
@@ -794,38 +717,34 @@ local function LaunchRealKidHop(destination)
     SetStatus("Chạy RealKid Hop -> " .. tostring(destination))
     task.spawn(function()
         local ok, err = pcall(function() loadstring(game:HttpGet(URL_HOP))() end)
-        if not ok then warn("[AutoSkypieaV3] Lỗi load RealKid Hop:", err) end
+        if not ok then warn("[AutoMinkV3] Lỗi load RealKid Hop:", err) end
     end)
     return true
 end
 
+-- ============================================================================
+-- HÀM CHECK DATA, RACE, V2/V3, THỜI GIAN ĐÊM, INVENTORY, PULL LEVER, SEA
+-- ============================================================================
+local function EnsureTeam()
+    if Stopped() then return end
+    if not LocalPlayer.Team or LocalPlayer.Team.Name == "Neutral" then
+        SetStatus("Đang chọn team Marines...")
+        pcall(function() CommF:InvokeServer("SetTeam", "Marines") end)
+        SleepCheck(1.5)
+    end
+    WaitAlive()
+    SleepCheck(0.8)
+end
+
 local Data = LocalPlayer:WaitForChild("Data")
 local function GetRace() return tostring(Data:WaitForChild("Race").Value) end
+local function IsMink()
+    local r = GetRace()
+    return r == "Mink" or r == "Rabbit"
+end
 local function GetBeli() return tonumber(Data:WaitForChild("Beli").Value) or 0 end
 local function GetFragments() return tonumber(Data:WaitForChild("Fragments").Value) or 0 end
 local function GetSea() return SEA_PLACES[game.PlaceId] or 0 end
-
-local function IsSkypieaRaceName(raceName)
-    local l = tostring(raceName or ""):lower()
-    return l == "angel" or l == "skypiea"
-end
-
-local function GetPlayerRace(player)
-    local pData = player and player:FindFirstChild("Data")
-    local r = pData and pData:FindFirstChild("Race")
-    if r and r.Value ~= nil then
-        return tostring(r.Value)
-    end
-    local attr = player and player:GetAttribute("Race")
-    if attr ~= nil then
-        return tostring(attr)
-    end
-    return ""
-end
-
-local function IsSkypieaPlayer(player)
-    return IsSkypieaRaceName(GetPlayerRace(player))
-end
 
 local function IsNight()
     local ct = Lighting.ClockTime
@@ -850,16 +769,12 @@ local V3Abilities = {
     Draco = "Primordial Reign",
 }
 
-local ConfirmedHasV3 = false
-
 local function HasRaceV3()
     local ability = V3Abilities[GetRace()]
     if not ability then return false end
     local bp = LocalPlayer:FindFirstChild("Backpack")
     local ch = LocalPlayer.Character
-    local has = (bp and bp:FindFirstChild(ability) ~= nil) or (ch and ch:FindFirstChild(ability) ~= nil) or false
-    if has then ConfirmedHasV3 = true end
-    return has
+    return (bp and bp:FindFirstChild(ability) ~= nil) or (ch and ch:FindFirstChild(ability) ~= nil) or false
 end
 
 local function HasRaceV2()
@@ -868,1040 +783,7 @@ local function HasRaceV2()
     return ok and st == -2
 end
 
-local function EnsureTeam(preferTeam)
-    if Stopped() then return end
-    local targetTeam = preferTeam or "Marines"
-    if not LocalPlayer.Team or LocalPlayer.Team.Name == "Neutral" or (preferTeam and LocalPlayer.Team.Name ~= targetTeam) then
-        SetStatus("Đang chọn team " .. targetTeam .. "...")
-        pcall(function() CommF:InvokeServer("SetTeam", targetTeam) end)
-        SleepCheck(1.8)
-    end
-    WaitAlive()
-    SleepCheck(0.8)
-end
-
-local function TravelToSea(targetSea)
-    while not Stopped() and GetSea() ~= targetSea do
-        SetStatus("Đang chuyển sang Sea " .. tostring(targetSea) .. "...")
-        if targetSea == 2 then
-            pcall(function() CommF:InvokeServer("TravelDressrosa") end)
-        elseif targetSea == 3 then
-            pcall(function() CommF:InvokeServer("TravelZou") end)
-            if not SleepCheck(3) then return false end
-            if GetSea() ~= 3 then pcall(function() CommF:InvokeServer("TravelDressrosa") end) end
-        end
-        if not SleepCheck(4) then return false end
-    end
-    return not Stopped() and GetSea() == targetSea
-end
-
-local function TryRollRaceOnce()
-    if Stopped() or IsSkypieaRaceName(GetRace()) then return true end
-    if GetFragments() < REROLL_COST then return false end
-    local prevRace = GetRace()
-    local prevFrag = GetFragments()
-    SetStatus(("Đang Roll Race lấy Skypiea (Hiện tại: %s | Frag: %d)..."):format(prevRace, prevFrag))
-    pcall(function() CommF:InvokeServer("BlackbeardReward", "Reroll", "1") end)
-    if not SleepCheck(0.2) then return false end
-    pcall(function() CommF:InvokeServer("BlackbeardReward", "Reroll", "2") end)
-
-    local t0 = os.clock()
-    while not Stopped() and (os.clock() - t0) < 2.0 do
-        if GetRace() ~= prevRace or GetFragments() < prevFrag then break end
-        task.wait(0.1)
-    end
-    SleepCheck(0.2)
-    return IsSkypieaRaceName(GetRace())
-end
-
--- ============================================================================
--- SKYPIEASESSION.TXT MANAGER (CO-OP UP SKYPIEA V3 & BACK-HELP MULTI-ACCOUNT)
--- ============================================================================
-local MY_UID = tostring(LocalPlayer.UserId)
-
-local function ReadSkypieaSessionRaw()
-    if not (isfile and readfile and isfile(SESSION_FILE)) then return {}, true end
-    for _ = 1, 3 do
-        local okR, raw = pcall(readfile, SESSION_FILE)
-        if okR and type(raw) == "string" then
-            if raw:match("^%s*$") then return {}, true end
-            local okD, data = pcall(function() return HttpService:JSONDecode(raw) end)
-            if okD and type(data) == "table" then return data, true end
-        end
-        task.wait(0.05)
-    end
-    return nil, false
-end
-
-local function UpdateSkypieaSession(mutatorFn)
-    local data, ok = ReadSkypieaSessionRaw()
-    if not ok or not data then return nil end
-    local now = os.time()
-    local cleaned = {}
-    for uid, entry in pairs(data) do
-        if type(entry) == "table" and type(entry.updatedAt) == "number" and (now - entry.updatedAt) <= SESSION_TTL then
-            cleaned[tostring(uid)] = entry
-        end
-    end
-    if mutatorFn then
-        mutatorFn(cleaned, now)
-    end
-    if writefile then
-        pcall(writefile, SESSION_FILE, HttpService:JSONEncode(cleaned))
-    end
-    return cleaned
-end
-
-RemoveFromSkypieaSession = function()
-    UpdateSkypieaSession(function(tbl)
-        tbl[MY_UID] = nil
-    end)
-end
-
-local function AnalyzeSkypieaSession(tbl)
-    local activeList, hosts, clones = {}, {}, {}
-    for _, e in pairs(tbl or {}) do
-        table.insert(activeList, e)
-        if e.role == "host" then
-            table.insert(hosts, e)
-        elseif e.role == "clone" then
-            table.insert(clones, e)
-        end
-    end
-    local primaryHost = nil
-    if #hosts > 0 then
-        table.sort(hosts, function(a, b)
-            if (a.isBackHelp and not b.isBackHelp) then return true end
-            if (not a.isBackHelp and b.isBackHelp) then return false end
-            return tostring(a.userId) < tostring(b.userId)
-        end)
-        primaryHost = hosts[1]
-    end
-    return activeList, primaryHost, clones
-end
-
-local function SyncV3SessionEntry()
-    local cleaned = UpdateSkypieaSession(function(tbl, now)
-        local me = tbl[MY_UID]
-        local otherHost = nil
-        local lowestUid = tonumber(MY_UID) or 0
-        for uid, e in pairs(tbl) do
-            if uid ~= MY_UID and e.role == "host" then
-                otherHost = e
-            end
-            local num = tonumber(uid) or math.huge
-            if num < lowestUid then lowestUid = num end
-        end
-
-        local role
-        if me and me.role == "clone" and otherHost then
-            role = "clone"
-        elseif otherHost then
-            role = "clone"
-        elseif me and me.role == "host" then
-            role = "host"
-        else
-            -- Không có host: nếu chỉ có 1 mình hoặc mình có UserId nhỏ nhất thì nhận host
-            role = (lowestUid == (tonumber(MY_UID) or 0)) and "host" or "clone"
-        end
-
-        tbl[MY_UID] = {
-            userId = LocalPlayer.UserId,
-            name = LocalPlayer.Name,
-            role = role,
-            isBackHelp = false,
-            needsV3 = true,
-            sea = GetSea(),
-            jobId = tostring(game.JobId),
-            placeId = game.PlaceId,
-            playersCount = #Players:GetPlayers(),
-            maxPlayers = Players.MaxPlayers or 12,
-            updatedAt = now,
-        }
-    end)
-    if not cleaned then return nil, {}, nil, {} end
-    local activeList, hostEntry, cloneList = AnalyzeSkypieaSession(cleaned)
-    local myEntry = cleaned[MY_UID]
-    return myEntry and myEntry.role or "host", activeList, hostEntry, cloneList
-end
-
-local lastBhCheck = -999
-local function CheckAndClaimBackHelp()
-    if not (IsSkypieaRaceName(GetRace()) and (ConfirmedHasV3 or HasRaceV3())) then
-        return false
-    end
-
-    local nowClock = os.clock()
-    if (nowClock - lastBhCheck) < 2.2 then return false end
-    lastBhCheck = nowClock
-
-    local claimed = false
-    UpdateSkypieaSession(function(tbl, now)
-        local me = tbl[MY_UID]
-        if me and me.isBackHelp then
-            local hasClone = false
-            for uid, e in pairs(tbl) do
-                if uid ~= MY_UID and e.needsV3 ~= false then hasClone = true; break end
-            end
-            if hasClone then
-                claimed = true
-                me.sea = GetSea()
-                me.jobId = tostring(game.JobId)
-                me.placeId = game.PlaceId
-                me.playersCount = #Players:GetPlayers()
-                me.maxPlayers = Players.MaxPlayers or 12
-                me.updatedAt = now
-            else
-                tbl[MY_UID] = nil
-            end
-            return
-        end
-
-        -- Kiểm tra có đúng 1 acc host lẻ loi (không phải back-help) không
-        local count, loneUid, loneEntry = 0, nil, nil
-        for uid, e in pairs(tbl) do
-            count = count + 1
-            loneUid, loneEntry = uid, e
-        end
-        if count == 1 and loneUid ~= MY_UID and loneEntry and loneEntry.role == "host" and not loneEntry.isBackHelp and loneEntry.needsV3 ~= false then
-            loneEntry.role = "clone"
-            tbl[MY_UID] = {
-                userId = LocalPlayer.UserId,
-                name = LocalPlayer.Name,
-                role = "host",
-                isBackHelp = true,
-                needsV3 = false,
-                helpingTarget = loneUid,
-                sea = GetSea(),
-                jobId = tostring(game.JobId),
-                placeId = game.PlaceId,
-                playersCount = #Players:GetPlayers(),
-                maxPlayers = Players.MaxPlayers or 12,
-                updatedAt = now,
-            }
-            claimed = true
-        end
-    end)
-    return claimed
-end
-
-local function SyncBackHelpHost()
-    local stillNeeded = false
-    local cleaned = UpdateSkypieaSession(function(tbl, now)
-        local hasClone = false
-        for uid, e in pairs(tbl) do
-            if uid ~= MY_UID and e.needsV3 ~= false then
-                e.role = "clone" -- đảm bảo các acc cần V3 khác đều theo clone nếu còn lại host back-help
-                hasClone = true
-            end
-        end
-        if hasClone then
-            stillNeeded = true
-            tbl[MY_UID] = {
-                userId = LocalPlayer.UserId,
-                name = LocalPlayer.Name,
-                role = "host",
-                isBackHelp = true,
-                needsV3 = false,
-                sea = GetSea(),
-                jobId = tostring(game.JobId),
-                placeId = game.PlaceId,
-                playersCount = #Players:GetPlayers(),
-                maxPlayers = Players.MaxPlayers or 12,
-                updatedAt = now,
-            }
-        else
-            tbl[MY_UID] = nil
-        end
-    end)
-    local activeList, _, cloneList = AnalyzeSkypieaSession(cleaned or {})
-    return stillNeeded, activeList, cloneList
-end
-
--- ============================================================================
--- CHECK SAFE ZONE, PVP, STAT SWORD 2800, HỒI CHIÊU, SILENT AIM & TWEEN 0.1S
--- ============================================================================
-local function GetDistanceToPlayer(player)
-    local myHRP = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    local tHRP = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-    if myHRP and tHRP then
-        return (tHRP.Position - myHRP.Position).Magnitude
-    end
-    return nil
-end
-
-local function GetEnclosingSafeZone(pos, margin)
-    local m = margin or 0
-    local origin = workspace:FindFirstChild("_WorldOrigin")
-    local szFolder = (origin and origin:FindFirstChild("SafeZones")) or workspace:FindFirstChild("SafeZones")
-    if not szFolder then return nil end
-    for _, z in ipairs(szFolder:GetChildren()) do
-        if z:IsA("BasePart") then
-            local rel = z.CFrame:PointToObjectSpace(pos)
-            local half = z.Size / 2
-            if math.abs(rel.X) <= (half.X + m) and math.abs(rel.Y) <= (half.Y + m) and math.abs(rel.Z) <= (half.Z + m) then
-                return z
-            end
-        end
-    end
-    return nil
-end
-
-local function IsInSafeZone(player)
-    if player == LocalPlayer then
-        local pgui = LocalPlayer:FindFirstChild("PlayerGui")
-        local main = pgui and pgui:FindFirstChild("Main")
-        local sz = main and main:FindFirstChild("SafeZone")
-        if sz and sz.Visible then return true end
-        if pgui then
-            for _, d in ipairs(pgui:GetDescendants()) do
-                if d:IsA("TextLabel") and d.Visible and d.Text:lower():find("safe zone") then return true end
-            end
-        end
-    end
-
-    local char = player.Character
-    if not char then return false end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if hrp and GetEnclosingSafeZone(hrp.Position, 0) then return true end
-    if char:FindFirstChild("SafeZone") or char:FindFirstChild("InSafeZone") then return true end
-    for k, v in pairs(char:GetAttributes()) do
-        if k:lower():find("safezone") and (v == true or (type(v) == "number" and v > 0)) then return true end
-    end
-    local pData = player:FindFirstChild("Data")
-    if pData then
-        for _, v in ipairs(pData:GetChildren()) do
-            if v.Name:lower():find("safezone") and (v.Value == true or (type(v.Value) == "number" and v.Value > 0)) then return true end
-        end
-    end
-    for k, v in pairs(player:GetAttributes()) do
-        if k:lower():find("safezone") and (v == true or (type(v) == "number" and v > 0)) then return true end
-    end
-    return false
-end
-
-local function HasTruePvPDisabled(player)
-    if player == LocalPlayer then
-        local pgui = LocalPlayer:FindFirstChild("PlayerGui")
-        local main = pgui and pgui:FindFirstChild("Main")
-        local pd = main and main:FindFirstChild("PvpDisabled")
-        if pd and pd.Visible then return true end
-        if pgui then
-            for _, d in ipairs(pgui:GetDescendants()) do
-                if d:IsA("TextLabel") and d.Visible then
-                    local t = d.Text:lower()
-                    if t:find("pvp disabled") or t:find("died recently") then return true end
-                end
-            end
-        end
-    end
-
-    local char = player.Character
-    if not char then return true end
-    if char:FindFirstChildOfClass("ForceField") or char:FindFirstChild("PvpDisabled") then return true end
-    for k, v in pairs(char:GetAttributes()) do
-        if k:lower():find("pvpdisabled") and (v == true or (type(v) == "number" and v > 0)) then return true end
-    end
-    local pData = player:FindFirstChild("Data")
-    if pData then
-        local lvl = pData:FindFirstChild("Level")
-        if lvl and type(lvl.Value) == "number" and lvl.Value < 20 then return true end
-        for _, v in ipairs(pData:GetChildren()) do
-            local l = v.Name:lower()
-            if l:find("pvpdisabled") and (v.Value == true or (type(v.Value) == "number" and v.Value > 0)) then return true end
-            if l == "pvp" and v.Value == false then return true end
-        end
-    end
-    for k, v in pairs(player:GetAttributes()) do
-        local l = k:lower()
-        if l:find("pvpdisabled") and (v == true or (type(v) == "number" and v > 0)) then return true end
-        if l == "pvp" and v == false then return true end
-    end
-    return false
-end
-
-local function GetPvPStatus(player)
-    if IsInSafeZone(player) or HasTruePvPDisabled(player) then return "OFF" end
-    return "ON"
-end
-
-local lastPvpTry = 0
-local function EnsureMyPvPEnabled()
-    if Stopped() then return end
-    if HasTruePvPDisabled(LocalPlayer) or GetPvPStatus(LocalPlayer) == "OFF" then
-        local now = os.clock()
-        if (now - lastPvpTry) >= 1.2 then
-            lastPvpTry = now
-            pcall(function() CommF:InvokeServer("EnablePvp") end)
-        end
-    end
-end
-
-local function IsValidPvPTarget(player)
-    if not player or player == LocalPlayer or not player.Parent then return false, nil end
-    local ch = player.Character
-    local hum = ch and ch:FindFirstChildOfClass("Humanoid")
-    local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
-    if not (hum and hrp and hum.Health > 0) then return false, nil end
-    if GetPvPStatus(player) ~= "ON" then return false, nil end
-    local dist = GetDistanceToPlayer(player)
-    if not dist or dist > MAX_PVP_DIST then return false, nil end
-    return true, dist
-end
-
-local function IsValidSkypieaPvPTarget(player)
-    local ok, dist = IsValidPvPTarget(player)
-    if not ok then return false, nil end
-    if not IsSkypieaPlayer(player) then return false, nil end
-    return true, dist
-end
-
--- Giữ khóa cả khi mục tiêu đi vào Safe Zone (chỉ nhả khi chết / respawn / out game / ForceField PvP OFF thật / > 50k stud)
-local function IsLockedTargetValid(player, expectedChar, requireSkypiea)
-    if not player or player == LocalPlayer or not player.Parent then return false, nil end
-    if requireSkypiea and not IsSkypieaPlayer(player) then return false, nil end
-    local ch = player.Character
-    if expectedChar and ch ~= expectedChar then return false, nil end
-    local hum = ch and ch:FindFirstChildOfClass("Humanoid")
-    local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
-    if not (hum and hrp and hum.Health > 0) then return false, nil end
-    if HasTruePvPDisabled(player) then return false, nil end
-    local dist = GetDistanceToPlayer(player)
-    if not dist or dist > MAX_PVP_DIST then return false, nil end
-    return true, dist
-end
-
-local function CountSkypieaPvPPlayers()
-    local count = 0
-    for _, p in ipairs(Players:GetPlayers()) do
-        if IsValidSkypieaPvPTarget(p) then count = count + 1 end
-    end
-    return count
-end
-
-local function CountSkypieaPlayersInServer()
-    local count = 0
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and p.Parent and IsSkypieaPlayer(p) then
-            count = count + 1
-        end
-    end
-    return count
-end
-
--- Ưu tiên người có race Skypiea gần nhất chưa từng quá 3 phút; nếu hết ai khác mới chọn lại người quá 3 phút cũ nhất
-local function GetNextSoloSkypieaTarget(deprioritizedMap)
-    local bestFresh, bestFreshDist = nil, math.huge
-    local bestOld, bestOldTick = nil, math.huge
-    for _, p in ipairs(Players:GetPlayers()) do
-        local ok, dist = IsValidSkypieaPvPTarget(p)
-        if ok then
-            local depTick = deprioritizedMap and deprioritizedMap[p.UserId]
-            if not depTick then
-                if dist < bestFreshDist then
-                    bestFresh, bestFreshDist = p, dist
-                end
-            else
-                if depTick < bestOldTick then
-                    bestOld, bestOldTick = p, depTick
-                end
-            end
-        end
-    end
-    return bestFresh or bestOld
-end
-
-local function GetStatLevel(name)
-    local stats = Data:FindFirstChild("Stats")
-    local s = stats and stats:FindFirstChild(name)
-    if not s then return 0 end
-    local lvl = s:FindFirstChild("Level")
-    if lvl and tonumber(lvl.Value) then return tonumber(lvl.Value) end
-    return tonumber(s:GetAttribute("Level")) or 0
-end
-
-local function GetFreePoints()
-    local p = Data:FindFirstChild("Points")
-    return (p and tonumber(p.Value)) or 0
-end
-
-local function EnsureSwordStats2800()
-    if Stopped() then return end
-    local swordLvl = GetStatLevel("Sword")
-    if swordLvl >= 2800 then return end
-
-    local pts = GetFreePoints()
-    local need = 2800 - swordLvl
-    if pts >= need then
-        SetStatus(("Cộng %d điểm còn dư vào Sword (%d -> 2800)..."):format(need, swordLvl))
-        pcall(function() CommF:InvokeServer("AddPoint", "Sword", need) end)
-        SleepCheck(0.4)
-        return
-    end
-
-    if GetFragments() < 2500 then
-        SetStatus(("Thiếu Fragment để Reset Point (%d/2500) -> Cộng tạm %d vào Sword"):format(GetFragments(), pts))
-        if pts > 0 then pcall(function() CommF:InvokeServer("AddPoint", "Sword", pts) end) SleepCheck(0.3) end
-        return
-    end
-
-    SetStatus(("Sword %d + Dư %d < 2800 -> Reset Point (2500 Frag)..."):format(swordLvl, pts))
-    local oldPts = pts
-    pcall(function() CommF:InvokeServer("BlackbeardReward", "Refund", "1") end)
-    if not SleepCheck(0.2) then return end
-    pcall(function() CommF:InvokeServer("BlackbeardReward", "Refund", "2") end)
-
-    local t0 = os.clock()
-    while not Stopped() and (os.clock() - t0) < 2.5 do
-        if GetFreePoints() > oldPts then break end
-        task.wait(0.1)
-    end
-    if Stopped() or not SleepCheck(0.2) then return end
-
-    local newSword = GetStatLevel("Sword")
-    local newPts = GetFreePoints()
-    local addSword = math.min(math.max(0, 2800 - newSword), newPts)
-    if addSword > 0 then
-        SetStatus(("Cộng %d điểm vào Sword (mục tiêu 2800)..."):format(addSword))
-        pcall(function() CommF:InvokeServer("AddPoint", "Sword", addSword) end)
-        if not SleepCheck(0.35) then return end
-    end
-
-    local rem = GetFreePoints()
-    if rem > 0 then
-        local mPts = math.floor(rem / 2)
-        local dPts = rem - mPts
-        SetStatus(("Chia đều %d điểm còn lại -> Melee: %d | Defense: %d"):format(rem, mPts, dPts))
-        if mPts > 0 then pcall(function() CommF:InvokeServer("AddPoint", "Melee", mPts) end) SleepCheck(0.2) end
-        if dPts > 0 then pcall(function() CommF:InvokeServer("AddPoint", "Defense", dPts) end) SleepCheck(0.2) end
-    end
-end
-
-local function GetToolMastery(tool)
-    if not tool then return 0 end
-    local lvl = tool:FindFirstChild("Level") or tool:FindFirstChild("Mastery")
-    if lvl and tonumber(lvl.Value) then return tonumber(lvl.Value) end
-    return tonumber(tool:GetAttribute("Level") or tool:GetAttribute("Mastery")) or 0
-end
-
-local function GetPvPV3Sword()
-    local function checkHotbar(name)
-        local bp = LocalPlayer:FindFirstChild("Backpack")
-        local ch = LocalPlayer.Character
-        local t = (ch and ch:FindFirstChild(name)) or (bp and bp:FindFirstChild(name))
-        return t ~= nil and GetToolMastery(t) >= 350
-    end
-
-    local hasTushita = checkHotbar("Tushita")
-    local hasYama = checkHotbar("Yama")
-
-    if not hasTushita or not hasYama then
-        local ok, inv = pcall(function() return CommF:InvokeServer("getInventory") end)
-        if ok and type(inv) == "table" then
-            for _, v in pairs(inv) do
-                local n = tostring(v.Name or "")
-                local m = tonumber(v.Mastery or v.Level) or 0
-                if n == "Tushita" and m >= 350 then hasTushita = true end
-                if n == "Yama" and m >= 350 then hasYama = true end
-            end
-        end
-    end
-
-    local chosen = hasTushita and "Tushita" or (hasYama and "Yama" or nil)
-    if chosen then
-        local bp = LocalPlayer:FindFirstChild("Backpack")
-        local ch = LocalPlayer.Character
-        if not ((ch and ch:FindFirstChild(chosen)) or (bp and bp:FindFirstChild(chosen))) then
-            pcall(function() CommF:InvokeServer("LoadItem", chosen) end)
-            SleepCheck(0.5)
-        end
-    end
-    return chosen
-end
-
-local function FindToolByKind(kind, exactName)
-    local containers = { LocalPlayer.Character, LocalPlayer:FindFirstChild("Backpack") }
-    if exactName then
-        for _, c in ipairs(containers) do
-            local t = c and c:FindFirstChild(exactName)
-            if t and t:IsA("Tool") then return t end
-        end
-        return nil
-    end
-    for _, c in ipairs(containers) do
-        if c then
-            for _, t in ipairs(c:GetChildren()) do
-                if t:IsA("Tool") and t.ToolTip == kind then return t end
-            end
-        end
-    end
-    return nil
-end
-
-local SKILL_KEYS = {
-    { Name = "Z", Code = Enum.KeyCode.Z },
-    { Name = "X", Code = Enum.KeyCode.X },
-    { Name = "C", Code = Enum.KeyCode.C },
-}
-
-local function SetupSilentAimHooks()
-    if getgenv()._AutoSkypieaAimHooked then return end
-    if not (hookmetamethod and getnamecallmethod and checkcaller) then return end
-    getgenv()._AutoSkypieaAimHooked = true
-
-    local localMouse = LocalPlayer:GetMouse()
-    local wrap = newcclosure or function(f) return f end
-    local oldIndex, oldNamecall
-    local inIndex, inNamecall = false, false
-
-    pcall(function()
-        oldIndex = hookmetamethod(game, "__index", wrap(function(self, k)
-            if inIndex or getgenv()._AutoSkypieaV3Stop == true then
-                return oldIndex(self, k)
-            end
-            local aimPos = getgenv()._AutoSkypieaAimPos
-            if not aimPos then
-                return oldIndex(self, k)
-            end
-            if k ~= "Hit" and k ~= "Target" and k ~= "Origin" and k ~= "UnitRay" then
-                return oldIndex(self, k)
-            end
-            if not rawequal(self, localMouse) or checkcaller() then
-                return oldIndex(self, k)
-            end
-
-            inIndex = true
-            local orig = getgenv()._AutoSkypieaAimCamPos or aimPos
-            local dir = aimPos - orig
-            local res
-            if k == "Hit" then
-                res = CFrame.new(aimPos)
-            elseif k == "Target" then
-                res = getgenv()._AutoSkypieaAimHRP
-            elseif k == "Origin" then
-                res = (dir.Magnitude > 0.1) and CFrame.lookAt(orig, aimPos) or CFrame.new(aimPos)
-            elseif k == "UnitRay" then
-                res = Ray.new(orig, (dir.Magnitude > 0.1) and dir.Unit or Vector3.new(0, 0, -1))
-            end
-            inIndex = false
-            return res
-        end))
-    end)
-
-    pcall(function()
-        oldNamecall = hookmetamethod(game, "__namecall", wrap(function(self, ...)
-            if inNamecall or getgenv()._AutoSkypieaV3Stop == true then
-                return oldNamecall(self, ...)
-            end
-            local aimPos = getgenv()._AutoSkypieaAimPos
-            if not aimPos or checkcaller() then
-                return oldNamecall(self, ...)
-            end
-
-            local m = getnamecallmethod()
-            if m == "ViewportPointToRay" or m == "ScreenPointToRay" then
-                if rawequal(self, getgenv()._AutoSkypieaAimCam) then
-                    local orig = getgenv()._AutoSkypieaAimCamPos
-                    if orig then
-                        local dir = aimPos - orig
-                        if dir.Magnitude > 0.1 then
-                            return Ray.new(orig, dir.Unit)
-                        end
-                    end
-                end
-                return oldNamecall(self, ...)
-            end
-
-            if m == "FireServer" or m == "InvokeServer" then
-                inNamecall = true
-                local isTargetRemote = false
-                if oldIndex then
-                    local ok, matched = pcall(function()
-                        local cn = oldIndex(self, "ClassName")
-                        if cn ~= "RemoteEvent" and cn ~= "RemoteFunction" then return false end
-                        local nm = oldIndex(self, "Name")
-                        if nm == "CommE" then return true end
-                        local ch = getgenv()._AutoSkypieaMyChar
-                        if ch then
-                            local p1 = oldIndex(self, "Parent")
-                            if rawequal(p1, ch) then return true end
-                            local p2 = p1 and oldIndex(p1, "Parent")
-                            if rawequal(p2, ch) then return true end
-                        end
-                        return false
-                    end)
-                    isTargetRemote = ok and matched == true
-                end
-                inNamecall = false
-
-                if isTargetRemote then
-                    local args = { ... }
-                    if type(args[1]) == "string" and (args[1] == "Dodge" or args[1] == "DoubleJump") then
-                        return oldNamecall(self, ...)
-                    end
-                    local changed = false
-                    for i, v in ipairs(args) do
-                        if typeof(v) == "Vector3" then
-                            args[i] = aimPos
-                            changed = true
-                        elseif typeof(v) == "CFrame" then
-                            args[i] = CFrame.new(aimPos)
-                            changed = true
-                        end
-                    end
-                    if changed then
-                        return oldNamecall(self, unpack(args))
-                    end
-                end
-            end
-
-            return oldNamecall(self, ...)
-        end))
-    end)
-end
-
-local function IsSkillReady(key)
-    local main = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("Main")
-    local skills = main and main:FindFirstChild("Skills")
-    local box = skills or main
-    if not box or (skills and not skills.Visible) then return false end
-
-    local function visibleChain(obj)
-        while obj and obj ~= main do
-            if obj:IsA("GuiObject") and not obj.Visible then return false end
-            obj = obj.Parent
-        end
-        return true
-    end
-
-    local slot = box:FindFirstChild(key, true) or box:FindFirstChild("[" .. key .. "]", true) or box:FindFirstChild(key:lower(), true)
-    if not (slot and slot:IsA("GuiObject") and visibleChain(slot)) then
-        slot = nil
-        for _, d in ipairs(box:GetDescendants()) do
-            if (d:IsA("TextLabel") or d:IsA("TextButton")) and visibleChain(d) then
-                local c = d.Text:gsub("%s+", ""):upper()
-                if (c == "[" .. key .. "]" or c == key) and d.Parent and d.Parent:IsA("GuiObject") then
-                    slot = d.Parent; break
-                end
-            end
-        end
-    end
-    if not slot then return false end
-
-    local titleObj = slot:FindFirstChild("Title") or slot:FindFirstChild("SkillTitle") or slot:FindFirstChild("Name")
-    local title = (titleObj and titleObj:IsA("TextLabel") and titleObj.Text) or ""
-    if title == "" then
-        for _, lbl in ipairs(slot:GetDescendants()) do
-            if lbl:IsA("TextLabel") and lbl.Visible and #lbl.Text > 0 then
-                local tl = lbl.Text:lower()
-                if not (tl:find("%[" .. key:lower() .. "%]") or tl == key:lower() or tl:find("thông thạo") or tl:find("mastery") or tl:find("tối đa") or tl:find("/")) then
-                    title = lbl.Text; break
-                end
-            end
-        end
-    end
-    local tl = title:lower()
-    if tl:find("locked") or tl:find("chưa mở") then return false end
-
-    local cd = slot:FindFirstChild("Cooldown") or slot:FindFirstChild("CooldownBar") or slot:FindFirstChild("CD")
-    if not cd then
-        for _, ch in ipairs(slot:GetChildren()) do
-            if (ch:IsA("Frame") or ch:IsA("ImageLabel")) and ch.Name:lower():find("cool") then cd = ch; break end
-        end
-    end
-    if cd and cd:IsA("GuiObject") and cd.Visible and (cd.Size.X.Scale > 0.02 or cd.AbsoluteSize.X > 4) then
-        return false
-    end
-    return true
-end
-
-local function GetReadySkillsForTool(tool)
-    if not tool or Stopped() then return {} end
-    local char = LocalPlayer.Character
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    if not (hum and hum.Health > 0) then return {} end
-    if tool.Parent ~= char then
-        pcall(function() hum:EquipTool(tool) end)
-        if not SleepCheck(0.1) then return {} end
-    end
-    local ready = {}
-    for _, sk in ipairs(SKILL_KEYS) do
-        if IsSkillReady(sk.Name) then table.insert(ready, sk) end
-    end
-    return ready
-end
-
-local function CastReadySkills(tool, readyKeys, targetHRP)
-    if not tool or not readyKeys or #readyKeys == 0 or Stopped() then return end
-    local char = LocalPlayer.Character
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    local myHRP = char and char:FindFirstChild("HumanoidRootPart")
-    if not (hum and hum.Health > 0 and myHRP and targetHRP and targetHRP.Parent) then return end
-
-    if tool.Parent ~= char then
-        pcall(function() hum:EquipTool(tool) end)
-        if not SleepCheck(0.1) then return end
-    end
-
-    for _, sk in ipairs(readyKeys) do
-        if Stopped() or not targetHRP.Parent then return end
-        local tHum = targetHRP.Parent:FindFirstChildOfClass("Humanoid")
-        if not tHum or tHum.Health <= 0 then return end
-        if (targetHRP.Position - myHRP.Position).Magnitude > 22 then return end
-        if IsSkillReady(sk.Name) then
-            getgenv()._AutoSkypieaAimHRP = targetHRP
-            getgenv()._AutoSkypieaAimPos = targetHRP.Position
-            pcall(function()
-                VIM:SendKeyEvent(true, sk.Code, false, game)
-                task.wait(0.08)
-                VIM:SendKeyEvent(false, sk.Code, false, game)
-            end)
-            if not SleepCheck(0.15) then return end
-        end
-    end
-end
-
-local function EnsurePvPTweenLoop(getTargetFn)
-    SetupSilentAimHooks()
-
-    if not ActiveNoclip then
-        ActiveNoclip = RunService.Stepped:Connect(function()
-            if Stopped() then return end
-            local myChar = LocalPlayer.Character
-            getgenv()._AutoSkypieaMyChar = myChar
-            local myHum = myChar and myChar:FindFirstChildOfClass("Humanoid")
-            local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
-            if myChar and myChar.Parent then
-                for _, p in ipairs(myChar:GetDescendants()) do
-                    if p:IsA("BasePart") and p.CanCollide then p.CanCollide = false end
-                end
-            end
-            if myHum and myHum.Health > 0 then
-                if myHum.Sit then myHum.Sit = false end
-                pcall(function()
-                    myHum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-                    myHum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-                end)
-            end
-            if myHRP and myHRP.Parent then
-                EnsureAntiGravity(myHRP)
-                myHRP.AssemblyLinearVelocity = Vector3.zero
-                myHRP.AssemblyAngularVelocity = Vector3.zero
-            end
-        end)
-    end
-
-    if ActivePvPConn then return end
-    local lastTween = 0
-    ActivePvPConn = RunService.Heartbeat:Connect(function()
-        if Stopped() then StopPvPTween() return end
-        local cam = workspace.CurrentCamera
-        getgenv()._AutoSkypieaAimCam = cam
-        getgenv()._AutoSkypieaAimCamPos = cam and cam.CFrame.Position or nil
-
-        local target = getTargetFn()
-        if not target or not target.Parent then
-            ClearAimState()
-            CancelActiveTween()
-            return
-        end
-
-        local myChar = LocalPlayer.Character
-        local tChar = target.Character
-        local myHum = myChar and myChar:FindFirstChildOfClass("Humanoid")
-        local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
-        local tHRP = tChar and tChar:FindFirstChild("HumanoidRootPart")
-        local tHum = tChar and tChar:FindFirstChildOfClass("Humanoid")
-        if not (myHum and myHum.Health > 0 and myHRP and tHRP and tHum and tHum.Health > 0) then
-            ClearAimState()
-            CancelActiveTween()
-            return
-        end
-
-        if not hoverAboveMode then
-            getgenv()._AutoSkypieaAimHRP = tHRP
-            getgenv()._AutoSkypieaAimPos = tHRP.Position
-        else
-            getgenv()._AutoSkypieaAimHRP = nil
-            getgenv()._AutoSkypieaAimPos = nil
-        end
-
-        if (tHRP.Position - myHRP.Position).Magnitude > MAX_PVP_DIST then
-            CancelActiveTween()
-            return
-        end
-
-        local goalPos = hoverAboveMode
-            and (tHRP.Position + Vector3.new(0, 60, 0))
-            or (tHRP.CFrame * CFrame.new(0, 0.5, 2)).Position
-        local goalDist = (goalPos - myHRP.Position).Magnitude
-
-        if goalDist <= 3 then
-            CancelActiveTween()
-            local lookAt = Vector3.new(tHRP.Position.X, myHRP.Position.Y, tHRP.Position.Z)
-            if (lookAt - myHRP.Position).Magnitude > 0.1 then
-                myHRP.CFrame = CFrame.new(myHRP.Position, lookAt)
-            end
-            return
-        end
-
-        local now = os.clock()
-        if (now - lastTween) >= 0.1 then
-            lastTween = now
-            CancelActiveTween()
-            local dur = math.max(goalDist / TWEEN_SPEED, 0.02)
-            local lookAt = Vector3.new(tHRP.Position.X, goalPos.Y, tHRP.Position.Z)
-            local goalCF = (not hoverAboveMode and (lookAt - goalPos).Magnitude > 0.1)
-                and CFrame.new(goalPos, lookAt)
-                or CFrame.new(goalPos)
-            ActiveTween = TweenService:Create(myHRP, TweenInfo.new(dur, Enum.EasingStyle.Linear), { CFrame = goalCF })
-            ActiveTween:Play()
-        end
-    end)
-end
-
--- ============================================================================
--- CO-OP HOST TẾ MẠNG (RA KHỎI SAFE ZONE, BẬT PVP CHO CLONE ĐÁNH)
--- ============================================================================
-local function FindSafeOutdoorSpot(myPos)
-    local z = GetEnclosingSafeZone(myPos, 4)
-    if z then
-        local half = z.Size / 2
-        local dirs = {
-            z.CFrame.LookVector * (half.Z + 35),
-            -z.CFrame.LookVector * (half.Z + 35),
-            z.CFrame.RightVector * (half.X + 35),
-            -z.CFrame.RightVector * (half.X + 35),
-        }
-        local bestPos, bestDist = nil, math.huge
-        for _, off in ipairs(dirs) do
-            local cand = Vector3.new(z.Position.X + off.X, math.max(myPos.Y, z.Position.Y) + 18, z.Position.Z + off.Z)
-            if not GetEnclosingSafeZone(cand, 4) then
-                local d = (cand - myPos).Magnitude
-                if d < bestDist then
-                    bestPos, bestDist = cand, d
-                end
-            end
-        end
-        if bestPos then return bestPos end
-    end
-    return Vector3.new(-380, 95, 300)
-end
-
-local function RunCoopHost(isBackHelp)
-    StopPvPTween()
-    if GetSea() ~= 2 then
-        TravelToSea(2)
-        return
-    end
-    if getgenv()._RealKidMainRunning or getgenv()._RealKidHopRunning then
-        HopLow()
-        return
-    end
-
-    -- Chọn team Marines để không bị trùng Crew Pirate chặn sát thương với clone
-    EnsureTeam("Marines")
-    if Stopped() then return end
-
-    local fullWaitSince = 0
-    while not Stopped() do
-        local keepGoing, clones
-        if isBackHelp then
-            local okNeed, _, cl = SyncBackHelpHost()
-            keepGoing, clones = okNeed, cl
-            if not keepGoing then
-                CleanupMovement()
-                SetStatus("Back-Help hoàn tất (Clone đã lên Skypiea V3)! Quay lại Sea 3...")
-                TravelToSea(3)
-                return
-            end
-        else
-            local myRole, activeList, _, cl = SyncV3SessionEntry()
-            clones = cl
-            if HasRaceV3() then
-                CleanupMovement()
-                return
-            end
-            if myRole ~= "host" or #activeList < 2 then
-                CleanupMovement()
-                return
-            end
-        end
-
-        -- Kiểm tra slot server: nếu full khiến clone chưa kịp join -> Hop Low
-        local missingClones = 0
-        for _, c in ipairs(clones or {}) do
-            if tostring(c.jobId) ~= tostring(game.JobId) then
-                missingClones = missingClones + 1
-            end
-        end
-        local maxP = Players.MaxPlayers or 12
-        local freeSlots = maxP - #Players:GetPlayers()
-        if missingClones > 0 and freeSlots < missingClones then
-            CleanupMovement()
-            SetStatus(("Server đầy (%d/%d) còn %d Clone chưa vào -> Hop Low!"):format(#Players:GetPlayers(), maxP, missingClones))
-            HopLow()
-            return
-        elseif missingClones > 0 and #Players:GetPlayers() >= (maxP - 1) then
-            if fullWaitSince == 0 then fullWaitSince = os.clock() end
-            if (os.clock() - fullWaitSince) >= 20 then
-                CleanupMovement()
-                SetStatus("Server quá đông, Clone chưa join kịp -> Hop Low!")
-                HopLow()
-                return
-            end
-        else
-            fullWaitSince = 0
-        end
-
-        local char, hum, myHRP = WaitAlive()
-        if Stopped() or not char then break end
-        if not LocalPlayer.Team or LocalPlayer.Team.Name ~= "Marines" then
-            EnsureTeam("Marines")
-        end
-
-        -- Giữ Anti-Gravity + Noclip liên tục để đứng ngoài Safe Zone chờ clone đánh
-        if not ActiveNoclip then
-            ActiveNoclip = RunService.Stepped:Connect(function()
-                if Stopped() then return end
-                local ch = LocalPlayer.Character
-                local h = ch and ch:FindFirstChildOfClass("Humanoid")
-                local r = ch and ch:FindFirstChild("HumanoidRootPart")
-                if ch and ch.Parent then
-                    for _, p in ipairs(ch:GetDescendants()) do
-                        if p:IsA("BasePart") and p.CanCollide then p.CanCollide = false end
-                    end
-                end
-                if h and h.Health > 0 and h.Sit then h.Sit = false end
-                if r and r.Parent then
-                    EnsureAntiGravity(r)
-                    r.AssemblyLinearVelocity = Vector3.zero
-                    r.AssemblyAngularVelocity = Vector3.zero
-                end
-            end)
-        end
-
-        if IsInSafeZone(LocalPlayer) then
-            local outPos = FindSafeOutdoorSpot(myHRP.Position)
-            SetStatus(("%s: Đang bay ra ngoài Safe Zone để Clone đánh..."):format(isBackHelp and "Back-Help Host" or "Co-op Host"))
-            local d = (outPos - myHRP.Position).Magnitude
-            CancelActiveTween()
-            ActiveTween = TweenService:Create(myHRP, TweenInfo.new(math.max(d / TWEEN_SPEED, 0.05), Enum.EasingStyle.Linear), { CFrame = CFrame.new(outPos) })
-            ActiveTween:Play()
-            SleepCheck(0.8)
-        else
-            CancelActiveTween()
-            EnsureMyPvPEnabled()
-            SetStatus(("%s: Đứng ngoài Safe Zone (PvP ON) | Clones: %d"):format(isBackHelp and "Back-Help Host" or "Co-op Host", #(clones or {})))
-            SleepCheck(1.2)
-        end
-    end
-    CleanupMovement()
-end
-
--- ============================================================================
--- CHECK INVENTORY / PULL LEVER / BOSS TARGET (KÈM BACK-HELP WATCHER)
--- ============================================================================
+-- Cô lập require() sang worker thread riêng để luồng chính không bị hạ capability
 local function CheckInvItems()
     local hasHelm, hasMirror = false, false
     local usedReplication, done = false, false
@@ -1961,9 +843,34 @@ local function IsLeverPulled()
     return ok and res == true
 end
 
+local function TravelToSea(targetSea)
+    while not Stopped() and GetSea() ~= targetSea do
+        SetStatus("Đang chuyển sang Sea " .. tostring(targetSea) .. "...")
+        if targetSea == 2 then
+            pcall(function() CommF:InvokeServer("TravelDressrosa") end)
+        elseif targetSea == 3 then
+            pcall(function() CommF:InvokeServer("TravelZou") end)
+            if not SleepCheck(3) then return false end
+            if GetSea() ~= 3 then pcall(function() CommF:InvokeServer("TravelDressrosa") end) end
+        end
+        if not SleepCheck(4) then return false end
+    end
+    return not Stopped() and GetSea() == targetSea
+end
+
+local function TryRerollMink()
+    while not Stopped() and not IsMink() and GetFragments() >= 3000 do
+        SetStatus(("Đang roll race (%s) tìm Mink | Frag: %d"):format(GetRace(), GetFragments()))
+        pcall(function() CommF:InvokeServer("BlackbeardReward", "Reroll", "1") end)
+        pcall(function() CommF:InvokeServer("BlackbeardReward", "Reroll", "2") end)
+        if not SleepCheck(0.9) then return false end
+    end
+    return IsMink()
+end
+
+-- Pre-Tween 190 -> Bật RealKidHop -> Chạy chung Night Hub API song song nếu server chưa có boss
 local function RunSea3BossTarget(destination, preTweenPos, waitMsgFn, doneCheckFn)
     if Stopped() then return end
-    if CheckAndClaimBackHelp() then CleanupMovement(); TravelToSea(2); return end
     if GetSea() ~= 3 then TravelToSea(3) end
     if Stopped() then return end
 
@@ -1975,7 +882,6 @@ local function RunSea3BossTarget(destination, preTweenPos, waitMsgFn, doneCheckF
         local bossDiedTick = 0
 
         while not Stopped() and task.wait(1.5) do
-            if CheckAndClaimBackHelp() then CleanupMovement(); TravelToSea(2); return end
             SetStatus(waitMsgFn())
             if doneCheckFn() then return end
 
@@ -1999,357 +905,27 @@ local function RunSea3BossTarget(destination, preTweenPos, waitMsgFn, doneCheckF
 end
 
 -- ============================================================================
--- CHẾ ĐỘ SKYPIEA V3 CHÍNH (SOLO KILL 1 SKYPIEA 3M/SAFEZONE + CO-OP CLONE/HOST)
--- ============================================================================
-local function RunSkypieaV3Phase()
-    if GetSea() ~= 2 then TravelToSea(2) end
-    if Stopped() then return end
-
-    local chosenSword = nil
-    local statsChecked = false
-    local deprioritized = {}
-
-    local function CheckWenlock()
-        local ok, rs = pcall(function() return CommF:InvokeServer("Wenlocktoad", "1") end)
-        if not ok then return nil end
-        if rs == -2 then
-            ConfirmedHasV3 = true
-            return -2
-        end
-        if rs == 0 then
-            SetStatus("Starting Trial (Wenlocktoad 2)...")
-            pcall(function() CommF:InvokeServer("Wenlocktoad", "2") end)
-            SleepCheck(0.4)
-        elseif rs == 2 then
-            SetStatus("Đủ kill Skypiea -> Trả nhiệm vụ Skypiea V3 (Wenlocktoad 3)...")
-            pcall(function() CommF:InvokeServer("Wenlocktoad", "3") end)
-            SleepCheck(0.5)
-        end
-        return rs
-    end
-
-    local function PrepareV3Weapons()
-        if statsChecked then
-            if chosenSword and not FindToolByKind(nil, chosenSword) then
-                pcall(function() CommF:InvokeServer("LoadItem", chosenSword) end)
-            end
-            return
-        end
-        chosenSword = GetPvPV3Sword()
-        if chosenSword then EnsureSwordStats2800() end
-        statsChecked = true
-    end
-
-    local function EngageTargetStep(targetPlayer, tChar, myHRP, startTick, labelPrefix)
-        local tHRP = tChar:FindFirstChild("HumanoidRootPart")
-        local tHum = tChar:FindFirstChildOfClass("Humanoid")
-        if not (tHRP and tHum and tHum.Health > 0) then return false end
-
-        local elapsedMin = (os.clock() - startTick) / 60
-        local realDist = (tHRP.Position - myHRP.Position).Magnitude
-
-        if IsInSafeZone(targetPlayer) then
-            hoverAboveMode = true
-            SetStatus(("%s: %s vào Safe Zone (giữ khóa, +60 stud) | %.0fm"):format(labelPrefix, targetPlayer.DisplayName, elapsedMin))
-            SleepCheck(0.2)
-            return true
-        end
-
-        local weapons = {}
-        if chosenSword then
-            local sw = FindToolByKind(nil, chosenSword)
-            if sw then table.insert(weapons, sw) end
-        end
-        local ml = FindToolByKind("Melee")
-        if ml then table.insert(weapons, ml) end
-
-        local activeTool, readyKeys = nil, nil
-        for _, w in ipairs(weapons) do
-            local rk = GetReadySkillsForTool(w)
-            if #rk > 0 then
-                activeTool, readyKeys = w, rk
-                break
-            end
-        end
-
-        if activeTool then
-            hoverAboveMode = false
-            SetStatus(("%s: %s [%.0f stud] | Spam %s | %.0fm"):format(labelPrefix, targetPlayer.DisplayName, realDist, activeTool.Name, elapsedMin))
-            if realDist <= 22 then
-                CastReadySkills(activeTool, readyKeys, tHRP)
-                if not Stopped() and (not tHum.Parent or tHum.Health <= 0) then
-                    pcall(function() CommF:InvokeServer("Wenlocktoad", "3") end)
-                    SleepCheck(0.25)
-                end
-            else
-                SleepCheck(0.1)
-            end
-        else
-            hoverAboveMode = true
-            SetStatus(("%s: %s [%.0f stud] | Hồi chiêu (+60 stud) | %.0fm"):format(labelPrefix, targetPlayer.DisplayName, realDist, elapsedMin))
-            SleepCheck(0.15)
-        end
-        return true
-    end
-
-    while not Stopped() do
-        local stW = CheckWenlock()
-        if HasRaceV3() or stW == -2 then
-            ConfirmedHasV3 = true
-            StopPvPTween()
-            RemoveFromSkypieaSession()
-            SetStatus("Đã xong Skypiea V3! Đang TP sang Sea 3...")
-            TravelToSea(3)
-            return
-        end
-
-        local myRole, activeList, hostEntry = SyncV3SessionEntry()
-
-        -- CO-OP MODE (>= 2 acc trong skypieasession.txt)
-        if #activeList >= 2 then
-            if myRole == "host" then
-                RunCoopHost(false)
-            else
-                -- CLONE MODE
-                StopPvPTween()
-                if not hostEntry or hostEntry.sea ~= 2 or tostring(hostEntry.jobId or "") == "" then
-                    SetStatus("Co-op Clone: Đợi Host vào Sea 2...")
-                    SleepCheck(2)
-                elseif tostring(hostEntry.jobId) ~= tostring(game.JobId) then
-                    SetStatus(("Co-op Clone -> Join server Host (%s)..."):format(tostring(hostEntry.name)))
-                    DirectTeleport(tostring(hostEntry.jobId), tonumber(hostEntry.placeId) or game.PlaceId)
-                    SleepCheck(4)
-                else
-                    -- Chung server Sea 2 với Host -> bật PvP & đánh Host đến khi lên V3
-                    EnsureTeam("Pirates")
-                    EnsureMyPvPEnabled()
-                    PrepareV3Weapons()
-                    local cloneStart = os.clock()
-                    local hostPlayer = nil
-                    EnsurePvPTweenLoop(function() return hostPlayer end)
-
-                    local lastSync = 0
-                    while not Stopped() do
-                        local curW = CheckWenlock()
-                        if HasRaceV3() or curW == -2 then
-                            ConfirmedHasV3 = true
-                            StopPvPTween()
-                            RemoveFromSkypieaSession()
-                            SetStatus("Co-op Clone xong Skypiea V3! Đang sang Sea 3...")
-                            TravelToSea(3)
-                            return
-                        end
-
-                        if (os.clock() - lastSync) >= 2 then
-                            lastSync = os.clock()
-                            local r2, list2, h2 = SyncV3SessionEntry()
-                            hostEntry = h2
-                            if #list2 < 2 or r2 == "host" or not h2 or h2.sea ~= 2 or tostring(h2.jobId) ~= tostring(game.JobId) then
-                                StopPvPTween()
-                                break
-                            end
-                        end
-
-                        local char, _, myHRP = WaitAlive()
-                        if Stopped() or not char then break end
-                        if not char:FindFirstChild("HasBuso") then pcall(function() CommF:InvokeServer("Buso") end) end
-                        if not LocalPlayer.Team or LocalPlayer.Team.Name ~= "Pirates" then EnsureTeam("Pirates") end
-                        EnsureMyPvPEnabled()
-                        PrepareV3Weapons()
-
-                        hostPlayer = Players:GetPlayerByUserId(tonumber(hostEntry.userId)) or Players:FindFirstChild(tostring(hostEntry.name))
-                        if hostPlayer and hostPlayer.Character and IsLockedTargetValid(hostPlayer, hostPlayer.Character, false) then
-                            EngageTargetStep(hostPlayer, hostPlayer.Character, myHRP, cloneStart, "Co-op Kill Host")
-                        else
-                            hoverAboveMode = false
-                            SetStatus(("Co-op Clone: Đợi Host (%s) ra khỏi Safe Zone / bật PvP..."):format(tostring(hostEntry.name)))
-                            SleepCheck(0.4)
-                        end
-                    end
-                    StopPvPTween()
-                end
-            end
-        else
-            -- SOLO MODE (< 2 acc trong skypieasession.txt): chỉ cần kill 1 người có race Skypiea
-            EnsureTeam("Pirates")
-            EnsureMyPvPEnabled()
-            if Stopped() then break end
-
-            -- Đợi ngắn 2.5s cho player/Data load sau hop, đồng thời vẫn bắt chuyển Co-op nếu có acc khác vừa vào session
-            local switchToCoop = false
-            if CountSkypieaPvPPlayers() < 1 then
-                local waitRep = os.clock()
-                while not Stopped() and (os.clock() - waitRep) < 2.5 do
-                    local rWait, lWait = SyncV3SessionEntry()
-                    if #lWait >= 2 or rWait == "clone" then
-                        switchToCoop = true
-                        break
-                    end
-                    if CountSkypieaPvPPlayers() >= 1 then break end
-                    task.wait(0.25)
-                end
-            end
-
-            if not switchToCoop then
-                local rCheck, lCheck = SyncV3SessionEntry()
-                if #lCheck >= 2 or rCheck == "clone" then
-                    switchToCoop = true
-                end
-            end
-
-            if not switchToCoop then
-                if CountSkypieaPvPPlayers() < 1 then
-                    SetStatus(("Solo Skypiea V3: Có %d/1 Skypiea PvP ON (Tổng Skypiea: %d) -> Hop High (11/12)..."):format(CountSkypieaPvPPlayers(), CountSkypieaPlayersInServer()))
-                    HopHigh()
-                    return
-                end
-
-                PrepareV3Weapons()
-                if Stopped() then break end
-
-                local v3Start = os.clock()
-                local currentTarget, lockedChar, lockStart = nil, nil, 0
-                local noTargetSince = 0
-                local lastSync = 0
-                EnsurePvPTweenLoop(function() return currentTarget end)
-
-                while not Stopped() do
-                    if (os.clock() - v3Start) >= SKYPIEA_V3_TIMEOUT then
-                        StopPvPTween()
-                        SetStatus("Up Skypiea V3 quá 45 phút trong server này -> Hop Low!")
-                        HopLow()
-                        return
-                    end
-
-                    local curStat = CheckWenlock()
-                    if HasRaceV3() or curStat == -2 then
-                        ConfirmedHasV3 = true
-                        StopPvPTween()
-                        RemoveFromSkypieaSession()
-                        SetStatus("Đã hoàn thành Skypiea V3! Đang TP sang Sea 3...")
-                        TravelToSea(3)
-                        return
-                    end
-
-                    if (os.clock() - lastSync) >= 2 then
-                        lastSync = os.clock()
-                        local r2, list2 = SyncV3SessionEntry()
-                        if #list2 >= 2 or r2 == "clone" then
-                            StopPvPTween()
-                            SetStatus("Phát hiện Co-op / Back-Help -> Chuyển sang chế độ Co-op!")
-                            break
-                        end
-                    end
-
-                    local char, _, myHRP = WaitAlive()
-                    if Stopped() or not char then break end
-                    if not char:FindFirstChild("HasBuso") then pcall(function() CommF:InvokeServer("Buso") end) end
-                    if not LocalPlayer.Team or LocalPlayer.Team.Name ~= "Pirates" then EnsureTeam("Pirates") end
-                    EnsureMyPvPEnabled()
-                    PrepareV3Weapons()
-
-                    -- Kiểm tra hết hạn lock 3 phút hoặc mục tiêu chết / PvP OFF thật / đổi race / out game
-                    if currentTarget then
-                        if not IsLockedTargetValid(currentTarget, lockedChar, true) then
-                            local deadOrRespawn = (not currentTarget.Parent) or (currentTarget.Character ~= lockedChar)
-                                or (not lockedChar or not lockedChar:FindFirstChildOfClass("Humanoid") or lockedChar:FindFirstChildOfClass("Humanoid").Health <= 0)
-                            if deadOrRespawn then
-                                pcall(function() CommF:InvokeServer("Wenlocktoad", "3") end)
-                            end
-                            currentTarget, lockedChar, lockStart = nil, nil, 0
-                        elseif (os.clock() - lockStart) >= LOCK_TIMEOUT then
-                            deprioritized[currentTarget.UserId] = os.clock()
-                            SetStatus(("Quá 3p chưa kill được %s -> Đổi mục tiêu Skypiea khác!"):format(currentTarget.DisplayName))
-                            currentTarget, lockedChar, lockStart = nil, nil, 0
-                        end
-                    end
-
-                    if not currentTarget then
-                        local nextT = GetNextSoloSkypieaTarget(deprioritized)
-                        if nextT and nextT.Character then
-                            currentTarget = nextT
-                            lockedChar = nextT.Character
-                            lockStart = os.clock()
-                            noTargetSince = 0
-                        end
-                    else
-                        noTargetSince = 0
-                    end
-
-                    if currentTarget and lockedChar and lockedChar.Parent then
-                        local kept = EngageTargetStep(currentTarget, lockedChar, myHRP, lockStart, "Solo Lock Skypiea")
-                        if not kept then
-                            currentTarget, lockedChar, lockStart = nil, nil, 0
-                            SleepCheck(0.15)
-                        end
-                    else
-                        hoverAboveMode = false
-                        if noTargetSince == 0 then noTargetSince = os.clock() end
-                        local skypieaTotal = CountSkypieaPlayersInServer()
-                        local waitElapsed = os.clock() - noTargetSince
-                        if (skypieaTotal == 0 and waitElapsed >= 5) or waitElapsed >= 15 then
-                            StopPvPTween()
-                            SetStatus(("Không còn mục tiêu Skypiea PvP ON (%d Skypiea) -> Hop High (11/12)!"):format(skypieaTotal))
-                            HopHigh()
-                            return
-                        end
-                        SetStatus(("Chờ player Skypiea PvP ON (<= 50k stud)... | %.0fm/45m"):format((os.clock() - v3Start) / 60))
-                        SleepCheck(0.4)
-                    end
-                end
-                StopPvPTween()
-            end
-        end
-    end
-end
-
--- ============================================================================
 -- LUỒNG CHÍNH (STATE MACHINE)
 -- ============================================================================
-EnsureTeam(nil)
+EnsureTeam()
 if Stopped() then return end
 
-local hasV3 = HasRaceV3()
-if not hasV3 and IsSkypieaRaceName(GetRace()) then
-    local okW, wStat = pcall(function() return CommF:InvokeServer("Wenlocktoad", "1") end)
-    if okW and wStat == -2 then
-        hasV3 = true
-        ConfirmedHasV3 = true
-    end
-end
-
--- 0. CHECK NẾU MÌNH ĐANG LÀM BACK-HELP HOST TRONG SKYPIEASESSION.TXT
-if IsSkypieaRaceName(GetRace()) and hasV3 and CheckAndClaimBackHelp() then
-    RunCoopHost(true)
-    return
-end
-
--- 1. CHƯA PHẢI SKYPIEA -> ROLL RACE LẤY SKYPIEA V1 (THIẾU FRAG THÌ FARM CAKE QUEEN)
-if not IsSkypieaRaceName(GetRace()) then
-    if GetFragments() >= REROLL_COST and GetSea() ~= 2 and GetSea() ~= 3 then
-        TravelToSea(2)
+-- 1. CHECK RACE HIỆN TẠI -> CHƯA MINK THÌ ROLL (3K FRAG)
+if not IsMink() then
+    if GetFragments() >= 3000 then
+        if GetSea() == 1 then TravelToSea(3) end
+        if Stopped() then return end
+        TryRerollMink()
     end
 
-    while not Stopped() and not IsSkypieaRaceName(GetRace()) and GetFragments() >= REROLL_COST do
-        if TryRollRaceOnce() then break end
-        SleepCheck(0.35)
-    end
-
-    if not Stopped() and not IsSkypieaRaceName(GetRace()) then
-        local lastRollTick = 0
+    if not Stopped() and not IsMink() then
         RunSea3BossTarget(
-            DESTINATIONS.CAKE_QUEEN,
-            POS_CAKE_QUEEN,
+            DESTINATIONS.CAKE_PRINCE,
+            POS_CAKE_PRINCE,
+            function() return ("Farm Frag roll Mink | Race: %s | Frag: %d/3000"):format(GetRace(), GetFragments()) end,
             function()
-                return ("Thiếu Frag Roll Skypiea (%s) | Frag: %d / %d"):format(GetRace(), GetFragments(), REROLL_COST)
-            end,
-            function()
-                if not IsSkypieaRaceName(GetRace()) and GetFragments() >= REROLL_COST and (os.clock() - lastRollTick) >= 2.5 then
-                    lastRollTick = os.clock()
-                    TryRollRaceOnce()
-                end
-                if IsSkypieaRaceName(GetRace()) then
-                    SetStatus("Đã roll trúng tộc Skypiea! Hop Low để refresh...")
+                if GetFragments() >= 3000 and TryRerollMink() then
+                    SetStatus("Đã ra Mink! Hop Low để refresh...")
                     HopLow()
                     return true
                 end
@@ -2361,20 +937,12 @@ if not IsSkypieaRaceName(GetRace()) then
 end
 if Stopped() then return end
 
--- 2. ĐÃ LÀ SKYPIEA -> CHECK V2, V3 & BELI, FRAGMENT
-hasV3 = ConfirmedHasV3 or HasRaceV3()
-if not hasV3 then
-    local okW, wStat = pcall(function() return CommF:InvokeServer("Wenlocktoad", "1") end)
-    if okW and wStat == -2 then
-        hasV3 = true
-        ConfirmedHasV3 = true
-    end
-end
-
+-- 2. ĐÃ LÀ MINK -> CHECK V2, V3 & BELI, FRAGMENT
+local hasV3 = HasRaceV3()
 local hasV2 = HasRaceV2()
 
 if not hasV3 then
-    local reqBeli = hasV2 and 2000000 or 2500000
+    local reqBeli = hasV2 and 2000000 or 2500000 -- 500k cho V2 (nếu chưa V2) + 2M cho V3
     local reqFrag = 10000
 
     if GetBeli() < reqBeli then
@@ -2394,9 +962,9 @@ if not hasV3 then
 
     if GetFragments() < reqFrag then
         RunSea3BossTarget(
-            DESTINATIONS.CAKE_QUEEN,
-            POS_CAKE_QUEEN,
-            function() return ("Đang farm Fragment (Cake Queen): %d / %d"):format(GetFragments(), reqFrag) end,
+            DESTINATIONS.CAKE_PRINCE,
+            POS_CAKE_PRINCE,
+            function() return ("Đang farm Fragment (Cake Prince): %d / %d"):format(GetFragments(), reqFrag) end,
             function()
                 if GetFragments() >= reqFrag then
                     SetStatus("Đã đủ 10k Fragment! Hop Low để refresh...")
@@ -2409,49 +977,47 @@ if not hasV3 then
         return
     end
 
-    -- 2A. CHƯA CÓ SKYPIEA V2 -> TP SEA 2 CHẠY REALKID MAIN ĐỂ UP V2
+    -- Đã đủ Beli & 10k Frag nhưng thiếu V2/V3 -> TP Sea 2
     if GetSea() ~= 2 then TravelToSea(2) end
     if Stopped() then return end
 
-    if not hasV2 then
-        if not HasBlueFlower() and not IsNight() then
-            SetStatus(("Đang up Skypiea V2 nhưng trời sáng (Clock: %.1f) -> Hop Low tìm trời tối..."):format(Lighting.ClockTime))
-            HopLow()
-            return
-        end
-
-        if LaunchRealKidMain({ AutoUpgradeRaceV3 = true }, "Auto Skypiea V2 (Sea 2)") then
-            while not Stopped() and task.wait(2) do
-                if HasRaceV2() then
-                    SetStatus("Đã xong Skypiea V2! Hop High (11/12) để tự up Skypiea V3...")
-                    HopHigh()
-                    return
-                end
-                if not HasBlueFlower() and not IsNight() then
-                    SetStatus(("Đang up Skypiea V2 mà trời chuyển sáng (Clock: %.1f) -> Hop Low tìm trời tối..."):format(Lighting.ClockTime))
-                    HopLow()
-                    return
-                end
-                SetStatus(("Đang làm Skypiea V2 ở Sea 2 (Clock: %.1f)..."):format(Lighting.ClockTime))
-            end
-        end
+    local v2Done = HasRaceV2()
+    -- Đang up V2 mà trời sáng -> Hop Low liên tục đến khi gặp trời tối
+    if not v2Done and not HasBlueFlower() and not IsNight() then
+        SetStatus(("Đang up V2 nhưng trời sáng (Clock: %.1f) -> Hop Low tìm trời tối..."):format(Lighting.ClockTime))
+        HopLow()
         return
     end
 
-    -- 2B. ĐÃ XONG SKYPIEA V2 -> UP SKYPIEA V3 (SOLO KILL 1 SKYPIEA + CO-OP)
-    RunSkypieaV3Phase()
+    if LaunchRealKidMain({ AutoUpgradeRaceV3 = true }, "Auto Upgrade Mink V2/V3 (Sea 2)") then
+        while not Stopped() and task.wait(2) do
+            if not v2Done then
+                v2Done = HasRaceV2()
+            end
+            if not v2Done and not HasBlueFlower() and not IsNight() then
+                SetStatus(("Đang up V2 mà trời chuyển sáng (Clock: %.1f) -> Hop Low tìm trời tối..."):format(Lighting.ClockTime))
+                HopLow()
+                return
+            end
+
+            SetStatus(("Đang làm Mink %s ở Sea 2 (Clock: %.1f)..."):format(v2Done and "V3" or "V2", Lighting.ClockTime))
+            if HasRaceV3() then
+                SetStatus("Đã xong Mink V3! Đang TP sang Sea 3...")
+                TravelToSea(3)
+                return
+            end
+        end
+    end
     return
 end
 if Stopped() then return end
 
-RemoveFromSkypieaSession()
-
--- 3. ĐÃ ĐỦ SKYPIEA V3 -> ĐẢM BẢO ĐỦ 10K FRAGMENT TRƯỚC KHI CHECK INVENTORY (THEO DÕI BACK-HELP)
+-- 3. ĐÃ ĐỦ MINK V3 -> ĐẢM BẢO ĐỦ 10K FRAGMENT TRƯỚC KHI CHECK INVENTORY
 if GetFragments() < 10000 then
     RunSea3BossTarget(
-        DESTINATIONS.CAKE_QUEEN,
-        POS_CAKE_QUEEN,
-        function() return ("Đã có Skypiea V3 | Farm nốt Frag: %d / 10000"):format(GetFragments()) end,
+        DESTINATIONS.CAKE_PRINCE,
+        POS_CAKE_PRINCE,
+        function() return ("Đã có Mink V3 | Farm nốt Frag: %d / 10000"):format(GetFragments()) end,
         function()
             if GetFragments() >= 10000 then
                 SetStatus("Đã đủ 10k Fragment! Hop Low để refresh...")
@@ -2465,7 +1031,7 @@ if GetFragments() < 10000 then
 end
 if Stopped() then return end
 
-if CheckAndClaimBackHelp() then CleanupMovement(); TravelToSea(2); return end
+-- Đảm bảo đang ở Sea 3 để săn Boss / Pull Lever
 if GetSea() ~= 3 then TravelToSea(3) end
 if Stopped() then return end
 
@@ -2509,23 +1075,18 @@ if not hasMirror then
     return
 end
 
--- 5. ĐỦ SKYPIEA V3 + 10K FRAG + MŨ + MẢNH -> CHECK & AUTO PULL LEVER (VẪN THEO DÕI BACK-HELP)
-if not IsLeverPulled() then
-    if LaunchRealKidMain({ AutoPullLever = true }, "Auto Pull Lever (Temple of Time)") then
-        while not Stopped() and task.wait(2) do
-            if CheckAndClaimBackHelp() then CleanupMovement(); TravelToSea(2); return end
-            SetStatus("Đang chạy Auto Pull Lever...")
-            if IsLeverPulled() then break end
-        end
-    end
+-- 5. ĐỦ MINK V3 + 10K FRAG + MŨ + MẢNH -> CHECK & AUTO PULL LEVER
+if IsLeverPulled() then
+    SetStatus("CHÚC MỪNG! Đã hoàn thành Auto Mink V3 + Pull Lever!")
+    return
 end
 
-if Stopped() then return end
-SetStatus("CHÚC MỪNG! Đã hoàn thành Skypiea V3 + Pull Lever! (Đang trực Back-Help)")
-while not Stopped() and task.wait(2.5) do
-    if CheckAndClaimBackHelp() then
-        CleanupMovement()
-        TravelToSea(2)
-        return
+if LaunchRealKidMain({ AutoPullLever = true }, "Auto Pull Lever (Temple of Time)") then
+    while not Stopped() and task.wait(2) do
+        SetStatus("Đang chạy Auto Pull Lever...")
+        if IsLeverPulled() then
+            SetStatus("CHÚC MỪNG! Đã hoàn thành Auto Mink V3 + Pull Lever!")
+            break
+        end
     end
 end
