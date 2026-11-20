@@ -52,10 +52,14 @@ local BACKHELP_WAIT_SECONDS = 10 -- Chờ 10s gọi Back-Help trước khi Solo 
 local ECTO_ANTI_FILE = "ghoulecto_anticollision.json"
 local ECTO_ANTI_TTL = 120 -- Sau 2 phút (120s) không cập nhật coi như offline
 
-local POS_CAKE_LOAF    = Vector3.new(-1954.96, 37.83, -11875.87)
-local POS_CAKE_PRINCE   = Vector3.new(-1762.00, 38.00, -11878.00)
-local POS_SEA_CASTLE   = Vector3.new(-5021.44, 314.55, -3003.93)
-local POS_COOP_HELP    = Vector3.new(-499.64, 50.30, -42.73)
+local POS_CAKE_LOAF          = Vector3.new(-1954.96, 37.83, -11875.87)
+local POS_CAKE_PRINCE        = Vector3.new(-1762.00, 38.00, -11878.00)
+local POS_SEA_CASTLE         = Vector3.new(-5021.44, 314.55, -3003.93)
+local POS_COOP_HELP          = Vector3.new(-499.64, 50.30, -42.73)
+local POS_CURSED_SHIP_CENTER = Vector3.new(885.50, 125.40, 32923.81)
+local CURSED_SHIP_RADIUS     = 5000
+local POS_CURSED_SHIP_EXIT   = Vector3.new(922.66, 125.40, 32846.90)
+local POS_CURSED_SHIP_ENTER  = Vector3.new(-6510.27, 83.53, -121.15)
 
 local SEA_PLACES = {
     [2753915549]      = 1,
@@ -894,12 +898,151 @@ local function WaitAlive()
     return nil, nil, nil
 end
 
+local function IsPosInCursedShip(pos)
+    if not pos then return false end
+    return (pos - POS_CURSED_SHIP_CENTER).Magnitude <= CURSED_SHIP_RADIUS
+end
+
+local function IsLocalPlayerInCursedShip()
+    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+    return IsPosInCursedShip(hrp.Position)
+end
+
+local function IsPlayerInCursedShip(player)
+    local hrp = player and player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+    return IsPosInCursedShip(hrp.Position)
+end
+
+local function RawTweenToSpot(targetPos)
+    while not Stopped() do
+        local char, hum, hrp = WaitAlive()
+        if Stopped() or not char then return false end
+
+        if hum.Sit then
+            hum.Sit = false
+            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            task.wait(0.2)
+        end
+
+        local dist = (hrp.Position - targetPos).Magnitude
+        if dist <= 8 then return true end
+
+        EnsureAntiGravity(hrp)
+        local noclipConn = RunService.Stepped:Connect(function()
+            if char and char.Parent then
+                for _, p in ipairs(char:GetDescendants()) do
+                    if p:IsA("BasePart") and p.CanCollide then p.CanCollide = false end
+                end
+                if hrp and hrp.Parent then
+                    hrp.AssemblyLinearVelocity = Vector3.zero
+                    hrp.AssemblyAngularVelocity = Vector3.zero
+                end
+            end
+        end)
+
+        CancelActiveTween()
+        ActiveTween = TweenService:Create(hrp, TweenInfo.new(math.max(dist / TWEEN_SPEED, 0.05), Enum.EasingStyle.Linear), { CFrame = CFrame.new(targetPos) })
+        ActiveTween:Play()
+
+        while not Stopped() and ActiveTween and ActiveTween.PlaybackState == Enum.PlaybackState.Playing do
+            if not char.Parent or hum.Health <= 0 or (hrp.Position - targetPos).Magnitude <= 8 then
+                break
+            end
+            task.wait(0.1)
+        end
+
+        local arrived = (not Stopped()) and hum.Health > 0 and hrp.Parent and (hrp.Position - targetPos).Magnitude <= 12
+        CancelActiveTween()
+        if noclipConn then pcall(function() noclipConn:Disconnect() end) end
+        if Stopped() then return false end
+        if arrived then return true end
+        task.wait(0.5)
+    end
+    return false
+end
+
+local function ExitCursedShip()
+    if Stopped() or not IsLocalPlayerInCursedShip() then return true end
+    if getgenv()._CursedShipTransitioning then return false end
+    getgenv()._CursedShipTransitioning = true
+    ClearAimState()
+    CancelActiveTween()
+
+    local ok = false
+    SetStatus("Đang ở trong Cursed Ship -> Bay ra cổng thoát...")
+    if RawTweenToSpot(POS_CURSED_SHIP_EXIT) and not Stopped() then
+        SleepCheck(0.15)
+        SetStatus("Đang chạy remote thoát khỏi Cursed Ship...")
+        local makeVec = (vector and vector.create) or Vector3.new
+        local args = {
+            "requestEntrance",
+            makeVec(-6508.55810546875, 89.03500366210938, -132.83999633789062)
+        }
+        pcall(function()
+            game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("CommF_"):InvokeServer(unpack(args))
+        end)
+
+        local t0 = os.clock()
+        while not Stopped() and (os.clock() - t0) < 3.0 do
+            if not IsLocalPlayerInCursedShip() then
+                ok = true
+                break
+            end
+            task.wait(0.15)
+        end
+    end
+
+    getgenv()._CursedShipTransitioning = false
+    return ok or (not IsLocalPlayerInCursedShip())
+end
+
+local function EnterCursedShip()
+    if Stopped() or IsLocalPlayerInCursedShip() then return true end
+    if getgenv()._CursedShipTransitioning then return false end
+    getgenv()._CursedShipTransitioning = true
+    ClearAimState()
+    CancelActiveTween()
+
+    local ok = false
+    SetStatus("Mục tiêu ở trong Cursed Ship -> Bay tới cổng vào thuyền...")
+    if RawTweenToSpot(POS_CURSED_SHIP_ENTER) and not Stopped() then
+        SleepCheck(0.15)
+        SetStatus("Đang chạy remote vào Cursed Ship...")
+        local makeVec = (vector and vector.create) or Vector3.new
+        local args = {
+            "requestEntrance",
+            makeVec(923.2130126953125, 126.97599792480469, 32852.83203125)
+        }
+        pcall(function()
+            game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("CommF_"):InvokeServer(unpack(args))
+        end)
+
+        local t0 = os.clock()
+        while not Stopped() and (os.clock() - t0) < 3.0 do
+            if IsLocalPlayerInCursedShip() then
+                ok = true
+                break
+            end
+            task.wait(0.15)
+        end
+    end
+
+    getgenv()._CursedShipTransitioning = false
+    return ok or IsLocalPlayerInCursedShip()
+end
+
 local function TweenTo(targetPos)
     if Stopped() then return false end
     if getgenv()._RealKidMainRunning or getgenv()._RealKidHopRunning then
         SetStatus("RealKid đang chạy -> Không được tự tween, hop low refresh!")
         HopLow()
         return false
+    end
+
+    if IsLocalPlayerInCursedShip() and not IsPosInCursedShip(targetPos) then
+        if not ExitCursedShip() or Stopped() then return false end
     end
 
     while not Stopped() do
@@ -2177,6 +2320,10 @@ local function EnsurePvPTweenLoop(getTargetFn)
     local lastTween = 0
     ActivePvPConn = RunService.Heartbeat:Connect(function()
         if Stopped() then StopPvPTween() return end
+        if getgenv()._CursedShipTransitioning then
+            ClearAimState()
+            return
+        end
         local cam = workspace.CurrentCamera
         getgenv()._AutoGhoulAimCam = cam
         getgenv()._AutoGhoulAimCamPos = cam and cam.CFrame.Position or nil
@@ -2199,6 +2346,10 @@ local function EnsurePvPTweenLoop(getTargetFn)
 
         if typeof(target) == "Vector3" then
             ClearAimState()
+            if IsPosInCursedShip(myHRP.Position) ~= IsPosInCursedShip(target) then
+                CancelActiveTween()
+                return
+            end
             local dist = (target - myHRP.Position).Magnitude
             if dist <= 4 then
                 CancelActiveTween()
@@ -2223,6 +2374,12 @@ local function EnsurePvPTweenLoop(getTargetFn)
         local tHRP = tChar and tChar:FindFirstChild("HumanoidRootPart")
         local tHum = tChar and tChar:FindFirstChildOfClass("Humanoid")
         if not (tHRP and tHum and tHum.Health > 0) then
+            ClearAimState()
+            CancelActiveTween()
+            return
+        end
+
+        if IsPosInCursedShip(myHRP.Position) ~= IsPosInCursedShip(tHRP.Position) then
             ClearAimState()
             CancelActiveTween()
             return
@@ -2429,6 +2586,12 @@ local function RunCoopHost(isBackHelp)
                     r.AssemblyAngularVelocity = Vector3.zero
                 end
             end)
+        end
+
+        if IsLocalPlayerInCursedShip() then
+            MyPresenceState.readyAtHelp = false
+            ExitCursedShip()
+            continue
         end
 
         local distToHelp = (POS_COOP_HELP - myHRP.Position).Magnitude
@@ -2782,6 +2945,12 @@ local function RunGhoulV3Phase()
                     local char, _, myHRP = WaitAlive()
                     if Stopped() or not char then break end
 
+                    if IsLocalPlayerInCursedShip() then
+                        MyPresenceState.readyAtHelp = false
+                        ExitCursedShip()
+                        continue
+                    end
+
                     if currentSTT == 1 then
                         -- STT 1 (Pirates): Bay thẳng điểm Help, chỉ tấn công whitelist Co-op trong 100 studs quanh POS_COOP_HELP
                         if not char:FindFirstChild("HasBuso") then pcall(function() CommF:InvokeServer("Buso") end) end
@@ -2924,6 +3093,16 @@ local function RunGhoulV3Phase()
                 end
 
                 if currentTarget and lockedChar and lockedChar.Parent then
+                    local targetInShip = IsPlayerInCursedShip(currentTarget)
+                    local meInShip = IsLocalPlayerInCursedShip()
+                    if targetInShip and not meInShip then
+                        EnterCursedShip()
+                        continue
+                    elseif not targetInShip and meInShip then
+                        ExitCursedShip()
+                        continue
+                    end
+
                     local kept = EngageTargetStep(currentTarget, lockedChar, myHRP, lockStart, "Solo Lock")
                     if not kept then
                         currentTarget, lockedChar, lockStart = nil, nil, 0
