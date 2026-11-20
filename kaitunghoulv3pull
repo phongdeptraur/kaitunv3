@@ -46,7 +46,8 @@ local GHOUL_V3_TIMEOUT = 45 * 60 -- 45 phút
 local SESSION_FILE = "ghoulsession.txt"
 local SESSION_PREFIX = "ghoulsession_"
 local SESSION_INDEX_FILE = "ghoulsession_index.json"
-local SESSION_TTL = 60 -- Quá 60s không cập nhật coi như acc đã tắt
+local SESSION_HEARTBEAT_SEC = 5 -- Cập nhật file co-op mỗi 5s
+local SESSION_TTL = 300 -- Sau 5 phút (300s) không cập nhật coi như đã offline
 local ECTO_ANTI_FILE = "ghoulecto_anticollision.json"
 local ECTO_ANTI_TTL = 120 -- Sau 2 phút (120s) không cập nhật coi như offline
 
@@ -1116,6 +1117,7 @@ end
 -- ============================================================================
 local MY_UID = tostring(LocalPlayer.UserId)
 local MY_SESSION_FILE = SESSION_PREFIX .. MY_UID .. ".json"
+local isCoopSessionActive = false
 
 local function ReadSingleSessionFile(path)
     if not (isfile and readfile and isfile(path)) then return nil end
@@ -1149,14 +1151,30 @@ end
 local function WriteMySessionFile(entry)
     if not writefile then return end
     if entry == nil then
+        isCoopSessionActive = false
         if isfile and delfile and isfile(MY_SESSION_FILE) then
             pcall(delfile, MY_SESSION_FILE)
         end
         UpdateSessionIndex(MY_UID, nil)
         return
     end
+    isCoopSessionActive = true
     pcall(writefile, MY_SESSION_FILE, HttpService:JSONEncode(entry))
     UpdateSessionIndex(MY_UID, entry.updatedAt or os.time())
+end
+
+-- Khôi phục nhịp cập nhật ngay lập tức nếu acc vừa hop sang server mới
+do
+    local existing = ReadSingleSessionFile(MY_SESSION_FILE)
+    if type(existing) == "table" and type(existing.updatedAt) == "number" and (os.time() - existing.updatedAt) <= SESSION_TTL then
+        existing.jobId = tostring(game.JobId)
+        existing.placeId = game.PlaceId
+        existing.playersCount = #Players:GetPlayers()
+        existing.maxPlayers = Players.MaxPlayers or 12
+        existing.isHopping = false
+        existing.updatedAt = os.time()
+        WriteMySessionFile(existing)
+    end
 end
 
 local function ReadAllGhoulSessions()
@@ -1425,6 +1443,28 @@ local function SyncBackHelpHost(forceHoppingFlag)
     local activeList, _, cloneList = AnalyzeGhoulSession(cleaned or {})
     return stillNeeded, activeList, cloneList
 end
+
+-- Luồng nền cập nhật file Co-op mỗi 5s (giữ trạng thái online kể cả khi đang Hop/Teleport)
+task.spawn(function()
+    while not Stopped() do
+        task.wait(SESSION_HEARTBEAT_SEC)
+        if Stopped() then break end
+        if isCoopSessionActive then
+            local curEntry = ReadSingleSessionFile(MY_SESSION_FILE)
+            if type(curEntry) == "table" then
+                curEntry.sea = GetSea()
+                curEntry.jobId = tostring(game.JobId)
+                curEntry.placeId = game.PlaceId
+                curEntry.playersCount = #Players:GetPlayers()
+                curEntry.maxPlayers = Players.MaxPlayers or 12
+                curEntry.isHopping = (getgenv()._HoppingServer == true) or isTeleportingNow
+                curEntry.failedJoinJob = lastFailedJoinJob
+                curEntry.updatedAt = os.time()
+                WriteMySessionFile(curEntry)
+            end
+        end
+    end
+end)
 
 -- ============================================================================
 -- CHECK SAFE ZONE, PVP, STAT SWORD 2800, HỒI CHIÊU, SILENT AIM & TWEEN 0.1S
