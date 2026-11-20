@@ -45,11 +45,20 @@ local LOCK_TIMEOUT = 3 * 60 -- 3 phút mỗi mục tiêu
 local SKYPIEA_V3_TIMEOUT = 45 * 60 -- 45 phút
 local REROLL_COST = 3000 -- 3,000 Fragment mỗi lần Roll Race
 local SESSION_FILE = "skypieasession.txt"
-local SESSION_TTL = 60 -- Quá 60s không cập nhật coi như acc đã tắt
+local SESSION_PREFIX = "skypieasession_"
+local SESSION_INDEX_FILE = "skypieasession_index.json"
+local ROOM_FILE = "skypiea_room.json"
+local SESSION_TTL = 300 -- TTL 5 phút = 300s
+local BACKHELP_WAIT_SECONDS = 10 -- Chờ 10s gọi Back-Help trước khi Solo HopHigh
 
-local POS_CAKE_LOAF    = Vector3.new(-1954.96, 37.83, -11875.87)
-local POS_CAKE_PRINCE   = Vector3.new(-1762.00, 38.00, -11878.00)
-local POS_SEA_CASTLE   = Vector3.new(-5021.44, 314.55, -3003.93)
+local POS_CAKE_LOAF          = Vector3.new(-1954.96, 37.83, -11875.87)
+local POS_CAKE_PRINCE        = Vector3.new(-1762.00, 38.00, -11878.00)
+local POS_SEA_CASTLE         = Vector3.new(-5021.44, 314.55, -3003.93)
+local POS_COOP_HELP          = Vector3.new(-499.64, 50.30, -42.73)
+local POS_CURSED_SHIP_CENTER = Vector3.new(885.50, 125.40, 32923.81)
+local CURSED_SHIP_RADIUS     = 5000
+local POS_CURSED_SHIP_EXIT   = Vector3.new(922.66, 125.40, 32846.90)
+local POS_CURSED_SHIP_ENTER  = Vector3.new(-6510.27, 83.53, -121.15)
 
 local SEA_PLACES = {
     [2753915549]      = 1,
@@ -134,7 +143,7 @@ CloseBtn.AutoButtonColor = true
 CloseBtn.Parent = Bar
 Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 5)
 
-local ActiveTween, ActiveNoclip, ActiveBV, ActiveBG, ActivePvPConn, TeleportConn
+local ActiveTween, ActiveNoclip, ActiveBV, ActiveBG, ActivePvPConn, TeleportConn, TpFailedConn
 local hoverAboveMode = false
 local PendingStatus = "[AutoSkypieaV3] Đang khởi tạo..."
 local LastRenderedStatus = ""
@@ -154,6 +163,60 @@ local function CancelActiveTween()
     end
 end
 
+local CachedNoclipChar = nil
+local CachedNoclipParts = {}
+local CachedNoclipDescConn = nil
+local CachedStateHum = nil
+
+local function RefreshCharacterNoclipCache(char)
+    if CachedNoclipChar == char then return end
+    CachedNoclipChar = char
+    CachedNoclipParts = {}
+    if CachedNoclipDescConn then
+        pcall(function() CachedNoclipDescConn:Disconnect() end)
+        CachedNoclipDescConn = nil
+    end
+    if not char then return end
+    for _, p in ipairs(char:GetDescendants()) do
+        if p:IsA("BasePart") then
+            CachedNoclipParts[#CachedNoclipParts + 1] = p
+        end
+    end
+    CachedNoclipDescConn = char.DescendantAdded:Connect(function(d)
+        if d:IsA("BasePart") then
+            CachedNoclipParts[#CachedNoclipParts + 1] = d
+        end
+    end)
+end
+
+local function ApplyCachedNoclipAndZeroVel(char, hum, hrp)
+    if char and char.Parent then
+        RefreshCharacterNoclipCache(char)
+        for i = #CachedNoclipParts, 1, -1 do
+            local p = CachedNoclipParts[i]
+            if p and p.Parent then
+                if p.CanCollide then p.CanCollide = false end
+            else
+                table.remove(CachedNoclipParts, i)
+            end
+        end
+    end
+    if hum and hum.Health > 0 then
+        if hum.Sit then hum.Sit = false end
+        if CachedStateHum ~= hum then
+            CachedStateHum = hum
+            pcall(function()
+                hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+                hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+            end)
+        end
+    end
+    if hrp and hrp.Parent then
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+    end
+end
+
 local function EnsureAntiGravity(hrp)
     if not hrp or not hrp.Parent then return end
     if not ActiveBV or ActiveBV.Parent ~= hrp then
@@ -164,23 +227,34 @@ local function EnsureAntiGravity(hrp)
         ActiveBV.P = 9e9
         ActiveBV.Velocity = Vector3.zero
         ActiveBV.Parent = hrp
-    else
+    elseif ActiveBV.Velocity ~= Vector3.zero then
         ActiveBV.Velocity = Vector3.zero
     end
-    if not ActiveBG or ActiveBG.Parent ~= hrp then
-        if ActiveBG then pcall(function() ActiveBG:Destroy() end) end
-        ActiveBG = Instance.new("BodyGyro")
-        ActiveBG.Name = "AutoSkypieaBG"
-        ActiveBG.MaxTorque = Vector3.new(9e9, 0, 9e9)
-        ActiveBG.P = 9e9
-        ActiveBG.CFrame = hrp.CFrame
-        ActiveBG.Parent = hrp
-    end
+end
+
+local function EnsureNoclipLoop()
+    if ActiveNoclip then return end
+    ActiveNoclip = RunService.Stepped:Connect(function()
+        if Stopped() then return end
+        local myChar = LocalPlayer.Character
+        getgenv()._AutoSkypieaMyChar = myChar
+        if not myChar then return end
+        local myHum = myChar:FindFirstChildOfClass("Humanoid")
+        local myHRP = myChar:FindFirstChild("HumanoidRootPart")
+        ApplyCachedNoclipAndZeroVel(myChar, myHum, myHRP)
+        if myHRP then
+            EnsureAntiGravity(myHRP)
+        end
+    end)
 end
 
 local function CleanupMovement()
     CancelActiveTween()
     if ActiveNoclip then pcall(function() ActiveNoclip:Disconnect() end) ActiveNoclip = nil end
+    if CachedNoclipDescConn then pcall(function() CachedNoclipDescConn:Disconnect() end) CachedNoclipDescConn = nil end
+    CachedNoclipChar = nil
+    CachedNoclipParts = {}
+    CachedStateHum = nil
     if ActiveBV then pcall(function() if ActiveBV.Parent then ActiveBV:Destroy() end end) ActiveBV = nil end
     if ActiveBG then pcall(function() if ActiveBG.Parent then ActiveBG:Destroy() end end) ActiveBG = nil end
     pcall(function()
@@ -214,6 +288,7 @@ local function UnloadAll()
     StopPvPTween()
     if RemoveFromSkypieaSession then pcall(RemoveFromSkypieaSession) end
     if TeleportConn then pcall(function() TeleportConn:Disconnect() end) TeleportConn = nil end
+    if TpFailedConn then pcall(function() TpFailedConn:Disconnect() end) TpFailedConn = nil end
     pcall(function() if Gui and Gui.Parent then Gui:Destroy() end end)
     print("[AutoSkypieaV3] Đã unload toàn bộ script!")
 end
@@ -321,24 +396,75 @@ local function RecordJobCache(file, cache, jobId)
     if writefile then pcall(writefile, file, HttpService:JSONEncode(cache)) end
 end
 
-local function DirectTeleport(jobId, placeId)
-    local sb = ReplicatedStorage:FindFirstChild("__ServerBrowser")
-    if sb then
-        pcall(function() sb:InvokeServer("teleport", jobId) end)
-        if not SleepCheck(3) then return end
+local SetHoppingState
+local isTeleportingNow = false
+local lastTeleportClock = 0
+local pendingTeleportJob = nil
+local lastTeleportFailedFlag = false
+local lastFailedJoinJob = ""
+
+TpFailedConn = TeleportService.TeleportInitFailed:Connect(function(_, result)
+    lastTeleportFailedFlag = true
+    isTeleportingNow = false
+    if SetHoppingState then SetHoppingState(false) end
+    if pendingTeleportJob and pendingTeleportJob ~= "" then
+        lastFailedJoinJob = pendingTeleportJob
+        SetStatus(("Join thất bại (%s) -> Đánh dấu server lỗi"):format(tostring(result and result.Name or "Failed")))
+        pendingTeleportJob = nil
     end
-    pcall(function() TeleportService:TeleportToPlaceInstance(placeId or game.PlaceId, jobId, LocalPlayer) end)
+end)
+
+local function DirectTeleport(jobId)
+    local JOB_ID = tostring(jobId or "")
+    if not game:IsLoaded() then
+        repeat task.wait() until game:IsLoaded() or Stopped()
+    end
+    if Stopped() or JOB_ID == "" or JOB_ID == game.JobId then return false end
+    if isTeleportingNow then return false end
+    if (os.clock() - lastTeleportClock) < 5.5 then return false end
+
+    isTeleportingNow = true
+    lastTeleportClock = os.clock()
+    lastTeleportFailedFlag = false
+    pendingTeleportJob = JOB_ID
+    if SetHoppingState then SetHoppingState(true) end
+
+    local okTp = pcall(function()
+        game:GetService("ReplicatedStorage").__ServerBrowser:InvokeServer("teleport", JOB_ID)
+    end)
+    if not okTp then
+        isTeleportingNow = false
+        pendingTeleportJob = nil
+        if SetHoppingState then SetHoppingState(false) end
+        return false
+    end
+
+    local t0 = os.clock()
+    while not Stopped() and (os.clock() - t0) < 5.0 do
+        if lastTeleportFailedFlag then
+            isTeleportingNow = false
+            if SetHoppingState then SetHoppingState(false) end
+            return false
+        end
+        task.wait(0.15)
+    end
+
+    isTeleportingNow = false
+    pendingTeleportJob = nil
+    return not lastTeleportFailedFlag
 end
 
 local HOP_CACHE_FILE = "AutoSkypieaV3_HopCache.json"
 local TriedJobs = LoadJobCache(HOP_CACHE_FILE, 180)
 TriedJobs[tostring(game.JobId)] = os.time()
 
-local function HopServer(mode)
+local function HopServer(mode, maxPlayersLimit)
     if Stopped() or getgenv()._HoppingServer then return end
     getgenv()._HoppingServer = true
+    if SetHoppingState then SetHoppingState(true) end
     local isHigh = (mode == "high")
-    SetStatus(isHigh and "Đang tìm server đông (11/12 player)..." or "Đang tìm server low player & ping thấp để refresh...")
+    local maxAllowedCnt = maxPlayersLimit or (isHigh and 11 or 10)
+    SetStatus(isHigh and "Đang tìm server đông (11/12 player)..." or ("Đang tìm server trống (<= %d player) & ping thấp..."):format(maxAllowedCnt))
 
     while not Stopped() and task.wait(0.3) do
         local list = {}
@@ -358,7 +484,7 @@ local function HopServer(mode)
                                     local cnt = (type(d) == "table" and tonumber(d.Count)) or tonumber(d) or 1
                                     local reg = (type(d) == "table" and tostring(d.Region or "")) or ""
                                     local ping = reg:find("Sing") and 40 or reg:find("Japan") and 95 or reg:find("Germ") and 190 or (reg:find("US") or reg:find("United States")) and 230 or 140
-                                    if (isHigh and cnt >= 6 and cnt < 12) or (not isHigh and cnt >= 1 and cnt < 11) then
+                                    if (isHigh and cnt >= 6 and cnt <= 11) or (not isHigh and cnt >= 1 and cnt <= maxAllowedCnt) then
                                         byJob[id] = { id = id, playing = cnt, ping = ping }
                                     end
                                 end
@@ -392,7 +518,7 @@ local function HopServer(mode)
                     local id = tostring(s.id)
                     local cnt = tonumber(s.playing) or 0
                     local maxP = tonumber(s.maxPlayers) or 12
-                    if not TriedJobs[id] and cnt < maxP and ((isHigh and cnt >= 6) or (not isHigh and cnt >= 1)) then
+                    if not TriedJobs[id] and cnt < maxP and ((isHigh and cnt >= 6) or (not isHigh and cnt >= 1 and cnt <= maxAllowedCnt)) then
                         table.insert(list, { id = id, playing = cnt, ping = tonumber(s.ping) or 999 })
                     end
                 end
@@ -417,25 +543,26 @@ local function HopServer(mode)
                     return a.ping < b.ping
                 end)
             else
+                local cap = math.min(maxAllowedCnt, 7)
                 for _, s in ipairs(list) do
-                    if s.ping <= 70 and s.playing <= 8 then table.insert(pool, s) end
+                    if s.ping <= 95 and s.playing <= cap then table.insert(pool, s) end
                 end
                 if #pool == 0 then pool = list end
                 table.sort(pool, function(a, b)
-                    local aTier, bTier = math.floor(a.ping / 30), math.floor(b.ping / 30)
-                    if aTier ~= bTier then return aTier < bTier end
                     if a.playing ~= b.playing then return a.playing < b.playing end
                     return a.ping < b.ping
                 end)
             end
 
-            for i = 1, math.min(#pool, 5) do
+            for i = 1, math.min(#pool, 6) do
                 if Stopped() then break end
                 local target = pool[i]
                 RecordJobCache(HOP_CACHE_FILE, TriedJobs, target.id)
                 SetStatus(("%s -> %s | Players: %d | Ping: %dms"):format(isHigh and "Hop High" or "Hop Low", target.id:sub(1, 8), target.playing, target.ping))
-                DirectTeleport(target.id, game.PlaceId)
-                if not SleepCheck(3) then break end
+                local initiated = DirectTeleport(target.id, game.PlaceId)
+                if initiated then
+                    SleepCheck(3.0)
+                end
             end
         end
         if not SleepCheck(1) then break end
@@ -443,8 +570,12 @@ local function HopServer(mode)
     getgenv()._HoppingServer = false
 end
 
-local function HopLow()  HopServer("low")  end
-local function HopHigh() HopServer("high") end
+local function HopLow()                    HopServer("low", nil) end
+local function HopHigh()                   HopServer("high", false) end
+local function HopCoopLow(neededCloneSlots)
+    local cap = math.max(2, 11 - math.max(1, tonumber(neededCloneSlots) or 1))
+    HopServer("low", cap)
+end
 
 -- ============================================================================
 -- NIGHT HUB API HOP (RÚT GỌN: DOUGH KING, RIP INDRA, CAKE PRINCE)
@@ -698,12 +829,140 @@ local function WaitAlive()
     return nil, nil, nil
 end
 
+local function IsPosInCursedShip(pos)
+    if not pos then return false end
+    return (pos - POS_CURSED_SHIP_CENTER).Magnitude <= CURSED_SHIP_RADIUS
+end
+
+local function IsLocalPlayerInCursedShip()
+    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+    return IsPosInCursedShip(hrp.Position)
+end
+
+local function IsPlayerInCursedShip(player)
+    local hrp = player and player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+    return IsPosInCursedShip(hrp.Position)
+end
+
+local function RawTweenToSpot(targetPos)
+    while not Stopped() do
+        local char, hum, hrp = WaitAlive()
+        if Stopped() or not char then return false end
+
+        if hum.Sit then
+            hum.Sit = false
+            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            task.wait(0.2)
+        end
+
+        local dist = (hrp.Position - targetPos).Magnitude
+        if dist <= 8 then return true end
+
+        EnsureAntiGravity(hrp)
+        EnsureNoclipLoop()
+
+        CancelActiveTween()
+        ActiveTween = TweenService:Create(hrp, TweenInfo.new(math.max(dist / TWEEN_SPEED, 0.05), Enum.EasingStyle.Linear), { CFrame = CFrame.new(targetPos) })
+        ActiveTween:Play()
+
+        while not Stopped() and ActiveTween and ActiveTween.PlaybackState == Enum.PlaybackState.Playing do
+            if not char.Parent or hum.Health <= 0 or (hrp.Position - targetPos).Magnitude <= 8 then
+                break
+            end
+            task.wait(0.1)
+        end
+
+        local arrived = (not Stopped()) and hum.Health > 0 and hrp.Parent and (hrp.Position - targetPos).Magnitude <= 12
+        CleanupMovement()
+        if Stopped() then return false end
+        if arrived then return true end
+        task.wait(0.5)
+    end
+    return false
+end
+
+local function ExitCursedShip()
+    if Stopped() or not IsLocalPlayerInCursedShip() then return true end
+    if getgenv()._CursedShipTransitioning then return false end
+    getgenv()._CursedShipTransitioning = true
+    ClearAimState()
+    CancelActiveTween()
+
+    local ok = false
+    SetStatus("Đang ở trong Cursed Ship -> Bay ra cổng thoát...")
+    if RawTweenToSpot(POS_CURSED_SHIP_EXIT) and not Stopped() then
+        SleepCheck(0.15)
+        SetStatus("Đang chạy remote thoát khỏi Cursed Ship...")
+        local makeVec = (vector and vector.create) or Vector3.new
+        local args = {
+            "requestEntrance",
+            makeVec(-6508.55810546875, 89.03500366210938, -132.83999633789062)
+        }
+        pcall(function()
+            game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("CommF_"):InvokeServer(unpack(args))
+        end)
+
+        local t0 = os.clock()
+        while not Stopped() and (os.clock() - t0) < 3.0 do
+            if not IsLocalPlayerInCursedShip() then
+                ok = true
+                break
+            end
+            task.wait(0.15)
+        end
+    end
+
+    getgenv()._CursedShipTransitioning = false
+    return ok or (not IsLocalPlayerInCursedShip())
+end
+
+local function EnterCursedShip()
+    if Stopped() or IsLocalPlayerInCursedShip() then return true end
+    if getgenv()._CursedShipTransitioning then return false end
+    getgenv()._CursedShipTransitioning = true
+    ClearAimState()
+    CancelActiveTween()
+
+    local ok = false
+    SetStatus("Mục tiêu ở trong Cursed Ship -> Bay tới cổng vào thuyền...")
+    if RawTweenToSpot(POS_CURSED_SHIP_ENTER) and not Stopped() then
+        SleepCheck(0.15)
+        SetStatus("Đang chạy remote vào Cursed Ship...")
+        local makeVec = (vector and vector.create) or Vector3.new
+        local args = {
+            "requestEntrance",
+            makeVec(923.2130126953125, 126.97599792480469, 32852.83203125)
+        }
+        pcall(function()
+            game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("CommF_"):InvokeServer(unpack(args))
+        end)
+
+        local t0 = os.clock()
+        while not Stopped() and (os.clock() - t0) < 3.0 do
+            if IsLocalPlayerInCursedShip() then
+                ok = true
+                break
+            end
+            task.wait(0.15)
+        end
+    end
+
+    getgenv()._CursedShipTransitioning = false
+    return ok or IsLocalPlayerInCursedShip()
+end
+
 local function TweenTo(targetPos)
     if Stopped() then return false end
     if getgenv()._RealKidMainRunning or getgenv()._RealKidHopRunning then
         SetStatus("RealKid đang chạy -> Không được tự tween, hop low refresh!")
         HopLow()
         return false
+    end
+
+    if IsLocalPlayerInCursedShip() and not IsPosInCursedShip(targetPos) then
+        if not ExitCursedShip() or Stopped() then return false end
     end
 
     while not Stopped() do
@@ -721,18 +980,7 @@ local function TweenTo(targetPos)
 
         SetStatus(("Pre-Tween (190 stud/s) -> còn %.0f studs"):format(dist))
         EnsureAntiGravity(hrp)
-
-        ActiveNoclip = RunService.Stepped:Connect(function()
-            if char and char.Parent then
-                for _, p in ipairs(char:GetDescendants()) do
-                    if p:IsA("BasePart") and p.CanCollide then p.CanCollide = false end
-                end
-                if hrp and hrp.Parent then
-                    hrp.AssemblyLinearVelocity = Vector3.zero
-                    hrp.AssemblyAngularVelocity = Vector3.zero
-                end
-            end
-        end)
+        EnsureNoclipLoop()
 
         ActiveTween = TweenService:Create(hrp, TweenInfo.new(dist / TWEEN_SPEED, Enum.EasingStyle.Linear), { CFrame = CFrame.new(targetPos) })
         ActiveTween:Play()
@@ -868,20 +1116,49 @@ local function HasRaceV2()
     return ok and st == -2
 end
 
+-- ============================================================================
+-- CHỌN TEAM 1 LẦN THEO TÌNH HÌNH THỰC TẾ (KHÔNG ĐỔI LẠI KHI RE-EXECUTE)
+-- ============================================================================
+local function GetCurrentTeamName()
+    local t = LocalPlayer.Team
+    if not t or t.Name == "Neutral" then return nil end
+    return t.Name
+end
+
 local function EnsureTeam(preferTeam)
     if Stopped() then return end
-    local targetTeam = preferTeam or "Marines"
-    if not LocalPlayer.Team or LocalPlayer.Team.Name == "Neutral" or (preferTeam and LocalPlayer.Team.Name ~= targetTeam) then
-        SetStatus("Đang chọn team " .. targetTeam .. "...")
-        pcall(function() CommF:InvokeServer("SetTeam", targetTeam) end)
-        SleepCheck(1.8)
+    local curTeam = GetCurrentTeamName()
+
+    -- Nếu nhiệm vụ không ép phe cụ thể và đã ở Pirates hoặc Marines -> giữ nguyên team hiện tại
+    if not preferTeam then
+        if curTeam == "Pirates" or curTeam == "Marines" then
+            WaitAlive()
+            return
+        end
+        preferTeam = "Marines"
+    end
+
+    -- Nếu đã đúng team cần thiết -> tuyệt đối không chọn lại
+    if curTeam == preferTeam then
+        WaitAlive()
+        return
+    end
+
+    SetStatus(("Đổi team 1 lần (%s -> %s)..."):format(tostring(curTeam or "Chưa có team"), preferTeam))
+    pcall(function() CommF:InvokeServer("SetTeam", preferTeam) end)
+
+    local t0 = os.clock()
+    while not Stopped() and (os.clock() - t0) < 3.0 do
+        if GetCurrentTeamName() == preferTeam then break end
+        task.wait(0.1)
     end
     WaitAlive()
-    SleepCheck(0.8)
+    SleepCheck(0.4)
 end
 
 local function TravelToSea(targetSea)
     while not Stopped() and GetSea() ~= targetSea do
+        if SetHoppingState then SetHoppingState(true) end
         SetStatus("Đang chuyển sang Sea " .. tostring(targetSea) .. "...")
         if targetSea == 2 then
             pcall(function() CommF:InvokeServer("TravelDressrosa") end)
@@ -915,207 +1192,502 @@ local function TryRollRaceOnce()
 end
 
 -- ============================================================================
--- SKYPIEASESSION.TXT MANAGER (CO-OP UP SKYPIEA V3 & BACK-HELP MULTI-ACCOUNT)
+-- 2 TẦNG DỮ LIỆU: PRESENCE CÁ NHÂN (5S HEARTBEAT) + STICKY ROOM (skypiea_room.json)
 -- ============================================================================
 local MY_UID = tostring(LocalPlayer.UserId)
+local MY_SESSION_FILE = SESSION_PREFIX .. MY_UID .. ".json"
+local MyV3QueueAt = os.time()
 
-local function ReadSkypieaSessionRaw()
-    if not (isfile and readfile and isfile(SESSION_FILE)) then return {}, true end
+local function ReadSingleJsonFile(path)
+    if not (isfile and readfile and isfile(path)) then return nil end
     for _ = 1, 3 do
-        local okR, raw = pcall(readfile, SESSION_FILE)
-        if okR and type(raw) == "string" then
-            if raw:match("^%s*$") then return {}, true end
+        local okR, raw = pcall(readfile, path)
+        if okR and type(raw) == "string" and not raw:match("^%s*$") then
             local okD, data = pcall(function() return HttpService:JSONDecode(raw) end)
-            if okD and type(data) == "table" then return data, true end
+            if okD and type(data) == "table" then
+                return data
+            end
         end
-        task.wait(0.05)
+        task.wait(0.02)
     end
-    return nil, false
+    return nil
 end
 
-local function UpdateSkypieaSession(mutatorFn)
-    local data, ok = ReadSkypieaSessionRaw()
-    if not ok or not data then return nil end
+local PrevSession = ReadSingleJsonFile(MY_SESSION_FILE)
+local HasPrevSession = (type(PrevSession) == "table" and type(PrevSession.updatedAt) == "number" and (os.time() - PrevSession.updatedAt) <= SESSION_TTL)
+if HasPrevSession and tonumber(PrevSession.v3QueueAt) then
+    MyV3QueueAt = tonumber(PrevSession.v3QueueAt)
+end
+
+local MyPresenceState = {
+    userId = LocalPlayer.UserId,
+    name = LocalPlayer.Name,
+    sea = GetSea(),
+    jobId = tostring(game.JobId),
+    placeId = game.PlaceId,
+    phase = (HasPrevSession and PrevSession.phase) or "idle", -- "v3" | "backhelp" | "idle"
+    needsV3 = (HasPrevSession and PrevSession.needsV3 == true) or false,
+    needsBackHelp = (HasPrevSession and PrevSession.needsBackHelp == true) or false,
+    isBackHelp = (HasPrevSession and PrevSession.isBackHelp == true) or false,
+    isHopping = (HasPrevSession and PrevSession.isHopping == true) or false,
+    readyAtHelp = false,
+    failedJob = "",
+    v3QueueAt = MyV3QueueAt,
+    leverPulled = (HasPrevSession and PrevSession.leverPulled == true) or false,
+    updatedAt = os.time(),
+}
+
+local function UpdateSessionIndex(uid, timestampOrNil)
+    if not writefile then return end
+    local idx = ReadSingleJsonFile(SESSION_INDEX_FILE) or {}
     local now = os.time()
-    local cleaned = {}
-    for uid, entry in pairs(data) do
-        if type(entry) == "table" and type(entry.updatedAt) == "number" and (now - entry.updatedAt) <= SESSION_TTL then
-            cleaned[tostring(uid)] = entry
+    local cleanedIdx = {}
+    for k, ts in pairs(idx) do
+        if type(ts) == "number" and (now - ts) <= SESSION_TTL then
+            cleanedIdx[tostring(k)] = ts
         end
     end
-    if mutatorFn then
-        mutatorFn(cleaned, now)
+    cleanedIdx[tostring(uid)] = timestampOrNil
+    pcall(writefile, SESSION_INDEX_FILE, HttpService:JSONEncode(cleanedIdx))
+end
+
+local function FlushMyPresenceFile(removeFile)
+    if not writefile then return end
+    if removeFile then
+        if isfile and delfile and isfile(MY_SESSION_FILE) then
+            pcall(delfile, MY_SESSION_FILE)
+        end
+        UpdateSessionIndex(MY_UID, nil)
+        return
     end
-    if writefile then
-        pcall(writefile, SESSION_FILE, HttpService:JSONEncode(cleaned))
+    local now = os.time()
+    MyPresenceState.userId = LocalPlayer.UserId
+    MyPresenceState.name = LocalPlayer.Name
+    MyPresenceState.sea = GetSea()
+    MyPresenceState.jobId = tostring(game.JobId)
+    MyPresenceState.placeId = game.PlaceId
+    MyPresenceState.failedJob = tostring(lastFailedJoinJob or "")
+    MyPresenceState.updatedAt = now
+    pcall(writefile, MY_SESSION_FILE, HttpService:JSONEncode(MyPresenceState))
+    UpdateSessionIndex(MY_UID, now)
+end
+
+SetHoppingState = function(flag)
+    MyPresenceState.isHopping = (flag == true)
+    if MyPresenceState.phase ~= "none" then
+        FlushMyPresenceFile(false)
     end
+end
+
+-- Luồng nền Heartbeat 5 giây/lần: mỗi acc chỉ ghi duy nhất file cá nhân của chính mình
+task.spawn(function()
+    while not Stopped() do
+        if MyPresenceState.phase ~= "none" then
+            FlushMyPresenceFile(false)
+        end
+        SleepCheck(5.0)
+    end
+end)
+
+local function ReadAllSkypieaSessions()
+    local now = os.time()
+    local cleaned = {}
+    local scannedPaths = {}
+
+    local function ingestPath(path)
+        local norm = tostring(path):gsub("^%./", "")
+        if scannedPaths[norm] then return end
+        scannedPaths[norm] = true
+        local entry = ReadSingleJsonFile(norm)
+        if type(entry) == "table" and type(entry.updatedAt) == "number" then
+            if (now - entry.updatedAt) <= SESSION_TTL then
+                local uid = tostring(entry.userId or norm:match("skypieasession_(%d+)%.json$") or "")
+                if uid ~= "" then
+                    cleaned[uid] = entry
+                end
+            elseif delfile and norm ~= MY_SESSION_FILE then
+                pcall(delfile, norm)
+            end
+        end
+    end
+
+    local idx = ReadSingleJsonFile(SESSION_INDEX_FILE)
+    if type(idx) == "table" then
+        for uid, ts in pairs(idx) do
+            if type(ts) == "number" and (now - ts) <= SESSION_TTL then
+                ingestPath(SESSION_PREFIX .. tostring(uid) .. ".json")
+            end
+        end
+    end
+
+    if listfiles then
+        for _, rootArg in ipairs({ "", "." }) do
+            local okL, files = pcall(listfiles, rootArg)
+            if okL and type(files) == "table" then
+                for _, f in ipairs(files) do
+                    local fname = tostring(f):gsub("\\", "/")
+                    if fname:match("skypieasession_%d+%.json$") then
+                        ingestPath(fname)
+                    end
+                end
+            end
+        end
+    end
+
+    if MyPresenceState.phase ~= "none" then
+        ingestPath(MY_SESSION_FILE)
+    end
+    for _, plr in ipairs(Players:GetPlayers()) do
+        ingestPath(SESSION_PREFIX .. tostring(plr.UserId) .. ".json")
+    end
+
     return cleaned
 end
 
-RemoveFromSkypieaSession = function()
-    UpdateSkypieaSession(function(tbl)
-        tbl[MY_UID] = nil
-    end)
+local function ReadSkypieaRoom(sessions)
+    local room = ReadSingleJsonFile(ROOM_FILE)
+    if type(room) ~= "table" then return nil end
+    local now = os.time()
+    local hostUid = tostring(room.hostUid or "")
+    local updatedAt = tonumber(room.updatedAt) or 0
+    if hostUid == "" or (now - updatedAt) > SESSION_TTL then
+        return nil
+    end
+    local allSessions = sessions or ReadAllSkypieaSessions()
+    local hostSession = allSessions[hostUid]
+    if not hostSession or (now - (tonumber(hostSession.updatedAt) or 0)) > SESSION_TTL then
+        return nil
+    end
+    -- Nếu phòng thường nhưng Host đã xong V3 -> phòng đã kết thúc
+    if not room.isBackHelp and hostSession.needsV3 == false then
+        return nil
+    end
+    -- Nếu phòng Back-Help nhưng không còn ai cần V3 -> phòng đã kết thúc
+    if room.isBackHelp then
+        local hasAnyV3 = false
+        for uid, e in pairs(allSessions) do
+            if uid ~= hostUid and e.needsV3 == true then
+                hasAnyV3 = true
+                break
+            end
+        end
+        if not hasAnyV3 then return nil end
+    end
+    return room
 end
 
-local function AnalyzeSkypieaSession(tbl)
-    local activeList, hosts, clones = {}, {}, {}
-    for _, e in pairs(tbl or {}) do
-        table.insert(activeList, e)
-        if e.role == "host" then
-            table.insert(hosts, e)
-        elseif e.role == "clone" then
+-- Chỉ duy nhất 1 acc làm Host được quyền ghi skypiea_room.json
+local function WriteSkypieaRoomAsHost(stateStr, jobIdStr, isBackHelpFlag)
+    if not writefile then return end
+    local payload = {
+        hostUid = MY_UID,
+        hostName = LocalPlayer.Name,
+        jobId = tostring(jobIdStr or ""),
+        placeId = game.PlaceId,
+        sea = GetSea(),
+        state = stateStr or "PREPARING", -- "PREPARING" | "OPEN"
+        isBackHelp = (isBackHelpFlag == true),
+        updatedAt = os.time(),
+    }
+    pcall(writefile, ROOM_FILE, HttpService:JSONEncode(payload))
+    return payload
+end
+
+local function ClearSkypieaRoomIfOwner()
+    local room = ReadSingleJsonFile(ROOM_FILE)
+    if type(room) == "table" and tostring(room.hostUid or "") == MY_UID then
+        if isfile and delfile and isfile(ROOM_FILE) then
+            pcall(delfile, ROOM_FILE)
+        end
+    end
+end
+
+RemoveFromSkypieaSession = function()
+    MyPresenceState.phase = "none"
+    MyPresenceState.needsV3 = false
+    MyPresenceState.needsBackHelp = false
+    MyPresenceState.isBackHelp = false
+    MyPresenceState.readyAtHelp = false
+    ClearSkypieaRoomIfOwner()
+    FlushMyPresenceFile(true)
+    if isfile and readfile and writefile and isfile(SESSION_FILE) then
+        pcall(function()
+            local data = HttpService:JSONDecode(readfile(SESSION_FILE))
+            if type(data) == "table" and data[MY_UID] then
+                data[MY_UID] = nil
+                writefile(SESSION_FILE, HttpService:JSONEncode(data))
+            end
+        end)
+    end
+end
+
+-- Luật "Sticky Host" + Phân hàng đợi Clone (acc mới vào xếp cuối hàng đợi)
+local function ResolveStickyRoomTopology(sessions)
+    local activeV3List = {}
+    local activeBackHelpHost = nil
+
+    for uid, e in pairs(sessions) do
+        if e.isBackHelp == true and e.needsV3 == false then
+            if not activeBackHelpHost or (tonumber(uid) or math.huge) < (tonumber(activeBackHelpHost.userId) or math.huge) then
+                activeBackHelpHost = e
+            end
+        elseif e.needsV3 == true then
+            table.insert(activeV3List, e)
+        end
+    end
+
+    table.sort(activeV3List, function(a, b)
+        local ua = tonumber(a.userId) or math.huge
+        local ub = tonumber(b.userId) or math.huge
+        if ua ~= ub then return ua < ub end
+        return tostring(a.userId) < tostring(b.userId)
+    end)
+
+    local room = ReadSkypieaRoom(sessions)
+    local hostUid = nil
+    local isBackHelpRoom = false
+
+    -- 1. Nếu đã có Sticky Room và Host vẫn còn sống -> tuyệt đối giữ nguyên Host, cấm cướp quyền
+    if room then
+        hostUid = tostring(room.hostUid)
+        isBackHelpRoom = (room.isBackHelp == true)
+    elseif activeBackHelpHost then
+        hostUid = tostring(activeBackHelpHost.userId)
+        isBackHelpRoom = true
+    elseif #activeV3List >= 2 then
+        -- Chưa có phòng hoặc Host cũ đã offline/xong -> bầu Host theo UserId nhỏ nhất
+        hostUid = tostring(activeV3List[1].userId)
+        isBackHelpRoom = false
+    end
+
+    local clones = {}
+    for _, e in ipairs(activeV3List) do
+        if tostring(e.userId) ~= hostUid then
             table.insert(clones, e)
         end
     end
-    local primaryHost = nil
-    if #hosts > 0 then
-        table.sort(hosts, function(a, b)
-            if (a.isBackHelp and not b.isBackHelp) then return true end
-            if (not a.isBackHelp and b.isBackHelp) then return false end
-            return tostring(a.userId) < tostring(b.userId)
-        end)
-        primaryHost = hosts[1]
-    end
-    return activeList, primaryHost, clones
-end
 
-local function SyncV3SessionEntry()
-    local cleaned = UpdateSkypieaSession(function(tbl, now)
-        local me = tbl[MY_UID]
-        local otherHost = nil
-        local lowestUid = tonumber(MY_UID) or 0
-        for uid, e in pairs(tbl) do
-            if uid ~= MY_UID and e.role == "host" then
-                otherHost = e
-            end
-            local num = tonumber(uid) or math.huge
-            if num < lowestUid then lowestUid = num end
-        end
-
-        local role
-        if me and me.role == "clone" and otherHost then
-            role = "clone"
-        elseif otherHost then
-            role = "clone"
-        elseif me and me.role == "host" then
-            role = "host"
-        else
-            -- Không có host: nếu chỉ có 1 mình hoặc mình có UserId nhỏ nhất thì nhận host
-            role = (lowestUid == (tonumber(MY_UID) or 0)) and "host" or "clone"
-        end
-
-        tbl[MY_UID] = {
-            userId = LocalPlayer.UserId,
-            name = LocalPlayer.Name,
-            role = role,
-            isBackHelp = false,
-            needsV3 = true,
-            sea = GetSea(),
-            jobId = tostring(game.JobId),
-            placeId = game.PlaceId,
-            playersCount = #Players:GetPlayers(),
-            maxPlayers = Players.MaxPlayers or 12,
-            updatedAt = now,
-        }
+    -- Acc vào trước giữ STT đầu; acc mới xong V2 gia nhập sau có v3QueueAt lớn hơn -> tự động xếp STT cuối
+    table.sort(clones, function(a, b)
+        local qa = tonumber(a.v3QueueAt) or math.huge
+        local qb = tonumber(b.v3QueueAt) or math.huge
+        if qa ~= qb then return qa < qb end
+        local ua = tonumber(a.userId) or math.huge
+        local ub = tonumber(b.userId) or math.huge
+        if ua ~= ub then return ua < ub end
+        return tostring(a.userId) < tostring(b.userId)
     end)
-    if not cleaned then return nil, {}, nil, {} end
-    local activeList, hostEntry, cloneList = AnalyzeSkypieaSession(cleaned)
-    local myEntry = cleaned[MY_UID]
-    return myEntry and myEntry.role or "host", activeList, hostEntry, cloneList
+
+    local sttMap = {}
+    local whitelistUids = {}
+    if hostUid then whitelistUids[hostUid] = true end
+    for idx, c in ipairs(clones) do
+        c.stt = idx
+        sttMap[tostring(c.userId)] = idx
+        whitelistUids[tostring(c.userId)] = true
+    end
+
+    local myRole = "solo"
+    if hostUid then
+        if MY_UID == hostUid then
+            myRole = "host"
+        elseif sttMap[MY_UID] then
+            myRole = "clone"
+        end
+    end
+
+    return {
+        room = room,
+        hostUid = hostUid,
+        hostEntry = hostUid and sessions[hostUid] or nil,
+        isBackHelp = isBackHelpRoom,
+        activeV3List = activeV3List,
+        clones = clones,
+        sttMap = sttMap,
+        whitelistUids = whitelistUids,
+        myRole = myRole,
+        mySTT = sttMap[MY_UID] or 1,
+        totalClones = #clones,
+    }
 end
 
-local lastBhCheck = -999
+local function SyncV3SessionEntry(opts)
+    opts = opts or {}
+    MyPresenceState.phase = "v3"
+    MyPresenceState.needsV3 = true
+    MyPresenceState.isBackHelp = false
+    if opts.needsBackHelp ~= nil then MyPresenceState.needsBackHelp = opts.needsBackHelp end
+    if opts.readyAtHelp ~= nil then MyPresenceState.readyAtHelp = opts.readyAtHelp end
+    MyPresenceState.v3QueueAt = MyV3QueueAt
+    FlushMyPresenceFile(false)
+
+    local sessions = ReadAllSkypieaSessions()
+    sessions[MY_UID] = MyPresenceState
+    return ResolveStickyRoomTopology(sessions), sessions
+end
+
+local function IsLeverPulled()
+    local ok, res = pcall(function() return CommF:InvokeServer("CheckTempleDoor") end)
+    return ok and res == true
+end
+
+-- Quy trình Back-Help 1-kèm-1 không xung đột (ưu tiên acc xong Pull Lever + UserId nhỏ nhất, xác nhận 0.3s)
+local lastBhCheck = 0
 local function CheckAndClaimBackHelp()
     if not (IsSkypieaRaceName(GetRace()) and (ConfirmedHasV3 or HasRaceV3())) then
         return false
     end
 
     local nowClock = os.clock()
-    if (nowClock - lastBhCheck) < 2.2 then return false end
+    if (nowClock - lastBhCheck) < 2.0 then return false end
     lastBhCheck = nowClock
 
-    local claimed = false
-    UpdateSkypieaSession(function(tbl, now)
-        local me = tbl[MY_UID]
-        if me and me.isBackHelp then
-            local hasClone = false
-            for uid, e in pairs(tbl) do
-                if uid ~= MY_UID and e.needsV3 ~= false then hasClone = true; break end
-            end
-            if hasClone then
-                claimed = true
-                me.sea = GetSea()
-                me.jobId = tostring(game.JobId)
-                me.placeId = game.PlaceId
-                me.playersCount = #Players:GetPlayers()
-                me.maxPlayers = Players.MaxPlayers or 12
-                me.updatedAt = now
-            else
-                tbl[MY_UID] = nil
-            end
-            return
-        end
+    local sessions = ReadAllSkypieaSessions()
+    local room = ReadSkypieaRoom(sessions)
+    if room and room.isBackHelp then
+        return tostring(room.hostUid) == MY_UID
+    end
 
-        -- Kiểm tra có đúng 1 acc host lẻ loi (không phải back-help) không
-        local count, loneUid, loneEntry = 0, nil, nil
-        for uid, e in pairs(tbl) do
-            count = count + 1
-            loneUid, loneEntry = uid, e
+    local existingBhUid = nil
+    local loneV3Entry = nil
+    local v3Count = 0
+    local idleSea3Candidates = {}
+
+    for uid, e in pairs(sessions) do
+        if e.isBackHelp == true and e.needsV3 == false then
+            if not existingBhUid or (tonumber(uid) or math.huge) < (tonumber(existingBhUid) or math.huge) then
+                existingBhUid = uid
+            end
+        elseif e.needsV3 == true then
+            v3Count = v3Count + 1
+            loneV3Entry = e
+        elseif uid ~= MY_UID and e.needsV3 == false and e.sea == 3 and e.phase == "idle" then
+            table.insert(idleSea3Candidates, {
+                uid = uid,
+                num = tonumber(uid) or math.huge,
+                leverPulled = (e.leverPulled == true),
+            })
         end
-        if count == 1 and loneUid ~= MY_UID and loneEntry and loneEntry.role == "host" and not loneEntry.isBackHelp and loneEntry.needsV3 ~= false then
-            loneEntry.role = "clone"
-            tbl[MY_UID] = {
-                userId = LocalPlayer.UserId,
-                name = LocalPlayer.Name,
-                role = "host",
-                isBackHelp = true,
-                needsV3 = false,
-                helpingTarget = loneUid,
-                sea = GetSea(),
-                jobId = tostring(game.JobId),
-                placeId = game.PlaceId,
-                playersCount = #Players:GetPlayers(),
-                maxPlayers = Players.MaxPlayers or 12,
-                updatedAt = now,
-            }
-            claimed = true
-        end
+    end
+
+    if existingBhUid then
+        return existingBhUid == MY_UID
+    end
+
+    if v3Count ~= 1 or not loneV3Entry or loneV3Entry.needsBackHelp ~= true then
+        return false
+    end
+
+    if GetSea() ~= 3 then return false end
+
+    table.insert(idleSea3Candidates, {
+        uid = MY_UID,
+        num = tonumber(MY_UID) or math.huge,
+        leverPulled = IsLeverPulled(),
+    })
+
+    table.sort(idleSea3Candidates, function(a, b)
+        if a.leverPulled ~= b.leverPulled then return a.leverPulled end
+        if a.num ~= b.num then return a.num < b.num end
+        return a.uid < b.uid
     end)
-    return claimed
+
+    if not idleSea3Candidates[1] or idleSea3Candidates[1].uid ~= MY_UID then
+        return false
+    end
+
+    -- Ghi file cá nhân isBackHelp = true -> đợi 0.3s đọc lại để xác nhận là backHelpUid duy nhất
+    MyPresenceState.phase = "backhelp"
+    MyPresenceState.needsV3 = false
+    MyPresenceState.needsBackHelp = false
+    MyPresenceState.isBackHelp = true
+    MyPresenceState.readyAtHelp = false
+    FlushMyPresenceFile(false)
+
+    task.wait(0.3)
+    if Stopped() then return false end
+
+    local verifySessions = ReadAllSkypieaSessions()
+    local winners = {}
+    for uid, e in pairs(verifySessions) do
+        if e.isBackHelp == true and e.needsV3 == false then
+            table.insert(winners, {
+                uid = uid,
+                num = tonumber(uid) or math.huge,
+                leverPulled = (e.leverPulled == true),
+            })
+        end
+    end
+    table.sort(winners, function(a, b)
+        if a.leverPulled ~= b.leverPulled then return a.leverPulled end
+        if a.num ~= b.num then return a.num < b.num end
+        return a.uid < b.uid
+    end)
+
+    if winners[1] and winners[1].uid == MY_UID then
+        return true
+    end
+
+    -- Nếu có acc ưu tiên hơn cùng nhận -> tự rút lui
+    MyPresenceState.phase = "idle"
+    MyPresenceState.isBackHelp = false
+    FlushMyPresenceFile(false)
+    return false
 end
 
-local function SyncBackHelpHost()
-    local stillNeeded = false
-    local cleaned = UpdateSkypieaSession(function(tbl, now)
-        local hasClone = false
-        for uid, e in pairs(tbl) do
-            if uid ~= MY_UID and e.needsV3 ~= false then
-                e.role = "clone" -- đảm bảo các acc cần V3 khác đều theo clone nếu còn lại host back-help
-                hasClone = true
-            end
+local function SyncBackHelpHost(readyAtHelpFlag)
+    MyPresenceState.phase = "backhelp"
+    MyPresenceState.needsV3 = false
+    MyPresenceState.needsBackHelp = false
+    MyPresenceState.isBackHelp = true
+    if readyAtHelpFlag ~= nil then MyPresenceState.readyAtHelp = readyAtHelpFlag end
+    FlushMyPresenceFile(false)
+
+    local sessions = ReadAllSkypieaSessions()
+    sessions[MY_UID] = MyPresenceState
+    local topo = ResolveStickyRoomTopology(sessions)
+    local stillNeeded = (#topo.activeV3List >= 1) and (topo.hostUid == MY_UID)
+    if not stillNeeded then
+        MyPresenceState.phase = "idle"
+        MyPresenceState.isBackHelp = false
+        MyPresenceState.readyAtHelp = false
+        ClearSkypieaRoomIfOwner()
+        FlushMyPresenceFile(false)
+    end
+    return stillNeeded, topo
+end
+
+-- Phân tích tình hình (team hiện tại + nhiệm vụ cần team gì) trước khi execute
+local function AnalyzeRequiredTeam()
+    if ConfirmedHasV3 or HasRaceV3() then
+        local sessions = ReadAllSkypieaSessions()
+        local room = ReadSkypieaRoom(sessions)
+        if (room and room.isBackHelp and tostring(room.hostUid) == MY_UID) or MyPresenceState.isBackHelp then
+            return "Marines"
         end
-        if hasClone then
-            stillNeeded = true
-            tbl[MY_UID] = {
-                userId = LocalPlayer.UserId,
-                name = LocalPlayer.Name,
-                role = "host",
-                isBackHelp = true,
-                needsV3 = false,
-                sea = GetSea(),
-                jobId = tostring(game.JobId),
-                placeId = game.PlaceId,
-                playersCount = #Players:GetPlayers(),
-                maxPlayers = Players.MaxPlayers or 12,
-                updatedAt = now,
-            }
+        return nil
+    end
+
+    if IsSkypieaRaceName(GetRace()) and HasRaceV2() then
+        local sessions = ReadAllSkypieaSessions()
+        sessions[MY_UID] = {
+            userId = LocalPlayer.UserId,
+            name = LocalPlayer.Name,
+            needsV3 = true,
+            v3QueueAt = MyV3QueueAt,
+            updatedAt = os.time(),
+        }
+        local topo = ResolveStickyRoomTopology(sessions)
+        if topo.myRole == "host" then
+            return "Marines"
+        elseif topo.myRole == "clone" then
+            return (topo.mySTT == 1) and "Pirates" or "Marines"
         else
-            tbl[MY_UID] = nil
+            return "Pirates"
         end
-    end)
-    local activeList, _, cloneList = AnalyzeSkypieaSession(cleaned or {})
-    return stillNeeded, activeList, cloneList
+    end
+
+    return nil
 end
 
 -- ============================================================================
@@ -1663,58 +2235,65 @@ end
 
 local function EnsurePvPTweenLoop(getTargetFn)
     SetupSilentAimHooks()
-
-    if not ActiveNoclip then
-        ActiveNoclip = RunService.Stepped:Connect(function()
-            if Stopped() then return end
-            local myChar = LocalPlayer.Character
-            getgenv()._AutoSkypieaMyChar = myChar
-            local myHum = myChar and myChar:FindFirstChildOfClass("Humanoid")
-            local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
-            if myChar and myChar.Parent then
-                for _, p in ipairs(myChar:GetDescendants()) do
-                    if p:IsA("BasePart") and p.CanCollide then p.CanCollide = false end
-                end
-            end
-            if myHum and myHum.Health > 0 then
-                if myHum.Sit then myHum.Sit = false end
-                pcall(function()
-                    myHum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-                    myHum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-                end)
-            end
-            if myHRP and myHRP.Parent then
-                EnsureAntiGravity(myHRP)
-                myHRP.AssemblyLinearVelocity = Vector3.zero
-                myHRP.AssemblyAngularVelocity = Vector3.zero
-            end
-        end)
-    end
+    EnsureNoclipLoop()
 
     if ActivePvPConn then return end
-    local lastTween = 0
-    ActivePvPConn = RunService.Heartbeat:Connect(function()
+    ActivePvPConn = RunService.Heartbeat:Connect(function(dt)
         if Stopped() then StopPvPTween() return end
+        if getgenv()._CursedShipTransitioning then
+            ClearAimState()
+            return
+        end
+
+        local stepDt = math.min(dt or 0.016, 0.1)
         local cam = workspace.CurrentCamera
         getgenv()._AutoSkypieaAimCam = cam
         getgenv()._AutoSkypieaAimCamPos = cam and cam.CFrame.Position or nil
 
         local target = getTargetFn()
-        if not target or not target.Parent then
+        if not target then
             ClearAimState()
-            CancelActiveTween()
             return
         end
 
         local myChar = LocalPlayer.Character
-        local tChar = target.Character
         local myHum = myChar and myChar:FindFirstChildOfClass("Humanoid")
         local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+        if not (myHum and myHum.Health > 0 and myHRP) then
+            ClearAimState()
+            return
+        end
+
+        if typeof(target) == "Vector3" then
+            ClearAimState()
+            if IsPosInCursedShip(myHRP.Position) ~= IsPosInCursedShip(target) then
+                return
+            end
+            local delta = target - myHRP.Position
+            local dist = delta.Magnitude
+            if dist <= 4 then
+                return
+            end
+            local step = math.min(dist, TWEEN_SPEED * stepDt)
+            myHRP.CFrame = CFrame.new(myHRP.Position + delta.Unit * step)
+            return
+        end
+
+        if not target.Parent then
+            ClearAimState()
+            return
+        end
+
+        local tChar = target.Character
         local tHRP = tChar and tChar:FindFirstChild("HumanoidRootPart")
         local tHum = tChar and tChar:FindFirstChildOfClass("Humanoid")
-        if not (myHum and myHum.Health > 0 and myHRP and tHRP and tHum and tHum.Health > 0) then
+        if not (tHRP and tHum and tHum.Health > 0) then
             ClearAimState()
-            CancelActiveTween()
+            return
+        end
+
+        if IsPosInCursedShip(myHRP.Position) ~= IsPosInCursedShip(tHRP.Position) then
+            ClearAimState()
             return
         end
 
@@ -1727,17 +2306,16 @@ local function EnsurePvPTweenLoop(getTargetFn)
         end
 
         if (tHRP.Position - myHRP.Position).Magnitude > MAX_PVP_DIST then
-            CancelActiveTween()
             return
         end
 
         local goalPos = hoverAboveMode
             and (tHRP.Position + Vector3.new(0, 60, 0))
             or (tHRP.CFrame * CFrame.new(0, 0.5, 2)).Position
-        local goalDist = (goalPos - myHRP.Position).Magnitude
+        local delta = goalPos - myHRP.Position
+        local goalDist = delta.Magnitude
 
         if goalDist <= 3 then
-            CancelActiveTween()
             local lookAt = Vector3.new(tHRP.Position.X, myHRP.Position.Y, tHRP.Position.Z)
             if (lookAt - myHRP.Position).Magnitude > 0.1 then
                 myHRP.CFrame = CFrame.new(myHRP.Position, lookAt)
@@ -1745,155 +2323,192 @@ local function EnsurePvPTweenLoop(getTargetFn)
             return
         end
 
-        local now = os.clock()
-        if (now - lastTween) >= 0.1 then
-            lastTween = now
-            CancelActiveTween()
-            local dur = math.max(goalDist / TWEEN_SPEED, 0.02)
-            local lookAt = Vector3.new(tHRP.Position.X, goalPos.Y, tHRP.Position.Z)
-            local goalCF = (not hoverAboveMode and (lookAt - goalPos).Magnitude > 0.1)
-                and CFrame.new(goalPos, lookAt)
-                or CFrame.new(goalPos)
-            ActiveTween = TweenService:Create(myHRP, TweenInfo.new(dur, Enum.EasingStyle.Linear), { CFrame = goalCF })
-            ActiveTween:Play()
-        end
+        local step = math.min(goalDist, TWEEN_SPEED * stepDt)
+        local nextPos = myHRP.Position + delta.Unit * step
+        local lookAt = Vector3.new(tHRP.Position.X, nextPos.Y, tHRP.Position.Z)
+        myHRP.CFrame = (not hoverAboveMode and (lookAt - nextPos).Magnitude > 0.1)
+            and CFrame.new(nextPos, lookAt)
+            or CFrame.new(nextPos)
     end)
 end
 
 -- ============================================================================
--- CO-OP HOST TẾ MẠNG (RA KHỎI SAFE ZONE, BẬT PVP CHO CLONE ĐÁNH)
+-- STICKY HOST: CHỐT SERVER 2 PHA (PREPARING -> OPEN) & HỘI TỤ ĐIỂM HELP
 -- ============================================================================
-local function FindSafeOutdoorSpot(myPos)
-    local z = GetEnclosingSafeZone(myPos, 4)
-    if z then
-        local half = z.Size / 2
-        local dirs = {
-            z.CFrame.LookVector * (half.Z + 35),
-            -z.CFrame.LookVector * (half.Z + 35),
-            z.CFrame.RightVector * (half.X + 35),
-            -z.CFrame.RightVector * (half.X + 35),
-        }
-        local bestPos, bestDist = nil, math.huge
-        for _, off in ipairs(dirs) do
-            local cand = Vector3.new(z.Position.X + off.X, math.max(myPos.Y, z.Position.Y) + 18, z.Position.Z + off.Z)
-            if not GetEnclosingSafeZone(cand, 4) then
-                local d = (cand - myPos).Magnitude
-                if d < bestDist then
-                    bestPos, bestDist = cand, d
-                end
-            end
-        end
-        if bestPos then return bestPos end
-    end
-    return Vector3.new(-380, 95, 300)
+local function IsCoopServerQualified(missingClones)
+    if GetSea() ~= 2 then return false end
+    local curPlayers = #Players:GetPlayers()
+    if curPlayers > 7 then return false end
+    if (12 - curPlayers) < (missingClones + 1) then return false end
+    return true
 end
 
 local function RunCoopHost(isBackHelp)
     StopPvPTween()
     if GetSea() ~= 2 then
+        WriteSkypieaRoomAsHost("PREPARING", "", isBackHelp)
         TravelToSea(2)
         return
     end
     if getgenv()._RealKidMainRunning or getgenv()._RealKidHopRunning then
-        HopLow()
+        WriteSkypieaRoomAsHost("PREPARING", "", isBackHelp)
+        HopCoopLow(2)
         return
     end
 
-    -- Chọn team Marines để không bị trùng Crew Pirate chặn sát thương với clone
     EnsureTeam("Marines")
     if Stopped() then return end
+    SetHoppingState(false)
 
-    local fullWaitSince = 0
+    local roomState = "PREPARING"
+    local stableSince = 0
+    local lastFailScan = 0
+
+    WriteSkypieaRoomAsHost("PREPARING", "", isBackHelp)
+
     while not Stopped() do
-        local keepGoing, clones
+        local topo
         if isBackHelp then
-            local okNeed, _, cl = SyncBackHelpHost()
-            keepGoing, clones = okNeed, cl
-            if not keepGoing then
+            local stillNeeded, t = SyncBackHelpHost(nil)
+            topo = t
+            if not stillNeeded then
                 CleanupMovement()
-                SetStatus("Back-Help hoàn tất (Clone đã lên Skypiea V3)! Quay lại Sea 3...")
+                SetStatus(("Back-Help [%s | STT 0/0]: Hoàn tất! Quay lại Sea 3..."):format(LocalPlayer.Name))
                 TravelToSea(3)
                 return
             end
         else
-            local myRole, activeList, _, cl = SyncV3SessionEntry()
-            clones = cl
+            topo = SyncV3SessionEntry({ needsBackHelp = false })
             if HasRaceV3() then
+                ConfirmedHasV3 = true
                 CleanupMovement()
+                ClearSkypieaRoomIfOwner()
                 return
             end
-            if myRole ~= "host" or #activeList < 2 then
+            -- Nếu tất cả Clone đã xong V3 và chỉ còn lại mình Host cần V3 -> chuyển sang gọi Back-Help
+            if #topo.activeV3List <= 1 then
+                CleanupMovement()
+                ClearSkypieaRoomIfOwner()
+                MyPresenceState.needsBackHelp = true
+                MyPresenceState.readyAtHelp = false
+                FlushMyPresenceFile(false)
+                SetStatus(("Host [%s]: Chỉ còn 1 mình cần V3 -> Chuyển sang gọi Back-Help..."):format(LocalPlayer.Name))
+                return
+            end
+            if topo.myRole ~= "host" then
                 CleanupMovement()
                 return
             end
         end
 
-        -- Kiểm tra slot server: nếu full khiến clone chưa kịp join -> Hop Low
+        local clones = topo.clones or {}
+        local totalClones = #clones
+        local helperTag = ("%s [%s | STT 0/%d]"):format(isBackHelp and "Back-Help" or "Helper", LocalPlayer.Name, totalClones)
+
         local missingClones = 0
-        for _, c in ipairs(clones or {}) do
-            if tostring(c.jobId) ~= tostring(game.JobId) then
+        local hoppingClones = 0
+        local cloneReportedFail = false
+        local curJob = tostring(game.JobId)
+        for _, c in ipairs(clones) do
+            if tostring(c.jobId) ~= curJob then
                 missingClones = missingClones + 1
             end
-        end
-        local maxP = Players.MaxPlayers or 12
-        local freeSlots = maxP - #Players:GetPlayers()
-        if missingClones > 0 and freeSlots < missingClones then
-            CleanupMovement()
-            SetStatus(("Server đầy (%d/%d) còn %d Clone chưa vào -> Hop Low!"):format(#Players:GetPlayers(), maxP, missingClones))
-            HopLow()
-            return
-        elseif missingClones > 0 and #Players:GetPlayers() >= (maxP - 1) then
-            if fullWaitSince == 0 then fullWaitSince = os.clock() end
-            if (os.clock() - fullWaitSince) >= 20 then
-                CleanupMovement()
-                SetStatus("Server quá đông, Clone chưa join kịp -> Hop Low!")
-                HopLow()
-                return
+            if c.isHopping == true then
+                hoppingClones = hoppingClones + 1
             end
-        else
-            fullWaitSince = 0
+            if tostring(c.failedJob or "") == curJob and c.isHopping ~= true then
+                cloneReportedFail = true
+            end
         end
 
-        local char, hum, myHRP = WaitAlive()
+        if hoppingClones > 0 and roomState == "OPEN" then
+            WriteSkypieaRoomAsHost("OPEN", curJob, isBackHelp)
+            SetStatus(("%s [OPEN]: Đang đợi %d Clone hop/load vào server..."):format(helperTag, hoppingClones))
+        end
+
+        -- Sau mỗi 3s kiểm tra xem có Clone nào báo TeleportInitFailed với server hiện tại không
+        if cloneReportedFail and (os.clock() - lastFailScan) >= 3.0 then
+            lastFailScan = os.clock()
+            CleanupMovement()
+            roomState = "PREPARING"
+            stableSince = 0
+            WriteSkypieaRoomAsHost("PREPARING", "", isBackHelp)
+            SetStatus(("%s: Clone báo lỗi join server -> Đổi sang PREPARING & Hop server mới!"):format(helperTag))
+            HopCoopLow(math.max(missingClones, 1))
+            return
+        end
+
+        -- PHA 1: PREPARING (Kiểm tra curPlayers <= 7 và 12 - curPlayers >= missingClones + 1, ổn định 3s)
+        if roomState == "PREPARING" then
+            if not IsCoopServerQualified(missingClones) then
+                CleanupMovement()
+                WriteSkypieaRoomAsHost("PREPARING", "", isBackHelp)
+                SetStatus(("%s [PREPARING]: Server %d/12 (thiếu %d Clone) chưa đạt chuẩn -> Hop server vắng..."):format(helperTag, #Players:GetPlayers(), missingClones))
+                HopCoopLow(math.max(missingClones, 1))
+                return
+            end
+
+            if stableSince == 0 then
+                stableSince = os.clock()
+                WriteSkypieaRoomAsHost("PREPARING", "", isBackHelp)
+            end
+
+            local waited = os.clock() - stableSince
+            if waited < 3.0 then
+                SetStatus(("%s [PREPARING]: Đã đáp server đạt chuẩn (%d/12), ổn định %.1f/3.0s..."):format(helperTag, #Players:GetPlayers(), waited))
+                SleepCheck(0.5)
+                continue
+            end
+
+            -- Đủ 3s ổn định -> Chốt PHA 2: OPEN
+            roomState = "OPEN"
+            WriteSkypieaRoomAsHost("OPEN", curJob, isBackHelp)
+            SetStatus(("%s [OPEN]: Đã mở phòng %s cho %d Clone hội quân!"):format(helperTag, curJob:sub(1, 8), totalClones))
+        else
+            -- Đang ở PHA OPEN: nếu server bị người lạ tràn vào khiến thiếu slot cho Clone chưa vào -> quay về PREPARING
+            if missingClones > 0 and (12 - #Players:GetPlayers()) < missingClones then
+                CleanupMovement()
+                roomState = "PREPARING"
+                stableSince = 0
+                WriteSkypieaRoomAsHost("PREPARING", "", isBackHelp)
+                SetStatus(("%s [OPEN -> PREPARING]: Server đầy (%d/12) trong lúc Clone chưa vào -> Hop mới!"):format(helperTag, #Players:GetPlayers()))
+                HopCoopLow(math.max(missingClones, 1))
+                return
+            end
+            WriteSkypieaRoomAsHost("OPEN", curJob, isBackHelp)
+        end
+
+        local char, _, myHRP = WaitAlive()
         if Stopped() or not char then break end
-        if not LocalPlayer.Team or LocalPlayer.Team.Name ~= "Marines" then
+        if GetCurrentTeamName() ~= "Marines" then
             EnsureTeam("Marines")
         end
 
-        -- Giữ Anti-Gravity + Noclip liên tục để đứng ngoài Safe Zone chờ clone đánh
-        if not ActiveNoclip then
-            ActiveNoclip = RunService.Stepped:Connect(function()
-                if Stopped() then return end
-                local ch = LocalPlayer.Character
-                local h = ch and ch:FindFirstChildOfClass("Humanoid")
-                local r = ch and ch:FindFirstChild("HumanoidRootPart")
-                if ch and ch.Parent then
-                    for _, p in ipairs(ch:GetDescendants()) do
-                        if p:IsA("BasePart") and p.CanCollide then p.CanCollide = false end
-                    end
-                end
-                if h and h.Health > 0 and h.Sit then h.Sit = false end
-                if r and r.Parent then
-                    EnsureAntiGravity(r)
-                    r.AssemblyLinearVelocity = Vector3.zero
-                    r.AssemblyAngularVelocity = Vector3.zero
-                end
-            end)
+        EnsureNoclipLoop()
+
+        if IsLocalPlayerInCursedShip() then
+            MyPresenceState.readyAtHelp = false
+            ExitCursedShip()
+            continue
         end
 
-        if IsInSafeZone(LocalPlayer) then
-            local outPos = FindSafeOutdoorSpot(myHRP.Position)
-            SetStatus(("%s: Đang bay ra ngoài Safe Zone để Clone đánh..."):format(isBackHelp and "Back-Help Host" or "Co-op Host"))
-            local d = (outPos - myHRP.Position).Magnitude
-            CancelActiveTween()
-            ActiveTween = TweenService:Create(myHRP, TweenInfo.new(math.max(d / TWEEN_SPEED, 0.05), Enum.EasingStyle.Linear), { CFrame = CFrame.new(outPos) })
-            ActiveTween:Play()
-            SleepCheck(0.8)
+        local distToHelp = (POS_COOP_HELP - myHRP.Position).Magnitude
+        if distToHelp > 5 then
+            MyPresenceState.readyAtHelp = false
+            SetStatus(("%s [OPEN]: Đang bay tới điểm Help (%.0f stud)..."):format(helperTag, distToHelp))
+            if not ActiveTween or ActiveTween.PlaybackState ~= Enum.PlaybackState.Playing then
+                CancelActiveTween()
+                ActiveTween = TweenService:Create(myHRP, TweenInfo.new(math.max(distToHelp / TWEEN_SPEED, 0.05), Enum.EasingStyle.Linear), { CFrame = CFrame.new(POS_COOP_HELP) })
+                ActiveTween:Play()
+            end
+            SleepCheck(0.35)
         else
             CancelActiveTween()
+            myHRP.CFrame = CFrame.new(POS_COOP_HELP)
             EnsureMyPvPEnabled()
-            SetStatus(("%s: Đứng ngoài Safe Zone (PvP ON) | Clones: %d"):format(isBackHelp and "Back-Help Host" or "Co-op Host", #(clones or {})))
-            SleepCheck(1.2)
+            MyPresenceState.readyAtHelp = true
+            SetStatus(("%s [OPEN]: Sẵn sàng tại điểm Help (PvP ON) | Clones: %d"):format(helperTag, totalClones))
+            SleepCheck(0.8)
         end
     end
     CleanupMovement()
@@ -1999,8 +2614,45 @@ local function RunSea3BossTarget(destination, preTweenPos, waitMsgFn, doneCheckF
 end
 
 -- ============================================================================
--- CHẾ ĐỘ SKYPIEA V3 CHÍNH (SOLO KILL 1 SKYPIEA 3M/SAFEZONE + CO-OP CLONE/HOST)
+-- CHẾ ĐỘ SKYPIEA V3 CHÍNH (STICKY ROOM CO-OP + WHITELIST 100 STUD + BACK-HELP 10S)
 -- ============================================================================
+local function GetCoopWhitelistTarget(whitelistUids)
+    local myHRP = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myHRP then return nil end
+    local bestTarget, bestDist = nil, math.huge
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and whitelistUids[tostring(p.UserId)] == true then
+            local ch = p.Character
+            local tHRP = ch and ch:FindFirstChild("HumanoidRootPart")
+            if tHRP and (tHRP.Position - POS_COOP_HELP).Magnitude <= 100 then
+                if IsLockedTargetValid(p, ch, true) and not IsInSafeZone(p) then
+                    local d = (tHRP.Position - myHRP.Position).Magnitude
+                    if d < bestDist then
+                        bestTarget, bestDist = p, d
+                    end
+                end
+            end
+        end
+    end
+    return bestTarget
+end
+
+local function FinishSkypieaV3ToSea3()
+    ConfirmedHasV3 = true
+    StopPvPTween()
+    ClearSkypieaRoomIfOwner()
+    MyPresenceState.phase = "idle"
+    MyPresenceState.needsV3 = false
+    MyPresenceState.needsBackHelp = false
+    MyPresenceState.isBackHelp = false
+    MyPresenceState.isHopping = false
+    MyPresenceState.readyAtHelp = false
+    MyPresenceState.leverPulled = IsLeverPulled()
+    FlushMyPresenceFile(false)
+    SetStatus("Đã xong Skypiea V3! Đang TP sang Sea 3...")
+    TravelToSea(3)
+end
+
 local function RunSkypieaV3Phase()
     if GetSea() ~= 2 then TravelToSea(2) end
     if Stopped() then return end
@@ -2008,6 +2660,7 @@ local function RunSkypieaV3Phase()
     local chosenSword = nil
     local statsChecked = false
     local deprioritized = {}
+    local lastRoomTpClock = 0
 
     local function CheckWenlock()
         local ok, rs = pcall(function() return CommF:InvokeServer("Wenlocktoad", "1") end)
@@ -2040,7 +2693,7 @@ local function RunSkypieaV3Phase()
         statsChecked = true
     end
 
-    local function EngageTargetStep(targetPlayer, tChar, myHRP, startTick, labelPrefix)
+    local function EngageTargetStep(targetPlayer, tChar, myHRP, startTick, labelPrefix, isCoop)
         local tHRP = tChar:FindFirstChild("HumanoidRootPart")
         local tHum = tChar:FindFirstChildOfClass("Humanoid")
         if not (tHRP and tHum and tHum.Health > 0) then return false end
@@ -2085,92 +2738,199 @@ local function RunSkypieaV3Phase()
                 SleepCheck(0.1)
             end
         else
-            hoverAboveMode = true
-            SetStatus(("%s: %s [%.0f stud] | Hồi chiêu (+60 stud) | %.0fm"):format(labelPrefix, targetPlayer.DisplayName, realDist, elapsedMin))
+            if isCoop then
+                hoverAboveMode = false
+                SetStatus(("%s: %s [%.0f stud] | Đang hồi chiêu... | %.0fm"):format(labelPrefix, targetPlayer.DisplayName, realDist, elapsedMin))
+            else
+                hoverAboveMode = true
+                SetStatus(("%s: %s [%.0f stud] | Hồi chiêu (+60 stud) | %.0fm"):format(labelPrefix, targetPlayer.DisplayName, realDist, elapsedMin))
+            end
             SleepCheck(0.15)
         end
         return true
     end
 
+    local didInitialSessionSync = false
     while not Stopped() do
         local stW = CheckWenlock()
         if HasRaceV3() or stW == -2 then
-            ConfirmedHasV3 = true
-            StopPvPTween()
-            RemoveFromSkypieaSession()
-            SetStatus("Đã xong Skypiea V3! Đang TP sang Sea 3...")
-            TravelToSea(3)
+            FinishSkypieaV3ToSea3()
             return
         end
 
-        local myRole, activeList, hostEntry = SyncV3SessionEntry()
+        local topo = SyncV3SessionEntry({ readyAtHelp = false })
+        if topo.myRole == "solo" and not didInitialSessionSync then
+            didInitialSessionSync = true
+            SetStatus("Đang quét đồng đội Co-op & Back-Help...")
+            if not SleepCheck(1.5) then return end
+            topo = SyncV3SessionEntry({ readyAtHelp = false })
+        end
 
-        -- CO-OP MODE (>= 2 acc trong skypieasession.txt)
-        if #activeList >= 2 then
-            if myRole == "host" then
-                RunCoopHost(false)
-            else
-                -- CLONE MODE
-                StopPvPTween()
-                if not hostEntry or hostEntry.sea ~= 2 or tostring(hostEntry.jobId or "") == "" then
-                    SetStatus("Co-op Clone: Đợi Host vào Sea 2...")
-                    SleepCheck(2)
-                elseif tostring(hostEntry.jobId) ~= tostring(game.JobId) then
-                    SetStatus(("Co-op Clone -> Join server Host (%s)..."):format(tostring(hostEntry.name)))
-                    DirectTeleport(tostring(hostEntry.jobId), tonumber(hostEntry.placeId) or game.PlaceId)
-                    SleepCheck(4)
+        -- CO-OP MODE (Có Sticky Room / Back-Help Host / >= 2 acc V3)
+        if topo.myRole == "host" then
+            RunCoopHost(false)
+        elseif topo.myRole == "clone" then
+            StopPvPTween()
+            local room = topo.room
+            local hostEntry = topo.hostEntry
+            local hostName = tostring((room and room.hostName) or (hostEntry and hostEntry.name) or "?")
+            local roomState = room and tostring(room.state or "PREPARING") or "PREPARING"
+            local roomJob = room and tostring(room.jobId or "") or ""
+            local cloneSelfTag = ("Co-op Clone [%s | STT %d/%d]"):format(LocalPlayer.Name, topo.mySTT, topo.totalClones)
+
+            -- Luật cứng: Khi room.state ~= "OPEN" hoặc room.jobId == "" -> đứng yên chờ ở Sea 2, cấm teleport
+            if GetSea() ~= 2 then
+                TravelToSea(2)
+            elseif roomState ~= "OPEN" or roomJob == "" then
+                MyPresenceState.readyAtHelp = false
+                SetHoppingState(false)
+                SetStatus(("%s: Đứng yên chờ Host (%s) chốt phòng [State: %s]..."):format(cloneSelfTag, hostName, roomState))
+                SleepCheck(1.5)
+            elseif roomJob ~= tostring(game.JobId) then
+                MyPresenceState.readyAtHelp = false
+                if lastFailedJoinJob == roomJob then
+                    SetHoppingState(false)
+                    SyncV3SessionEntry({ readyAtHelp = false })
+                    SetStatus(("%s: Lỗi join %s -> Đã báo Host (%s) đổi server..."):format(cloneSelfTag, roomJob:sub(1, 8), hostName))
+                    SleepCheck(1.5)
+                elseif (os.clock() - lastRoomTpClock) < 10.0 then
+                    local waitCd = math.max(0, 10.0 - (os.clock() - lastRoomTpClock))
+                    SetStatus(("%s: Cooldown join server Host (%s) %.1fs..."):format(cloneSelfTag, hostName, waitCd))
+                    SleepCheck(1.0)
                 else
-                    -- Chung server Sea 2 với Host -> bật PvP & đánh Host đến khi lên V3
-                    EnsureTeam("Pirates")
-                    EnsureMyPvPEnabled()
+                    lastRoomTpClock = os.clock()
+                    lastTeleportFailedFlag = false
+                    pendingTeleportJob = roomJob
+                    SetHoppingState(true)
+                    SetStatus(("%s [OPEN]: Gọi __ServerBrowser join %s..."):format(cloneSelfTag, roomJob:sub(1, 8)))
+                    if not game:IsLoaded() then
+                        repeat task.wait() until game:IsLoaded() or Stopped()
+                    end
+                    if not Stopped() and roomJob ~= "" and roomJob ~= game.JobId then
+                        pcall(function()
+                            game:GetService("ReplicatedStorage").__ServerBrowser:InvokeServer("teleport", roomJob)
+                        end)
+                    end
+                    SleepCheck(3.0)
+                end
+            else
+                -- Đã hội quân cùng server với Host ở Sea 2
+                SetHoppingState(false)
+                local cloneStart = os.clock()
+                local currentSTT = topo.mySTT
+                local currentTotalClones = topo.totalClones
+                local currentWhitelist = topo.whitelistUids
+                local currentMoveTarget = POS_COOP_HELP
+
+                EnsureTeam(currentSTT == 1 and "Pirates" or "Marines")
+                EnsureMyPvPEnabled()
+                if currentSTT == 1 then
                     PrepareV3Weapons()
-                    local cloneStart = os.clock()
-                    local hostPlayer = nil
-                    EnsurePvPTweenLoop(function() return hostPlayer end)
+                end
 
-                    local lastSync = 0
-                    while not Stopped() do
-                        local curW = CheckWenlock()
-                        if HasRaceV3() or curW == -2 then
-                            ConfirmedHasV3 = true
+                EnsurePvPTweenLoop(function()
+                    return currentMoveTarget
+                end)
+
+                local lastSync = 0
+                while not Stopped() do
+                    local curW = CheckWenlock()
+                    if HasRaceV3() or curW == -2 then
+                        FinishSkypieaV3ToSea3()
+                        return
+                    end
+
+                    if (os.clock() - lastSync) >= 2.0 then
+                        lastSync = os.clock()
+                        local t2 = SyncV3SessionEntry(nil)
+                        currentSTT = t2.mySTT
+                        currentTotalClones = t2.totalClones
+                        currentWhitelist = t2.whitelistUids
+                        local r2 = t2.room
+                        if t2.myRole ~= "clone" or not r2 or r2.state ~= "OPEN" or tostring(r2.jobId) ~= tostring(game.JobId) then
+                            MyPresenceState.readyAtHelp = false
                             StopPvPTween()
-                            RemoveFromSkypieaSession()
-                            SetStatus("Co-op Clone xong Skypiea V3! Đang sang Sea 3...")
-                            TravelToSea(3)
-                            return
+                            break
                         end
+                    end
 
-                        if (os.clock() - lastSync) >= 2 then
-                            lastSync = os.clock()
-                            local r2, list2, h2 = SyncV3SessionEntry()
-                            hostEntry = h2
-                            if #list2 < 2 or r2 == "host" or not h2 or h2.sea ~= 2 or tostring(h2.jobId) ~= tostring(game.JobId) then
-                                StopPvPTween()
-                                break
-                            end
-                        end
+                    local char, _, myHRP = WaitAlive()
+                    if Stopped() or not char then break end
 
-                        local char, _, myHRP = WaitAlive()
-                        if Stopped() or not char then break end
+                    if IsLocalPlayerInCursedShip() then
+                        MyPresenceState.readyAtHelp = false
+                        ExitCursedShip()
+                        continue
+                    end
+
+                    if currentSTT == 1 then
+                        -- STT 1 (Pirates): Bay thẳng điểm Help, chỉ tấn công whitelist Co-op trong 100 studs quanh POS_COOP_HELP
                         if not char:FindFirstChild("HasBuso") then pcall(function() CommF:InvokeServer("Buso") end) end
-                        if not LocalPlayer.Team or LocalPlayer.Team.Name ~= "Pirates" then EnsureTeam("Pirates") end
+                        if GetCurrentTeamName() ~= "Pirates" then EnsureTeam("Pirates") end
                         EnsureMyPvPEnabled()
                         PrepareV3Weapons()
 
-                        hostPlayer = Players:GetPlayerByUserId(tonumber(hostEntry.userId)) or Players:FindFirstChild(tostring(hostEntry.name))
-                        if hostPlayer and hostPlayer.Character and IsLockedTargetValid(hostPlayer, hostPlayer.Character, false) then
-                            EngageTargetStep(hostPlayer, hostPlayer.Character, myHRP, cloneStart, "Co-op Kill Host")
+                        local distToHelp = (POS_COOP_HELP - myHRP.Position).Magnitude
+                        MyPresenceState.readyAtHelp = (distToHelp <= 15)
+
+                        local validVictim = GetCoopWhitelistTarget(currentWhitelist)
+                        if validVictim and validVictim.Character then
+                            currentMoveTarget = validVictim
+                            EngageTargetStep(validVictim, validVictim.Character, myHRP, cloneStart, ("Co-op [%s | STT 1/%d] Kill"):format(LocalPlayer.Name, currentTotalClones), true)
                         else
                             hoverAboveMode = false
-                            SetStatus(("Co-op Clone: Đợi Host (%s) ra khỏi Safe Zone / bật PvP..."):format(tostring(hostEntry.name)))
-                            SleepCheck(0.4)
+                            currentMoveTarget = POS_COOP_HELP
+                            SetStatus(("Co-op [%s | STT 1/%d]: Giữ vị trí tại điểm Help (%.0f stud) chờ mục tiêu..."):format(LocalPlayer.Name, currentTotalClones, distToHelp))
+                            SleepCheck(0.35)
                         end
+                    else
+                        -- STT >= 2 (Marines): Đứng giãn cách 3 studs quanh tâm POS_COOP_HELP, bật PvP liên tục
+                        ClearAimState()
+                        hoverAboveMode = false
+                        if GetCurrentTeamName() ~= "Marines" then EnsureTeam("Marines") end
+                        EnsureMyPvPEnabled()
+
+                        local angle = (currentSTT - 2) * (math.pi / 3)
+                        local sacPos = POS_COOP_HELP + Vector3.new(math.cos(angle) * 3, 0, math.sin(angle) * 3)
+                        currentMoveTarget = sacPos
+                        local distToSac = (sacPos - myHRP.Position).Magnitude
+                        MyPresenceState.readyAtHelp = (distToSac <= 15)
+                        local tempHelperTag = ("Helper Tạm [%s | STT %d/%d]"):format(LocalPlayer.Name, currentSTT, currentTotalClones)
+
+                        if distToSac > 5 then
+                            SetStatus(("%s: Đang bay tới điểm Help (%.0f stud)..."):format(tempHelperTag, distToSac))
+                        else
+                            SetStatus(("%s: Đứng giãn cách 3 studs tại điểm Help (PvP ON)..."):format(tempHelperTag))
+                        end
+                        SleepCheck(0.35)
                     end
-                    StopPvPTween()
                 end
+                StopPvPTween()
             end
         else
-            -- SOLO MODE (< 2 acc trong skypieasession.txt): chỉ cần kill 1 người có race Skypiea
+            -- SOLO MODE (activeV3Count == 1): Bật needsBackHelp = true chờ 10s gọi Back-Help trước khi HopHigh
+            MyPresenceState.needsBackHelp = true
+            MyPresenceState.readyAtHelp = false
+            FlushMyPresenceFile(false)
+
+            local bhWaitStart = os.clock()
+            local gotBackHelp = false
+            while not Stopped() and (os.clock() - bhWaitStart) < BACKHELP_WAIT_SECONDS do
+                local tCheck = SyncV3SessionEntry({ needsBackHelp = true, readyAtHelp = false })
+                if tCheck.myRole ~= "solo" then
+                    gotBackHelp = true
+                    break
+                end
+                local rem = math.max(0, BACKHELP_WAIT_SECONDS - (os.clock() - bhWaitStart))
+                SetStatus(("Solo lẻ loi: Bật needsBackHelp = true, chờ acc Sea 3 nhận kèo (%.1fs)..."):format(rem))
+                SleepCheck(0.5)
+            end
+
+            if Stopped() then return end
+            if gotBackHelp then
+                continue
+            end
+
             EnsureTeam("Pirates")
             EnsureMyPvPEnabled()
             if Stopped() then break end
@@ -2180,8 +2940,8 @@ local function RunSkypieaV3Phase()
             if CountSkypieaPvPPlayers() < 1 then
                 local waitRep = os.clock()
                 while not Stopped() and (os.clock() - waitRep) < 2.5 do
-                    local rWait, lWait = SyncV3SessionEntry()
-                    if #lWait >= 2 or rWait == "clone" then
+                    local tWait = SyncV3SessionEntry({ needsBackHelp = true, readyAtHelp = false })
+                    if tWait.myRole ~= "solo" then
                         switchToCoop = true
                         break
                     end
@@ -2191,15 +2951,15 @@ local function RunSkypieaV3Phase()
             end
 
             if not switchToCoop then
-                local rCheck, lCheck = SyncV3SessionEntry()
-                if #lCheck >= 2 or rCheck == "clone" then
+                local tCheck = SyncV3SessionEntry({ needsBackHelp = true, readyAtHelp = false })
+                if tCheck.myRole ~= "solo" then
                     switchToCoop = true
                 end
             end
 
             if not switchToCoop then
                 if CountSkypieaPvPPlayers() < 1 then
-                    SetStatus(("Solo Skypiea V3: Có %d/1 Skypiea PvP ON (Tổng Skypiea: %d) -> Hop High (11/12)..."):format(CountSkypieaPvPPlayers(), CountSkypieaPlayersInServer()))
+                    SetStatus(("Solo Skypiea V3: Không có Back-Help & có %d/1 Skypiea PvP ON -> Hop High (11/12)..."):format(CountSkypieaPvPPlayers()))
                     HopHigh()
                     return
                 end
@@ -2223,18 +2983,14 @@ local function RunSkypieaV3Phase()
 
                     local curStat = CheckWenlock()
                     if HasRaceV3() or curStat == -2 then
-                        ConfirmedHasV3 = true
-                        StopPvPTween()
-                        RemoveFromSkypieaSession()
-                        SetStatus("Đã hoàn thành Skypiea V3! Đang TP sang Sea 3...")
-                        TravelToSea(3)
+                        FinishSkypieaV3ToSea3()
                         return
                     end
 
                     if (os.clock() - lastSync) >= 2 then
                         lastSync = os.clock()
-                        local r2, list2 = SyncV3SessionEntry()
-                        if #list2 >= 2 or r2 == "clone" then
+                        local t2 = SyncV3SessionEntry({ needsBackHelp = true, readyAtHelp = false })
+                        if t2.myRole ~= "solo" then
                             StopPvPTween()
                             SetStatus("Phát hiện Co-op / Back-Help -> Chuyển sang chế độ Co-op!")
                             break
@@ -2244,7 +3000,7 @@ local function RunSkypieaV3Phase()
                     local char, _, myHRP = WaitAlive()
                     if Stopped() or not char then break end
                     if not char:FindFirstChild("HasBuso") then pcall(function() CommF:InvokeServer("Buso") end) end
-                    if not LocalPlayer.Team or LocalPlayer.Team.Name ~= "Pirates" then EnsureTeam("Pirates") end
+                    if GetCurrentTeamName() ~= "Pirates" then EnsureTeam("Pirates") end
                     EnsureMyPvPEnabled()
                     PrepareV3Weapons()
 
@@ -2277,6 +3033,16 @@ local function RunSkypieaV3Phase()
                     end
 
                     if currentTarget and lockedChar and lockedChar.Parent then
+                        local targetInShip = IsPlayerInCursedShip(currentTarget)
+                        local meInShip = IsLocalPlayerInCursedShip()
+                        if targetInShip and not meInShip then
+                            EnterCursedShip()
+                            continue
+                        elseif not targetInShip and meInShip then
+                            ExitCursedShip()
+                            continue
+                        end
+
                         local kept = EngageTargetStep(currentTarget, lockedChar, myHRP, lockStart, "Solo Lock Skypiea")
                         if not kept then
                             currentTarget, lockedChar, lockStart = nil, nil, 0
@@ -2293,7 +3059,7 @@ local function RunSkypieaV3Phase()
                             HopHigh()
                             return
                         end
-                        SetStatus(("Chờ player Skypiea PvP ON (<= 50k stud)... | %.0fm/45m"):format((os.clock() - v3Start) / 60))
+                        SetStatus(("Solo Lock Skypiea: Chờ player Skypiea PvP ON (<= 50k stud)... | %.0fm/45m"):format((os.clock() - v3Start) / 60))
                         SleepCheck(0.4)
                     end
                 end
@@ -2304,9 +3070,9 @@ local function RunSkypieaV3Phase()
 end
 
 -- ============================================================================
--- LUỒNG CHÍNH (STATE MACHINE)
+-- LUỒNG CHÍNH (STATE MACHINE - PHÂN TÍCH TÌNH HÌNH TRƯỚC KHI CHỌN TEAM)
 -- ============================================================================
-EnsureTeam(nil)
+EnsureTeam(AnalyzeRequiredTeam())
 if Stopped() then return end
 
 local hasV3 = HasRaceV3()
@@ -2318,7 +3084,7 @@ if not hasV3 and IsSkypieaRaceName(GetRace()) then
     end
 end
 
--- 0. CHECK NẾU MÌNH ĐANG LÀM BACK-HELP HOST TRONG SKYPIEASESSION.TXT
+-- 0. CHECK NẾU ĐÃ CÓ V3 VÀ NHẬN KÈO BACK-HELP 1-KÈM-1
 if IsSkypieaRaceName(GetRace()) and hasV3 and CheckAndClaimBackHelp() then
     RunCoopHost(true)
     return
@@ -2423,8 +3189,20 @@ if not hasV3 then
         if LaunchRealKidMain({ AutoUpgradeRaceV3 = true }, "Auto Skypiea V2 (Sea 2)") then
             while not Stopped() and task.wait(2) do
                 if HasRaceV2() then
-                    SetStatus("Đã xong Skypiea V2! Hop High (11/12) để tự up Skypiea V3...")
-                    HopHigh()
+                    MyV3QueueAt = os.time()
+                    local sessions = ReadAllSkypieaSessions()
+                    local room = ReadSkypieaRoom(sessions)
+                    local otherActive = 0
+                    for uid, e in pairs(sessions) do
+                        if uid ~= MY_UID and e.needsV3 == true then otherActive = otherActive + 1 end
+                    end
+                    if otherActive > 0 or room ~= nil then
+                        SetStatus("Đã xong Skypiea V2! Vào cuối hàng đợi Co-op V3...")
+                        RunSkypieaV3Phase()
+                    else
+                        SetStatus("Đã xong Skypiea V2! Chuyển sang pha V3...")
+                        RunSkypieaV3Phase()
+                    end
                     return
                 end
                 if not HasBlueFlower() and not IsNight() then
@@ -2438,13 +3216,22 @@ if not hasV3 then
         return
     end
 
-    -- 2B. ĐÃ XONG SKYPIEA V2 -> UP SKYPIEA V3 (SOLO KILL 1 SKYPIEA + CO-OP)
+    -- 2B. ĐÃ XONG SKYPIEA V2 -> UP SKYPIEA V3 (STICKY ROOM CO-OP + SOLO)
     RunSkypieaV3Phase()
     return
 end
 if Stopped() then return end
 
-RemoveFromSkypieaSession()
+-- Cập nhật trạng thái idle ở Sea 3 để sẵn sàng nhận kèo Back-Help 1-kèm-1
+ClearSkypieaRoomIfOwner()
+MyPresenceState.phase = "idle"
+MyPresenceState.needsV3 = false
+MyPresenceState.needsBackHelp = false
+MyPresenceState.isBackHelp = false
+MyPresenceState.isHopping = false
+MyPresenceState.readyAtHelp = false
+MyPresenceState.leverPulled = IsLeverPulled()
+FlushMyPresenceFile(false)
 
 -- 3. ĐÃ ĐỦ SKYPIEA V3 -> ĐẢM BẢO ĐỦ 10K FRAGMENT TRƯỚC KHI CHECK INVENTORY (THEO DÕI BACK-HELP)
 if GetFragments() < 10000 then
@@ -2515,12 +3302,18 @@ if not IsLeverPulled() then
         while not Stopped() and task.wait(2) do
             if CheckAndClaimBackHelp() then CleanupMovement(); TravelToSea(2); return end
             SetStatus("Đang chạy Auto Pull Lever...")
-            if IsLeverPulled() then break end
+            if IsLeverPulled() then
+                MyPresenceState.leverPulled = true
+                FlushMyPresenceFile(false)
+                break
+            end
         end
     end
 end
 
 if Stopped() then return end
+MyPresenceState.leverPulled = true
+FlushMyPresenceFile(false)
 SetStatus("CHÚC MỪNG! Đã hoàn thành Skypiea V3 + Pull Lever! (Đang trực Back-Help)")
 while not Stopped() and task.wait(2.5) do
     if CheckAndClaimBackHelp() then
