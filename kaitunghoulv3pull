@@ -1649,6 +1649,11 @@ local function SyncV3SessionEntry(opts)
     return ResolveStickyRoomTopology(sessions), sessions
 end
 
+local function IsLeverPulled()
+    local ok, res = pcall(function() return CommF:InvokeServer("CheckTempleDoor") end)
+    return ok and res == true
+end
+
 -- Quy trình Back-Help 1-kèm-1 không xung đột (ưu tiên acc xong Pull Lever + UserId nhỏ nhất, xác nhận 0.3s)
 local lastBhCheck = 0
 local function CheckAndClaimBackHelp()
