@@ -399,6 +399,7 @@ local function RecordJobCache(file, cache, jobId)
     if writefile then pcall(writefile, file, HttpService:JSONEncode(cache)) end
 end
 
+local SetHoppingState
 local isTeleportingNow = false
 local lastTeleportClock = 0
 local pendingTeleportJob = nil
@@ -408,6 +409,7 @@ local lastFailedJoinJob = ""
 TpFailedConn = TeleportService.TeleportInitFailed:Connect(function(_, result)
     lastTeleportFailedFlag = true
     isTeleportingNow = false
+    if SetHoppingState then SetHoppingState(false) end
     if pendingTeleportJob and pendingTeleportJob ~= "" then
         lastFailedJoinJob = pendingTeleportJob
         SetStatus(("Join thất bại (%s) -> Đánh dấu server lỗi"):format(tostring(result and result.Name or "Failed")))
@@ -428,6 +430,7 @@ local function DirectTeleport(jobId)
     lastTeleportClock = os.clock()
     lastTeleportFailedFlag = false
     pendingTeleportJob = JOB_ID
+    if SetHoppingState then SetHoppingState(true) end
 
     local okTp = pcall(function()
         game:GetService("ReplicatedStorage").__ServerBrowser:InvokeServer("teleport", JOB_ID)
@@ -435,6 +438,7 @@ local function DirectTeleport(jobId)
     if not okTp then
         isTeleportingNow = false
         pendingTeleportJob = nil
+        if SetHoppingState then SetHoppingState(false) end
         return false
     end
 
@@ -442,6 +446,7 @@ local function DirectTeleport(jobId)
     while not Stopped() and (os.clock() - t0) < 5.0 do
         if lastTeleportFailedFlag then
             isTeleportingNow = false
+            if SetHoppingState then SetHoppingState(false) end
             return false
         end
         task.wait(0.15)
@@ -588,6 +593,7 @@ TriedJobs[tostring(game.JobId)] = os.time()
 local function HopServer(mode, isEctoHop, maxPlayersLimit)
     if Stopped() or getgenv()._HoppingServer then return end
     getgenv()._HoppingServer = true
+    if SetHoppingState then SetHoppingState(true) end
     local isHigh = (mode == "high")
     local maxAllowedCnt = maxPlayersLimit or (isHigh and 11 or 10)
     SetStatus(isEctoHop and "Hop Low (Đặt trước server trống né trùng farm Ectoplasm)..." or (isHigh and "Đang tìm server đông (11/12 player)..." or ("Đang tìm server trống (<= %d player) & ping thấp..."):format(maxAllowedCnt)))
@@ -1315,6 +1321,7 @@ end
 
 local function TravelToSea(targetSea)
     while not Stopped() and GetSea() ~= targetSea do
+        if SetHoppingState then SetHoppingState(true) end
         SetStatus("Đang chuyển sang Sea " .. tostring(targetSea) .. "...")
         if targetSea == 2 then
             pcall(function() CommF:InvokeServer("TravelDressrosa") end)
@@ -1335,23 +1342,6 @@ local MY_UID = tostring(LocalPlayer.UserId)
 local MY_SESSION_FILE = SESSION_PREFIX .. MY_UID .. ".json"
 local MyV3QueueAt = os.time()
 
-local MyPresenceState = {
-    userId = LocalPlayer.UserId,
-    name = LocalPlayer.Name,
-    sea = GetSea(),
-    jobId = tostring(game.JobId),
-    placeId = game.PlaceId,
-    phase = "idle", -- "v3" | "backhelp" | "idle"
-    needsV3 = false,
-    needsBackHelp = false,
-    isBackHelp = false,
-    readyAtHelp = false,
-    failedJob = "",
-    v3QueueAt = MyV3QueueAt,
-    leverPulled = false,
-    updatedAt = os.time(),
-}
-
 local function ReadSingleJsonFile(path)
     if not (isfile and readfile and isfile(path)) then return nil end
     for _ = 1, 3 do
@@ -1366,6 +1356,30 @@ local function ReadSingleJsonFile(path)
     end
     return nil
 end
+
+local PrevSession = ReadSingleJsonFile(MY_SESSION_FILE)
+local HasPrevSession = (type(PrevSession) == "table" and type(PrevSession.updatedAt) == "number" and (os.time() - PrevSession.updatedAt) <= SESSION_TTL)
+if HasPrevSession and tonumber(PrevSession.v3QueueAt) then
+    MyV3QueueAt = tonumber(PrevSession.v3QueueAt)
+end
+
+local MyPresenceState = {
+    userId = LocalPlayer.UserId,
+    name = LocalPlayer.Name,
+    sea = GetSea(),
+    jobId = tostring(game.JobId),
+    placeId = game.PlaceId,
+    phase = (HasPrevSession and PrevSession.phase) or "idle", -- "v3" | "backhelp" | "idle"
+    needsV3 = (HasPrevSession and PrevSession.needsV3 == true) or false,
+    needsBackHelp = (HasPrevSession and PrevSession.needsBackHelp == true) or false,
+    isBackHelp = (HasPrevSession and PrevSession.isBackHelp == true) or false,
+    isHopping = (HasPrevSession and PrevSession.isHopping == true) or false,
+    readyAtHelp = false,
+    failedJob = "",
+    v3QueueAt = MyV3QueueAt,
+    leverPulled = (HasPrevSession and PrevSession.leverPulled == true) or false,
+    updatedAt = os.time(),
+}
 
 local function UpdateSessionIndex(uid, timestampOrNil)
     if not writefile then return end
@@ -1400,6 +1414,13 @@ local function FlushMyPresenceFile(removeFile)
     MyPresenceState.updatedAt = now
     pcall(writefile, MY_SESSION_FILE, HttpService:JSONEncode(MyPresenceState))
     UpdateSessionIndex(MY_UID, now)
+end
+
+SetHoppingState = function(flag)
+    MyPresenceState.isHopping = (flag == true)
+    if MyPresenceState.phase ~= "none" then
+        FlushMyPresenceFile(false)
+    end
 end
 
 -- Luồng nền Heartbeat 5 giây/lần: mỗi acc chỉ ghi duy nhất file cá nhân của chính mình
@@ -2467,6 +2488,7 @@ local function RunCoopHost(isBackHelp)
 
     EnsureTeam("Marines")
     if Stopped() then return end
+    SetHoppingState(false)
 
     local roomState = "PREPARING"
     local stableSince = 0
@@ -2513,15 +2535,24 @@ local function RunCoopHost(isBackHelp)
         local helperTag = ("%s [%s | STT 0/%d]"):format(isBackHelp and "Back-Help" or "Helper", LocalPlayer.Name, totalClones)
 
         local missingClones = 0
+        local hoppingClones = 0
         local cloneReportedFail = false
         local curJob = tostring(game.JobId)
         for _, c in ipairs(clones) do
             if tostring(c.jobId) ~= curJob then
                 missingClones = missingClones + 1
             end
-            if tostring(c.failedJob or "") == curJob then
+            if c.isHopping == true then
+                hoppingClones = hoppingClones + 1
+            end
+            if tostring(c.failedJob or "") == curJob and c.isHopping ~= true then
                 cloneReportedFail = true
             end
+        end
+
+        if hoppingClones > 0 and roomState == "OPEN" then
+            WriteGhoulRoomAsHost("OPEN", curJob, isBackHelp)
+            SetStatus(("%s [OPEN]: Đang đợi %d Clone hop/load vào server..."):format(helperTag, hoppingClones))
         end
 
         -- Sau mỗi 3s kiểm tra xem có Clone nào báo TeleportInitFailed với server hiện tại không
@@ -2742,6 +2773,7 @@ local function FinishGhoulV3ToSea3()
     MyPresenceState.needsV3 = false
     MyPresenceState.needsBackHelp = false
     MyPresenceState.isBackHelp = false
+    MyPresenceState.isHopping = false
     MyPresenceState.readyAtHelp = false
     MyPresenceState.leverPulled = IsLeverPulled()
     FlushMyPresenceFile(false)
@@ -2876,11 +2908,13 @@ local function RunGhoulV3Phase()
                 TravelToSea(2)
             elseif roomState ~= "OPEN" or roomJob == "" then
                 MyPresenceState.readyAtHelp = false
+                SetHoppingState(false)
                 SetStatus(("%s: Đứng yên chờ Host (%s) chốt phòng [State: %s]..."):format(cloneSelfTag, hostName, roomState))
                 SleepCheck(1.5)
             elseif roomJob ~= tostring(game.JobId) then
                 MyPresenceState.readyAtHelp = false
                 if lastFailedJoinJob == roomJob then
+                    SetHoppingState(false)
                     SyncV3SessionEntry({ readyAtHelp = false })
                     SetStatus(("%s: Lỗi join %s -> Đã báo Host (%s) đổi server..."):format(cloneSelfTag, roomJob:sub(1, 8), hostName))
                     SleepCheck(1.5)
@@ -2892,6 +2926,7 @@ local function RunGhoulV3Phase()
                     lastRoomTpClock = os.clock()
                     lastTeleportFailedFlag = false
                     pendingTeleportJob = roomJob
+                    SetHoppingState(true)
                     SetStatus(("%s [OPEN]: Gọi __ServerBrowser join %s..."):format(cloneSelfTag, roomJob:sub(1, 8)))
                     if not game:IsLoaded() then
                         repeat task.wait() until game:IsLoaded() or Stopped()
@@ -2905,6 +2940,7 @@ local function RunGhoulV3Phase()
                 end
             else
                 -- Đã hội quân cùng server với Host ở Sea 2
+                SetHoppingState(false)
                 local cloneStart = os.clock()
                 local currentSTT = topo.mySTT
                 local currentTotalClones = topo.totalClones
@@ -3328,6 +3364,7 @@ MyPresenceState.phase = "idle"
 MyPresenceState.needsV3 = false
 MyPresenceState.needsBackHelp = false
 MyPresenceState.isBackHelp = false
+MyPresenceState.isHopping = false
 MyPresenceState.readyAtHelp = false
 MyPresenceState.leverPulled = IsLeverPulled()
 FlushMyPresenceFile(false)
