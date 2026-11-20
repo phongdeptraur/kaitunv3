@@ -45,6 +45,7 @@ local LOCK_TIMEOUT = 3 * 60 -- 3 phút mỗi mục tiêu
 local GHOUL_V3_TIMEOUT = 45 * 60 -- 45 phút
 local SESSION_FILE = "ghoulsession.txt"
 local SESSION_PREFIX = "ghoulsession_"
+local SESSION_INDEX_FILE = "ghoulsession_index.json"
 local SESSION_TTL = 60 -- Quá 60s không cập nhật coi như acc đã tắt
 local ECTO_ANTI_FILE = "ghoulecto_anticollision.json"
 local ECTO_ANTI_TTL = 120 -- Sau 2 phút (120s) không cập nhật coi như offline
@@ -52,6 +53,7 @@ local ECTO_ANTI_TTL = 120 -- Sau 2 phút (120s) không cập nhật coi như off
 local POS_CAKE_LOAF    = Vector3.new(-1954.96, 37.83, -11875.87)
 local POS_CAKE_PRINCE   = Vector3.new(-1762.00, 38.00, -11878.00)
 local POS_SEA_CASTLE   = Vector3.new(-5021.44, 314.55, -3003.93)
+local POS_COOP_HELP    = Vector3.new(-499.64, 50.30, -42.73)
 
 local SEA_PLACES = {
     [2753915549]      = 1,
@@ -136,7 +138,7 @@ CloseBtn.AutoButtonColor = true
 CloseBtn.Parent = Bar
 Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 5)
 
-local ActiveTween, ActiveNoclip, ActiveBV, ActiveBG, ActivePvPConn, TeleportConn
+local ActiveTween, ActiveNoclip, ActiveBV, ActiveBG, ActivePvPConn, TeleportConn, TpFailedConn
 local hoverAboveMode = false
 local PendingStatus = "[AutoGhoulV3] Đang khởi tạo..."
 local LastRenderedStatus = ""
@@ -218,6 +220,7 @@ local function UnloadAll()
     if RemoveFromGhoulSession then pcall(RemoveFromGhoulSession) end
     if RemoveEctoAntiCollision then pcall(RemoveEctoAntiCollision) end
     if TeleportConn then pcall(function() TeleportConn:Disconnect() end) TeleportConn = nil end
+    if TpFailedConn then pcall(function() TpFailedConn:Disconnect() end) TpFailedConn = nil end
     pcall(function() if Gui and Gui.Parent then Gui:Destroy() end end)
     print("[AutoGhoulV3] Đã unload toàn bộ script!")
 end
@@ -325,13 +328,56 @@ local function RecordJobCache(file, cache, jobId)
     if writefile then pcall(writefile, file, HttpService:JSONEncode(cache)) end
 end
 
-local function DirectTeleport(jobId, placeId)
-    local sb = ReplicatedStorage:FindFirstChild("__ServerBrowser")
-    if sb then
-        pcall(function() sb:InvokeServer("teleport", jobId) end)
-        if not SleepCheck(3) then return end
+local isTeleportingNow = false
+local lastTeleportClock = 0
+local pendingTeleportJob = nil
+local lastTeleportFailedFlag = false
+local lastFailedJoinJob = ""
+
+TpFailedConn = TeleportService.TeleportInitFailed:Connect(function(_, result)
+    lastTeleportFailedFlag = true
+    isTeleportingNow = false
+    if pendingTeleportJob and pendingTeleportJob ~= "" then
+        lastFailedJoinJob = pendingTeleportJob
+        SetStatus(("Join thất bại (%s) -> Đánh dấu server lỗi"):format(tostring(result and result.Name or "Failed")))
+        pendingTeleportJob = nil
     end
-    pcall(function() TeleportService:TeleportToPlaceInstance(placeId or game.PlaceId, jobId, LocalPlayer) end)
+end)
+
+local function DirectTeleport(jobId, placeId)
+    local targetId = tostring(jobId or "")
+    if targetId == "" or targetId == tostring(game.JobId) then return false end
+    if Stopped() or isTeleportingNow then return false end
+    if (os.clock() - lastTeleportClock) < 5.5 then return false end
+
+    isTeleportingNow = true
+    lastTeleportClock = os.clock()
+    lastTeleportFailedFlag = false
+    pendingTeleportJob = targetId
+
+    local targetPlace = placeId or game.PlaceId
+    local okTp = pcall(function()
+        TeleportService:TeleportToPlaceInstance(targetPlace, targetId, LocalPlayer)
+    end)
+    if not okTp then
+        local sb = ReplicatedStorage:FindFirstChild("__ServerBrowser")
+        if sb then
+            pcall(function() sb:InvokeServer("teleport", targetId) end)
+        end
+    end
+
+    local t0 = os.clock()
+    while not Stopped() and (os.clock() - t0) < 5.0 do
+        if lastTeleportFailedFlag then
+            isTeleportingNow = false
+            return false
+        end
+        task.wait(0.15)
+    end
+
+    isTeleportingNow = false
+    pendingTeleportJob = nil
+    return not lastTeleportFailedFlag
 end
 
 -- ============================================================================
@@ -467,11 +513,12 @@ local HOP_CACHE_FILE = "AutoGhoulV3_HopCache.json"
 local TriedJobs = LoadJobCache(HOP_CACHE_FILE, 180)
 TriedJobs[tostring(game.JobId)] = os.time()
 
-local function HopServer(mode, isEctoHop)
+local function HopServer(mode, isEctoHop, maxPlayersLimit)
     if Stopped() or getgenv()._HoppingServer then return end
     getgenv()._HoppingServer = true
     local isHigh = (mode == "high")
-    SetStatus(isEctoHop and "Hop Low (Đặt trước server trống né trùng farm Ectoplasm)..." or (isHigh and "Đang tìm server đông (11/12 player)..." or "Đang tìm server low player & ping thấp để refresh..."))
+    local maxAllowedCnt = maxPlayersLimit or (isHigh and 11 or 10)
+    SetStatus(isEctoHop and "Hop Low (Đặt trước server trống né trùng farm Ectoplasm)..." or (isHigh and "Đang tìm server đông (11/12 player)..." or ("Đang tìm server trống (<= %d player) & ping thấp..."):format(maxAllowedCnt)))
 
     while not Stopped() and task.wait(0.3) do
         local ectoBlocked = isEctoHop and GetBlockedEctoJobs() or {}
@@ -492,7 +539,7 @@ local function HopServer(mode, isEctoHop)
                                     local cnt = (type(d) == "table" and tonumber(d.Count)) or tonumber(d) or 1
                                     local reg = (type(d) == "table" and tostring(d.Region or "")) or ""
                                     local ping = reg:find("Sing") and 40 or reg:find("Japan") and 95 or reg:find("Germ") and 190 or (reg:find("US") or reg:find("United States")) and 230 or 140
-                                    if (isHigh and cnt >= 6 and cnt < 12) or (not isHigh and cnt >= 1 and cnt < 11) then
+                                    if (isHigh and cnt >= 6 and cnt <= 11) or (not isHigh and cnt >= 1 and cnt <= maxAllowedCnt) then
                                         byJob[id] = { id = id, playing = cnt, ping = ping }
                                     end
                                 end
@@ -526,7 +573,7 @@ local function HopServer(mode, isEctoHop)
                     local id = tostring(s.id)
                     local cnt = tonumber(s.playing) or 0
                     local maxP = tonumber(s.maxPlayers) or 12
-                    if not TriedJobs[id] and not ectoBlocked[id] and cnt < maxP and ((isHigh and cnt >= 6) or (not isHigh and cnt >= 1)) then
+                    if not TriedJobs[id] and not ectoBlocked[id] and cnt < maxP and ((isHigh and cnt >= 6) or (not isHigh and cnt >= 1 and cnt <= maxAllowedCnt)) then
                         table.insert(list, { id = id, playing = cnt, ping = tonumber(s.ping) or 999 })
                     end
                 end
@@ -551,19 +598,18 @@ local function HopServer(mode, isEctoHop)
                     return a.ping < b.ping
                 end)
             else
+                local cap = math.min(maxAllowedCnt, 7)
                 for _, s in ipairs(list) do
-                    if s.ping <= 70 and s.playing <= 8 then table.insert(pool, s) end
+                    if s.ping <= 95 and s.playing <= cap then table.insert(pool, s) end
                 end
                 if #pool == 0 then pool = list end
                 table.sort(pool, function(a, b)
-                    local aTier, bTier = math.floor(a.ping / 30), math.floor(b.ping / 30)
-                    if aTier ~= bTier then return aTier < bTier end
                     if a.playing ~= b.playing then return a.playing < b.playing end
                     return a.ping < b.ping
                 end)
             end
 
-            for i = 1, math.min(#pool, 8) do
+            for i = 1, math.min(#pool, 6) do
                 if Stopped() then break end
                 local target = pool[i]
                 local canJoin = true
@@ -573,8 +619,10 @@ local function HopServer(mode, isEctoHop)
                 if canJoin then
                     RecordJobCache(HOP_CACHE_FILE, TriedJobs, target.id)
                     SetStatus(("%s -> %s | Players: %d | Ping: %dms"):format(isEctoHop and "Hop Ecto (Đã đặt chỗ)" or (isHigh and "Hop High" or "Hop Low"), target.id:sub(1, 8), target.playing, target.ping))
-                    DirectTeleport(target.id, game.PlaceId)
-                    if not SleepCheck(3) then break end
+                    local initiated = DirectTeleport(target.id, game.PlaceId)
+                    if initiated then
+                        SleepCheck(3.0)
+                    end
                 end
             end
         end
@@ -583,9 +631,13 @@ local function HopServer(mode, isEctoHop)
     getgenv()._HoppingServer = false
 end
 
-local function HopLow()      HopServer("low", false)  end
-local function HopHigh()     HopServer("high", false) end
-local function HopEctoLow()  HopServer("low", true)   end
+local function HopLow()                    HopServer("low", false, nil) end
+local function HopHigh()                   HopServer("high", false, nil) end
+local function HopEctoLow()                HopServer("low", true, nil) end
+local function HopCoopLow(neededCloneSlots)
+    local cap = math.max(2, 11 - math.max(1, tonumber(neededCloneSlots) or 1))
+    HopServer("low", false, cap)
+end
 
 -- ============================================================================
 -- NIGHT HUB API HOP (RÚT GỌN: DOUGH KING, RIP INDRA, CAKE PRINCE)
@@ -1022,8 +1074,14 @@ end
 
 local function HasRaceV2()
     if HasRaceV3() then return true end
-    local ok, st = pcall(function() return CommF:InvokeServer("Alchemist", "1") end)
-    return ok and st == -2
+    for _ = 1, 3 do
+        local ok, st = pcall(function() return CommF:InvokeServer("Alchemist", "1") end)
+        if ok and st ~= nil then
+            return st == -2
+        end
+        task.wait(0.25)
+    end
+    return false
 end
 
 local function EnsureTeam(preferTeam)
@@ -1074,15 +1132,31 @@ local function ReadSingleSessionFile(path)
     return nil
 end
 
+local function UpdateSessionIndex(uid, timestampOrNil)
+    if not writefile then return end
+    local idx = ReadSingleSessionFile(SESSION_INDEX_FILE) or {}
+    local now = os.time()
+    local cleanedIdx = {}
+    for k, ts in pairs(idx) do
+        if type(ts) == "number" and (now - ts) <= SESSION_TTL then
+            cleanedIdx[tostring(k)] = ts
+        end
+    end
+    cleanedIdx[tostring(uid)] = timestampOrNil
+    pcall(writefile, SESSION_INDEX_FILE, HttpService:JSONEncode(cleanedIdx))
+end
+
 local function WriteMySessionFile(entry)
     if not writefile then return end
     if entry == nil then
         if isfile and delfile and isfile(MY_SESSION_FILE) then
             pcall(delfile, MY_SESSION_FILE)
         end
+        UpdateSessionIndex(MY_UID, nil)
         return
     end
     pcall(writefile, MY_SESSION_FILE, HttpService:JSONEncode(entry))
+    UpdateSessionIndex(MY_UID, entry.updatedAt or os.time())
 end
 
 local function ReadAllGhoulSessions()
@@ -1091,28 +1165,40 @@ local function ReadAllGhoulSessions()
     local scannedPaths = {}
 
     local function ingestPath(path)
-        if scannedPaths[path] then return end
-        scannedPaths[path] = true
-        local entry = ReadSingleSessionFile(path)
+        local norm = tostring(path):gsub("^%./", "")
+        if scannedPaths[norm] then return end
+        scannedPaths[norm] = true
+        local entry = ReadSingleSessionFile(norm)
         if type(entry) == "table" and type(entry.updatedAt) == "number" then
             if (now - entry.updatedAt) <= SESSION_TTL then
-                local uid = tostring(entry.userId or path:match("ghoulsession_(%d+)%.json$") or "")
+                local uid = tostring(entry.userId or norm:match("ghoulsession_(%d+)%.json$") or "")
                 if uid ~= "" then
                     cleaned[uid] = entry
                 end
-            elseif delfile and path ~= MY_SESSION_FILE then
-                pcall(delfile, path)
+            elseif delfile and norm ~= MY_SESSION_FILE then
+                pcall(delfile, norm)
+            end
+        end
+    end
+
+    local idx = ReadSingleSessionFile(SESSION_INDEX_FILE)
+    if type(idx) == "table" then
+        for uid, ts in pairs(idx) do
+            if type(ts) == "number" and (now - ts) <= SESSION_TTL then
+                ingestPath(SESSION_PREFIX .. tostring(uid) .. ".json")
             end
         end
     end
 
     if listfiles then
-        local okL, files = pcall(listfiles, "")
-        if okL and type(files) == "table" then
-            for _, f in ipairs(files) do
-                local fname = tostring(f):gsub("\\", "/")
-                if fname:match("ghoulsession_%d+%.json$") then
-                    ingestPath(fname)
+        for _, rootArg in ipairs({ "", "." }) do
+            local okL, files = pcall(listfiles, rootArg)
+            if okL and type(files) == "table" then
+                for _, f in ipairs(files) do
+                    local fname = tostring(f):gsub("\\", "/")
+                    if fname:match("ghoulsession_%d+%.json$") then
+                        ingestPath(fname)
+                    end
                 end
             end
         end
@@ -1224,7 +1310,7 @@ local function AnalyzeGhoulSession(tbl)
     return activeList, primaryHost, clones, sttMap
 end
 
-local function SyncV3SessionEntry()
+local function SyncV3SessionEntry(forceHoppingFlag)
     local cleaned = UpdateGhoulSession(function(tbl, now)
         tbl[MY_UID] = {
             userId = LocalPlayer.UserId,
@@ -1232,6 +1318,8 @@ local function SyncV3SessionEntry()
             role = (tbl[MY_UID] and tbl[MY_UID].role) or "host",
             isBackHelp = false,
             needsV3 = true,
+            isHopping = (forceHoppingFlag == true) or (getgenv()._HoppingServer == true) or isTeleportingNow,
+            failedJoinJob = lastFailedJoinJob,
             sea = GetSea(),
             jobId = tostring(game.JobId),
             placeId = game.PlaceId,
@@ -1303,7 +1391,7 @@ local function CheckAndClaimBackHelp()
     return claimed
 end
 
-local function SyncBackHelpHost()
+local function SyncBackHelpHost(forceHoppingFlag)
     local stillNeeded = false
     local cleaned = UpdateGhoulSession(function(tbl, now)
         local hasClone = false
@@ -1321,6 +1409,8 @@ local function SyncBackHelpHost()
                 role = "host",
                 isBackHelp = true,
                 needsV3 = false,
+                isHopping = (forceHoppingFlag == true) or (getgenv()._HoppingServer == true) or isTeleportingNow,
+                failedJoinJob = lastFailedJoinJob,
                 sea = GetSea(),
                 jobId = tostring(game.JobId),
                 placeId = game.PlaceId,
@@ -1900,19 +1990,47 @@ local function EnsurePvPTweenLoop(getTargetFn)
         getgenv()._AutoGhoulAimCamPos = cam and cam.CFrame.Position or nil
 
         local target = getTargetFn()
-        if not target or not target.Parent then
+        if not target then
             ClearAimState()
             CancelActiveTween()
             return
         end
 
         local myChar = LocalPlayer.Character
-        local tChar = target.Character
         local myHum = myChar and myChar:FindFirstChildOfClass("Humanoid")
         local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+        if not (myHum and myHum.Health > 0 and myHRP) then
+            ClearAimState()
+            CancelActiveTween()
+            return
+        end
+
+        if typeof(target) == "Vector3" then
+            ClearAimState()
+            local dist = (target - myHRP.Position).Magnitude
+            if dist <= 4 then
+                CancelActiveTween()
+                return
+            end
+            if not ActiveTween or ActiveTween.PlaybackState ~= Enum.PlaybackState.Playing then
+                CancelActiveTween()
+                local dur = math.max(dist / TWEEN_SPEED, 0.05)
+                ActiveTween = TweenService:Create(myHRP, TweenInfo.new(dur, Enum.EasingStyle.Linear), { CFrame = CFrame.new(target) })
+                ActiveTween:Play()
+            end
+            return
+        end
+
+        if not target.Parent then
+            ClearAimState()
+            CancelActiveTween()
+            return
+        end
+
+        local tChar = target.Character
         local tHRP = tChar and tChar:FindFirstChild("HumanoidRootPart")
         local tHum = tChar and tChar:FindFirstChildOfClass("Humanoid")
-        if not (myHum and myHum.Health > 0 and myHRP and tHRP and tHum and tHum.Health > 0) then
+        if not (tHRP and tHum and tHum.Health > 0) then
             ClearAimState()
             CancelActiveTween()
             return
@@ -1995,7 +2113,8 @@ local function RunCoopHost(isBackHelp)
         return
     end
     if getgenv()._RealKidMainRunning or getgenv()._RealKidHopRunning then
-        HopLow()
+        if isBackHelp then SyncBackHelpHost(true) else SyncV3SessionEntry(true) end
+        HopCoopLow(2)
         return
     end
 
@@ -2007,16 +2126,16 @@ local function RunCoopHost(isBackHelp)
     while not Stopped() do
         local keepGoing, clones
         if isBackHelp then
-            local okNeed, _, cl = SyncBackHelpHost()
+            local okNeed, _, cl = SyncBackHelpHost(false)
             keepGoing, clones = okNeed, cl
             if not keepGoing then
                 CleanupMovement()
-                SetStatus("Back-Help hoàn tất (Clone đã lên Ghoul V3)! Quay lại Sea 3...")
+                SetStatus(("Back-Help [%s | STT 0/0]: Hoàn tất! Quay lại Sea 3..."):format(LocalPlayer.Name))
                 TravelToSea(3)
                 return
             end
         else
-            local myRole, activeList, _, cl = SyncV3SessionEntry()
+            local myRole, activeList, _, cl = SyncV3SessionEntry(false)
             clones = cl
             if HasRaceV3() then
                 CleanupMovement()
@@ -2028,39 +2147,49 @@ local function RunCoopHost(isBackHelp)
             end
         end
 
-        -- Kiểm tra slot server: nếu full khiến clone chưa kịp join -> Hop Low
+        local totalClones = #(clones or {})
+        local helperTag = ("%s [%s | STT 0/%d]"):format(isBackHelp and "Back-Help" or "Helper", LocalPlayer.Name, totalClones)
+
+        -- Kiểm tra slot server hoặc Clone báo lỗi join vào server hiện tại -> Hop server trống hơn
         local missingClones = 0
+        local cloneReportedFail = false
         for _, c in ipairs(clones or {}) do
             if tostring(c.jobId) ~= tostring(game.JobId) then
                 missingClones = missingClones + 1
             end
+            if tostring(c.failedJoinJob or "") == tostring(game.JobId) then
+                cloneReportedFail = true
+            end
         end
+
         local maxP = Players.MaxPlayers or 12
         local freeSlots = maxP - #Players:GetPlayers()
-        if missingClones > 0 and freeSlots < missingClones then
+        if cloneReportedFail or (missingClones > 0 and freeSlots < missingClones) then
             CleanupMovement()
-            SetStatus(("Server đầy (%d/%d) còn %d Clone chưa vào -> Hop Low!"):format(#Players:GetPlayers(), maxP, missingClones))
-            HopLow()
+            if isBackHelp then SyncBackHelpHost(true) else SyncV3SessionEntry(true) end
+            SetStatus(("%s: Server đầy/lỗi join (%d/%d, thiếu %d Clone) -> Hop server trống!"):format(helperTag, #Players:GetPlayers(), maxP, missingClones))
+            HopCoopLow(math.max(missingClones, 1))
             return
         elseif missingClones > 0 and #Players:GetPlayers() >= (maxP - 1) then
             if fullWaitSince == 0 then fullWaitSince = os.clock() end
-            if (os.clock() - fullWaitSince) >= 20 then
+            if (os.clock() - fullWaitSince) >= 18 then
                 CleanupMovement()
-                SetStatus("Server quá đông, Clone chưa join kịp -> Hop Low!")
-                HopLow()
+                if isBackHelp then SyncBackHelpHost(true) else SyncV3SessionEntry(true) end
+                SetStatus(("%s: Server quá đông, Clone chưa vào kịp -> Hop server trống!"):format(helperTag))
+                HopCoopLow(math.max(missingClones, 1))
                 return
             end
         else
             fullWaitSince = 0
         end
 
-        local char, hum, myHRP = WaitAlive()
+        local char, _, myHRP = WaitAlive()
         if Stopped() or not char then break end
         if not LocalPlayer.Team or LocalPlayer.Team.Name ~= "Marines" then
             EnsureTeam("Marines")
         end
 
-        -- Giữ Anti-Gravity + Noclip liên tục để đứng ngoài Safe Zone chờ clone đánh
+        -- Giữ Anti-Gravity + Noclip liên tục để bay thẳng tới POS_COOP_HELP (-499.64, 50.30, -42.73)
         if not ActiveNoclip then
             ActiveNoclip = RunService.Stepped:Connect(function()
                 if Stopped() then return end
@@ -2081,19 +2210,21 @@ local function RunCoopHost(isBackHelp)
             end)
         end
 
-        if IsInSafeZone(LocalPlayer) then
-            local outPos = FindSafeOutdoorSpot(myHRP.Position)
-            SetStatus(("%s: Đang bay ra ngoài Safe Zone để Clone đánh..."):format(isBackHelp and "Back-Help Host" or "Co-op Host"))
-            local d = (outPos - myHRP.Position).Magnitude
-            CancelActiveTween()
-            ActiveTween = TweenService:Create(myHRP, TweenInfo.new(math.max(d / TWEEN_SPEED, 0.05), Enum.EasingStyle.Linear), { CFrame = CFrame.new(outPos) })
-            ActiveTween:Play()
-            SleepCheck(0.8)
+        local distToHelp = (POS_COOP_HELP - myHRP.Position).Magnitude
+        if distToHelp > 5 then
+            SetStatus(("%s: Đang bay tới điểm Help (%.0f stud)..."):format(helperTag, distToHelp))
+            if not ActiveTween or ActiveTween.PlaybackState ~= Enum.PlaybackState.Playing then
+                CancelActiveTween()
+                ActiveTween = TweenService:Create(myHRP, TweenInfo.new(math.max(distToHelp / TWEEN_SPEED, 0.05), Enum.EasingStyle.Linear), { CFrame = CFrame.new(POS_COOP_HELP) })
+                ActiveTween:Play()
+            end
+            SleepCheck(0.35)
         else
             CancelActiveTween()
+            myHRP.CFrame = CFrame.new(POS_COOP_HELP)
             EnsureMyPvPEnabled()
-            SetStatus(("%s: Đứng ngoài Safe Zone (PvP ON) | Clones: %d"):format(isBackHelp and "Back-Help Host" or "Co-op Host", #(clones or {})))
-            SleepCheck(1.2)
+            SetStatus(("%s: Đứng tại điểm Help (PvP ON) | Clones: %d"):format(helperTag, totalClones))
+            SleepCheck(0.8)
         end
     end
     CleanupMovement()
@@ -2311,23 +2442,38 @@ local function RunGhoulV3Phase()
         -- CO-OP MODE (>= 2 acc trong ghoulsession)
         if #activeList >= 2 then
             if myRole == "host" then
-                RunHostModeTag = true
                 RunCoopHost(false)
             else
-                -- CLONE MODE (Có phân chia STT: STT = 1 đánh Helper, STT > 1 làm Helper tạm thời đứng cạnh Helper hiến mạng)
+                -- CLONE MODE (Có phân chia STT: STT = 1 đánh Helper, STT > 1 làm Helper tạm thời đứng tại điểm Help hiến mạng)
                 StopPvPTween()
-                if not hostEntry or hostEntry.sea ~= 2 or tostring(hostEntry.jobId or "") == "" then
-                    SetStatus(("Co-op Clone [STT %d/%d]: Đợi Host vào Sea 2..."):format(mySTT, totalClones))
-                    SleepCheck(2)
-                elseif tostring(hostEntry.jobId) ~= tostring(game.JobId) then
-                    SetStatus(("Co-op Clone [STT %d/%d] -> Join server Host (%s)..."):format(mySTT, totalClones, tostring(hostEntry.name)))
-                    DirectTeleport(tostring(hostEntry.jobId), tonumber(hostEntry.placeId) or game.PlaceId)
-                    SleepCheck(4)
+                local hostJob = tostring(hostEntry and hostEntry.jobId or "")
+                local hostFreeSlots = hostEntry and ((tonumber(hostEntry.maxPlayers) or 12) - (tonumber(hostEntry.playersCount) or 0)) or 0
+                local cloneSelfTag = ("Co-op Clone [%s | STT %d/%d]"):format(LocalPlayer.Name, mySTT, totalClones)
+
+                if not hostEntry or hostEntry.sea ~= 2 or hostJob == "" then
+                    SetStatus(("%s: Đợi Host (%s) vào Sea 2..."):format(cloneSelfTag, tostring(hostEntry and hostEntry.name or "?")))
+                    SleepCheck(1.5)
+                elseif hostEntry.isHopping == true then
+                    SetStatus(("%s: Host (%s) đang hop server mới, đang chờ..."):format(cloneSelfTag, tostring(hostEntry.name)))
+                    SleepCheck(1.5)
+                elseif hostJob ~= tostring(game.JobId) then
+                    if hostFreeSlots <= 0 then
+                        SetStatus(("%s: Server Host (%s) đã đầy (12/12), chờ Host đổi server..."):format(cloneSelfTag, tostring(hostEntry.name)))
+                        SleepCheck(1.5)
+                    elseif lastFailedJoinJob == hostJob then
+                        SyncV3SessionEntry(false)
+                        SetStatus(("%s: Lỗi join server Host (%s), chờ Host đổi server..."):format(cloneSelfTag, tostring(hostEntry.name)))
+                        SleepCheck(1.5)
+                    else
+                        SetStatus(("%s -> Join server Host (%s)..."):format(cloneSelfTag, tostring(hostEntry.name)))
+                        DirectTeleport(hostJob, tonumber(hostEntry.placeId) or game.PlaceId)
+                        SleepCheck(3.5)
+                    end
                 else
                     local cloneStart = os.clock()
-                    local hostPlayer = nil
                     local currentSTT = mySTT
                     local currentTotalClones = totalClones
+                    local currentMoveTarget = POS_COOP_HELP
 
                     if currentSTT == 1 then
                         EnsureTeam("Pirates")
@@ -2340,7 +2486,7 @@ local function RunGhoulV3Phase()
                     end
 
                     EnsurePvPTweenLoop(function()
-                        return (currentSTT == 1) and hostPlayer or nil
+                        return currentMoveTarget
                     end)
 
                     local lastSync = 0
@@ -2349,14 +2495,14 @@ local function RunGhoulV3Phase()
                         if HasRaceV3() or curW == -2 then
                             StopPvPTween()
                             RemoveFromGhoulSession()
-                            SetStatus("Co-op Clone xong Ghoul V3! Đang sang Sea 3...")
+                            SetStatus(("Co-op Clone [%s]: Đã xong Ghoul V3! Đang sang Sea 3..."):format(LocalPlayer.Name))
                             TravelToSea(3)
                             return
                         end
 
                         if (os.clock() - lastSync) >= 2 then
                             lastSync = os.clock()
-                            local r2, list2, h2, _, stt2, tot2 = SyncV3SessionEntry()
+                            local r2, list2, h2, _, stt2, tot2 = SyncV3SessionEntry(false)
                             hostEntry = h2
                             currentSTT = stt2
                             currentTotalClones = tot2
@@ -2368,10 +2514,10 @@ local function RunGhoulV3Phase()
 
                         local char, _, myHRP = WaitAlive()
                         if Stopped() or not char then break end
-                        hostPlayer = Players:GetPlayerByUserId(tonumber(hostEntry.userId)) or Players:FindFirstChild(tostring(hostEntry.name))
+                        local hostPlayer = Players:GetPlayerByUserId(tonumber(hostEntry.userId)) or Players:FindFirstChild(tostring(hostEntry.name))
 
                         if currentSTT == 1 then
-                            -- STT 1 (UserId nhỏ nhất): Được quyền kill trước, đánh cả Helper chính lẫn các Clone STT cao hơn đang đứng hiến mạng
+                            -- STT 1 (UserId nhỏ nhất): Được quyền kill trước, bay thẳng tới điểm Help / khóa mục tiêu
                             if not char:FindFirstChild("HasBuso") then pcall(function() CommF:InvokeServer("Buso") end) end
                             if not LocalPlayer.Team or LocalPlayer.Team.Name ~= "Pirates" then EnsureTeam("Pirates") end
                             EnsureMyPvPEnabled()
@@ -2381,7 +2527,6 @@ local function RunGhoulV3Phase()
                             if hostPlayer and hostPlayer.Character and IsLockedTargetValid(hostPlayer, hostPlayer.Character) then
                                 validVictim = hostPlayer
                             else
-                                -- Nếu Helper chính đang hồi sinh/trong SafeZone, đánh luôn các Clone STT > 1 đang đứng hiến mạng ở ngoài
                                 local bestSac, bestDist = nil, math.huge
                                 for _, p in ipairs(Players:GetPlayers()) do
                                     if p ~= LocalPlayer and p.Character and IsLockedTargetValid(p, p.Character) and not IsInSafeZone(p) then
@@ -2395,38 +2540,32 @@ local function RunGhoulV3Phase()
                             end
 
                             if validVictim and validVictim.Character then
-                                EngageTargetStep(validVictim, validVictim.Character, myHRP, cloneStart, ("Co-op [STT 1/%d] Kill"):format(currentTotalClones))
+                                currentMoveTarget = validVictim
+                                EngageTargetStep(validVictim, validVictim.Character, myHRP, cloneStart, ("Co-op [%s | STT 1/%d] Kill"):format(LocalPlayer.Name, currentTotalClones))
                             else
                                 hoverAboveMode = false
-                                SetStatus(("Co-op [STT 1/%d]: Đợi Host (%s) / Clone hiến mạng bật PvP..."):format(currentTotalClones, tostring(hostEntry.name)))
-                                SleepCheck(0.4)
+                                currentMoveTarget = POS_COOP_HELP
+                                local distToHelp = (POS_COOP_HELP - myHRP.Position).Magnitude
+                                SetStatus(("Co-op [%s | STT 1/%d]: Bay tới điểm Help (%.0f stud) chờ %s..."):format(LocalPlayer.Name, currentTotalClones, distToHelp, tostring(hostEntry.name)))
+                                SleepCheck(0.35)
                             end
                         else
-                            -- STT > 1: Làm Helper tạm thời (vẫn giữ role uprace, tween đến vị trí Helper chính đứng hiến mạng cho STT 1 đánh, không đánh Helper)
-                            CancelActiveTween()
+                            -- STT > 1: Làm Helper tạm thời đứng tại điểm Help (-499.64, 50.30, -42.73) hiến mạng cho STT 1
                             ClearAimState()
                             hoverAboveMode = false
                             if not LocalPlayer.Team or LocalPlayer.Team.Name ~= "Marines" then EnsureTeam("Marines") end
                             EnsureMyPvPEnabled()
 
-                            local hostHRP = hostPlayer and hostPlayer.Character and hostPlayer.Character:FindFirstChild("HumanoidRootPart")
-                            local sacPos
-                            if hostHRP and not IsInSafeZone(hostPlayer) then
-                                sacPos = (hostHRP.CFrame * CFrame.new((currentSTT - 1) * 4, 0, 3)).Position
-                            elseif IsInSafeZone(LocalPlayer) then
-                                sacPos = FindSafeOutdoorSpot(myHRP.Position)
-                            end
+                            local sacPos = POS_COOP_HELP + Vector3.new((currentSTT - 1) * 4, 0, 2)
+                            currentMoveTarget = sacPos
+                            local distToSac = (sacPos - myHRP.Position).Magnitude
+                            local tempHelperTag = ("Helper Tạm [%s | STT %d/%d]"):format(LocalPlayer.Name, currentSTT, currentTotalClones)
 
-                            if sacPos then
-                                local dist = (sacPos - myHRP.Position).Magnitude
-                                if dist > 5 then
-                                    local tw = TweenService:Create(myHRP, TweenInfo.new(math.max(dist / TWEEN_SPEED, 0.05), Enum.EasingStyle.Linear), { CFrame = CFrame.new(sacPos) })
-                                    ActiveTween = tw
-                                    tw:Play()
-                                end
+                            if distToSac > 5 then
+                                SetStatus(("%s: Đang bay tới điểm Help (%.0f stud) hiến mạng cho STT 1..."):format(tempHelperTag, distToSac))
+                            else
+                                SetStatus(("%s: Đứng tại điểm Help (PvP ON) hiến mạng cạnh %s..."):format(tempHelperTag, tostring(hostEntry.name)))
                             end
-
-                            SetStatus(("Co-op [STT %d/%d]: Đợi STT 1 xong -> Làm Helper tạm thời hiến mạng cạnh %s..."):format(currentSTT, currentTotalClones, tostring(hostEntry.name)))
                             SleepCheck(0.35)
                         end
                     end
@@ -2705,8 +2844,18 @@ if not hasV3 then
         if LaunchRealKidMain({ AutoUpgradeRaceV3 = true }, "Auto Ghoul V2 (Sea 2)") then
             while not Stopped() and task.wait(2) do
                 if HasRaceV2() then
-                    SetStatus("Đã xong Ghoul V2! Hop High (11/12) để tự up Ghoul V3...")
-                    HopHigh()
+                    local sessions = ReadAllGhoulSessions()
+                    local otherActive = 0
+                    for uid in pairs(sessions) do
+                        if uid ~= MY_UID then otherActive = otherActive + 1 end
+                    end
+                    if otherActive > 0 then
+                        SetStatus(("Đã xong Ghoul V2! Phát hiện %d acc Co-op -> Chuyển thẳng sang Co-op V3..."):format(otherActive))
+                        RunGhoulV3Phase()
+                    else
+                        SetStatus("Đã xong Ghoul V2! Hop High (11/12) để tự up Ghoul V3...")
+                        HopHigh()
+                    end
                     return
                 end
                 if not HasBlueFlower() and not IsNight() then
