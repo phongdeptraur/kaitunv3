@@ -164,6 +164,60 @@ local function CancelActiveTween()
     end
 end
 
+local CachedNoclipChar = nil
+local CachedNoclipParts = {}
+local CachedNoclipDescConn = nil
+local CachedStateHum = nil
+
+local function RefreshCharacterNoclipCache(char)
+    if CachedNoclipChar == char then return end
+    CachedNoclipChar = char
+    CachedNoclipParts = {}
+    if CachedNoclipDescConn then
+        pcall(function() CachedNoclipDescConn:Disconnect() end)
+        CachedNoclipDescConn = nil
+    end
+    if not char then return end
+    for _, p in ipairs(char:GetDescendants()) do
+        if p:IsA("BasePart") then
+            CachedNoclipParts[#CachedNoclipParts + 1] = p
+        end
+    end
+    CachedNoclipDescConn = char.DescendantAdded:Connect(function(d)
+        if d:IsA("BasePart") then
+            CachedNoclipParts[#CachedNoclipParts + 1] = d
+        end
+    end)
+end
+
+local function ApplyCachedNoclipAndZeroVel(char, hum, hrp)
+    if char and char.Parent then
+        RefreshCharacterNoclipCache(char)
+        for i = #CachedNoclipParts, 1, -1 do
+            local p = CachedNoclipParts[i]
+            if p and p.Parent then
+                if p.CanCollide then p.CanCollide = false end
+            else
+                table.remove(CachedNoclipParts, i)
+            end
+        end
+    end
+    if hum and hum.Health > 0 then
+        if hum.Sit then hum.Sit = false end
+        if CachedStateHum ~= hum then
+            CachedStateHum = hum
+            pcall(function()
+                hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+                hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+            end)
+        end
+    end
+    if hrp and hrp.Parent then
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+    end
+end
+
 local function EnsureAntiGravity(hrp)
     if not hrp or not hrp.Parent then return end
     if not ActiveBV or ActiveBV.Parent ~= hrp then
@@ -174,23 +228,34 @@ local function EnsureAntiGravity(hrp)
         ActiveBV.P = 9e9
         ActiveBV.Velocity = Vector3.zero
         ActiveBV.Parent = hrp
-    else
+    elseif ActiveBV.Velocity ~= Vector3.zero then
         ActiveBV.Velocity = Vector3.zero
     end
-    if not ActiveBG or ActiveBG.Parent ~= hrp then
-        if ActiveBG then pcall(function() ActiveBG:Destroy() end) end
-        ActiveBG = Instance.new("BodyGyro")
-        ActiveBG.Name = "AutoGhoulBG"
-        ActiveBG.MaxTorque = Vector3.new(9e9, 0, 9e9)
-        ActiveBG.P = 9e9
-        ActiveBG.CFrame = hrp.CFrame
-        ActiveBG.Parent = hrp
-    end
+end
+
+local function EnsureNoclipLoop()
+    if ActiveNoclip then return end
+    ActiveNoclip = RunService.Stepped:Connect(function()
+        if Stopped() then return end
+        local myChar = LocalPlayer.Character
+        getgenv()._AutoGhoulMyChar = myChar
+        if not myChar then return end
+        local myHum = myChar:FindFirstChildOfClass("Humanoid")
+        local myHRP = myChar:FindFirstChild("HumanoidRootPart")
+        ApplyCachedNoclipAndZeroVel(myChar, myHum, myHRP)
+        if myHRP then
+            EnsureAntiGravity(myHRP)
+        end
+    end)
 end
 
 local function CleanupMovement()
     CancelActiveTween()
     if ActiveNoclip then pcall(function() ActiveNoclip:Disconnect() end) ActiveNoclip = nil end
+    if CachedNoclipDescConn then pcall(function() CachedNoclipDescConn:Disconnect() end) CachedNoclipDescConn = nil end
+    CachedNoclipChar = nil
+    CachedNoclipParts = {}
+    CachedStateHum = nil
     if ActiveBV then pcall(function() if ActiveBV.Parent then ActiveBV:Destroy() end end) ActiveBV = nil end
     if ActiveBG then pcall(function() if ActiveBG.Parent then ActiveBG:Destroy() end end) ActiveBG = nil end
     pcall(function()
@@ -930,17 +995,7 @@ local function RawTweenToSpot(targetPos)
         if dist <= 8 then return true end
 
         EnsureAntiGravity(hrp)
-        local noclipConn = RunService.Stepped:Connect(function()
-            if char and char.Parent then
-                for _, p in ipairs(char:GetDescendants()) do
-                    if p:IsA("BasePart") and p.CanCollide then p.CanCollide = false end
-                end
-                if hrp and hrp.Parent then
-                    hrp.AssemblyLinearVelocity = Vector3.zero
-                    hrp.AssemblyAngularVelocity = Vector3.zero
-                end
-            end
-        end)
+        EnsureNoclipLoop()
 
         CancelActiveTween()
         ActiveTween = TweenService:Create(hrp, TweenInfo.new(math.max(dist / TWEEN_SPEED, 0.05), Enum.EasingStyle.Linear), { CFrame = CFrame.new(targetPos) })
@@ -954,8 +1009,7 @@ local function RawTweenToSpot(targetPos)
         end
 
         local arrived = (not Stopped()) and hum.Health > 0 and hrp.Parent and (hrp.Position - targetPos).Magnitude <= 12
-        CancelActiveTween()
-        if noclipConn then pcall(function() noclipConn:Disconnect() end) end
+        CleanupMovement()
         if Stopped() then return false end
         if arrived then return true end
         task.wait(0.5)
@@ -1060,18 +1114,7 @@ local function TweenTo(targetPos)
 
         SetStatus(("Pre-Tween (190 stud/s) -> còn %.0f studs"):format(dist))
         EnsureAntiGravity(hrp)
-
-        ActiveNoclip = RunService.Stepped:Connect(function()
-            if char and char.Parent then
-                for _, p in ipairs(char:GetDescendants()) do
-                    if p:IsA("BasePart") and p.CanCollide then p.CanCollide = false end
-                end
-                if hrp and hrp.Parent then
-                    hrp.AssemblyLinearVelocity = Vector3.zero
-                    hrp.AssemblyAngularVelocity = Vector3.zero
-                end
-            end
-        end)
+        EnsureNoclipLoop()
 
         ActiveTween = TweenService:Create(hrp, TweenInfo.new(dist / TWEEN_SPEED, Enum.EasingStyle.Linear), { CFrame = CFrame.new(targetPos) })
         ActiveTween:Play()
@@ -1790,17 +1833,25 @@ local function GetEnclosingSafeZone(pos, margin)
     return nil
 end
 
+local lastLocalUiSzCheck, cachedLocalUiSz = 0, false
 local function IsInSafeZone(player)
     if player == LocalPlayer then
         local pgui = LocalPlayer:FindFirstChild("PlayerGui")
         local main = pgui and pgui:FindFirstChild("Main")
         local sz = main and main:FindFirstChild("SafeZone")
         if sz and sz.Visible then return true end
-        if pgui then
+        if pgui and (os.clock() - lastLocalUiSzCheck) >= 0.5 then
+            lastLocalUiSzCheck = os.clock()
+            local found = false
             for _, d in ipairs(pgui:GetDescendants()) do
-                if d:IsA("TextLabel") and d.Visible and d.Text:lower():find("safe zone") then return true end
+                if d:IsA("TextLabel") and d.Visible and d.Text:lower():find("safe zone") then
+                    found = true
+                    break
+                end
             end
+            cachedLocalUiSz = found
         end
+        if cachedLocalUiSz then return true end
     end
 
     local char = player.Character
@@ -2288,42 +2339,17 @@ end
 
 local function EnsurePvPTweenLoop(getTargetFn)
     SetupSilentAimHooks()
-
-    if not ActiveNoclip then
-        ActiveNoclip = RunService.Stepped:Connect(function()
-            if Stopped() then return end
-            local myChar = LocalPlayer.Character
-            getgenv()._AutoGhoulMyChar = myChar
-            local myHum = myChar and myChar:FindFirstChildOfClass("Humanoid")
-            local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
-            if myChar and myChar.Parent then
-                for _, p in ipairs(myChar:GetDescendants()) do
-                    if p:IsA("BasePart") and p.CanCollide then p.CanCollide = false end
-                end
-            end
-            if myHum and myHum.Health > 0 then
-                if myHum.Sit then myHum.Sit = false end
-                pcall(function()
-                    myHum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-                    myHum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-                end)
-            end
-            if myHRP and myHRP.Parent then
-                EnsureAntiGravity(myHRP)
-                myHRP.AssemblyLinearVelocity = Vector3.zero
-                myHRP.AssemblyAngularVelocity = Vector3.zero
-            end
-        end)
-    end
+    EnsureNoclipLoop()
 
     if ActivePvPConn then return end
-    local lastTween = 0
-    ActivePvPConn = RunService.Heartbeat:Connect(function()
+    ActivePvPConn = RunService.Heartbeat:Connect(function(dt)
         if Stopped() then StopPvPTween() return end
         if getgenv()._CursedShipTransitioning then
             ClearAimState()
             return
         end
+
+        local stepDt = math.min(dt or 0.016, 0.1)
         local cam = workspace.CurrentCamera
         getgenv()._AutoGhoulAimCam = cam
         getgenv()._AutoGhoulAimCamPos = cam and cam.CFrame.Position or nil
@@ -2331,7 +2357,6 @@ local function EnsurePvPTweenLoop(getTargetFn)
         local target = getTargetFn()
         if not target then
             ClearAimState()
-            CancelActiveTween()
             return
         end
 
@@ -2340,33 +2365,26 @@ local function EnsurePvPTweenLoop(getTargetFn)
         local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
         if not (myHum and myHum.Health > 0 and myHRP) then
             ClearAimState()
-            CancelActiveTween()
             return
         end
 
         if typeof(target) == "Vector3" then
             ClearAimState()
             if IsPosInCursedShip(myHRP.Position) ~= IsPosInCursedShip(target) then
-                CancelActiveTween()
                 return
             end
-            local dist = (target - myHRP.Position).Magnitude
+            local delta = target - myHRP.Position
+            local dist = delta.Magnitude
             if dist <= 4 then
-                CancelActiveTween()
                 return
             end
-            if not ActiveTween or ActiveTween.PlaybackState ~= Enum.PlaybackState.Playing then
-                CancelActiveTween()
-                local dur = math.max(dist / TWEEN_SPEED, 0.05)
-                ActiveTween = TweenService:Create(myHRP, TweenInfo.new(dur, Enum.EasingStyle.Linear), { CFrame = CFrame.new(target) })
-                ActiveTween:Play()
-            end
+            local step = math.min(dist, TWEEN_SPEED * stepDt)
+            myHRP.CFrame = CFrame.new(myHRP.Position + delta.Unit * step)
             return
         end
 
         if not target.Parent then
             ClearAimState()
-            CancelActiveTween()
             return
         end
 
@@ -2375,13 +2393,11 @@ local function EnsurePvPTweenLoop(getTargetFn)
         local tHum = tChar and tChar:FindFirstChildOfClass("Humanoid")
         if not (tHRP and tHum and tHum.Health > 0) then
             ClearAimState()
-            CancelActiveTween()
             return
         end
 
         if IsPosInCursedShip(myHRP.Position) ~= IsPosInCursedShip(tHRP.Position) then
             ClearAimState()
-            CancelActiveTween()
             return
         end
 
@@ -2394,17 +2410,16 @@ local function EnsurePvPTweenLoop(getTargetFn)
         end
 
         if (tHRP.Position - myHRP.Position).Magnitude > MAX_PVP_DIST then
-            CancelActiveTween()
             return
         end
 
         local goalPos = hoverAboveMode
             and (tHRP.Position + Vector3.new(0, 60, 0))
             or (tHRP.CFrame * CFrame.new(0, 0.5, 2)).Position
-        local goalDist = (goalPos - myHRP.Position).Magnitude
+        local delta = goalPos - myHRP.Position
+        local goalDist = delta.Magnitude
 
         if goalDist <= 3 then
-            CancelActiveTween()
             local lookAt = Vector3.new(tHRP.Position.X, myHRP.Position.Y, tHRP.Position.Z)
             if (lookAt - myHRP.Position).Magnitude > 0.1 then
                 myHRP.CFrame = CFrame.new(myHRP.Position, lookAt)
@@ -2412,18 +2427,12 @@ local function EnsurePvPTweenLoop(getTargetFn)
             return
         end
 
-        local now = os.clock()
-        if (now - lastTween) >= 0.1 then
-            lastTween = now
-            CancelActiveTween()
-            local dur = math.max(goalDist / TWEEN_SPEED, 0.02)
-            local lookAt = Vector3.new(tHRP.Position.X, goalPos.Y, tHRP.Position.Z)
-            local goalCF = (not hoverAboveMode and (lookAt - goalPos).Magnitude > 0.1)
-                and CFrame.new(goalPos, lookAt)
-                or CFrame.new(goalPos)
-            ActiveTween = TweenService:Create(myHRP, TweenInfo.new(dur, Enum.EasingStyle.Linear), { CFrame = goalCF })
-            ActiveTween:Play()
-        end
+        local step = math.min(goalDist, TWEEN_SPEED * stepDt)
+        local nextPos = myHRP.Position + delta.Unit * step
+        local lookAt = Vector3.new(tHRP.Position.X, nextPos.Y, tHRP.Position.Z)
+        myHRP.CFrame = (not hoverAboveMode and (lookAt - nextPos).Magnitude > 0.1)
+            and CFrame.new(nextPos, lookAt)
+            or CFrame.new(nextPos)
     end)
 end
 
@@ -2568,25 +2577,7 @@ local function RunCoopHost(isBackHelp)
             EnsureTeam("Marines")
         end
 
-        if not ActiveNoclip then
-            ActiveNoclip = RunService.Stepped:Connect(function()
-                if Stopped() then return end
-                local ch = LocalPlayer.Character
-                local h = ch and ch:FindFirstChildOfClass("Humanoid")
-                local r = ch and ch:FindFirstChild("HumanoidRootPart")
-                if ch and ch.Parent then
-                    for _, p in ipairs(ch:GetDescendants()) do
-                        if p:IsA("BasePart") and p.CanCollide then p.CanCollide = false end
-                    end
-                end
-                if h and h.Health > 0 and h.Sit then h.Sit = false end
-                if r and r.Parent then
-                    EnsureAntiGravity(r)
-                    r.AssemblyLinearVelocity = Vector3.zero
-                    r.AssemblyAngularVelocity = Vector3.zero
-                end
-            end)
-        end
+        EnsureNoclipLoop()
 
         if IsLocalPlayerInCursedShip() then
             MyPresenceState.readyAtHelp = false
