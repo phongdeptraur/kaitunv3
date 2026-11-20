@@ -45,6 +45,8 @@ local LOCK_TIMEOUT = 3 * 60 -- 3 phút mỗi mục tiêu
 local GHOUL_V3_TIMEOUT = 45 * 60 -- 45 phút
 local SESSION_FILE = "ghoulsession.txt"
 local SESSION_TTL = 60 -- Quá 60s không cập nhật coi như acc đã tắt
+local ECTO_ANTI_FILE = "ghoulecto_anticollision.json"
+local ECTO_ANTI_TTL = 120 -- Sau 2 phút (120s) không cập nhật coi như offline
 
 local POS_CAKE_LOAF    = Vector3.new(-1954.96, 37.83, -11875.87)
 local POS_CAKE_PRINCE   = Vector3.new(-1762.00, 38.00, -11878.00)
@@ -203,8 +205,9 @@ local function StopPvPTween()
     CleanupMovement()
 end
 
--- Forward declare RemoveFromGhoulSession cho UnloadAll
+-- Forward declare RemoveFromGhoulSession & RemoveEctoAntiCollision cho UnloadAll
 local RemoveFromGhoulSession
+local RemoveEctoAntiCollision
 
 local function UnloadAll()
     getgenv()._AutoGhoulV3Stop = true
@@ -212,6 +215,7 @@ local function UnloadAll()
     getgenv()._HoppingServer = false
     StopPvPTween()
     if RemoveFromGhoulSession then pcall(RemoveFromGhoulSession) end
+    if RemoveEctoAntiCollision then pcall(RemoveEctoAntiCollision) end
     if TeleportConn then pcall(function() TeleportConn:Disconnect() end) TeleportConn = nil end
     pcall(function() if Gui and Gui.Parent then Gui:Destroy() end end)
     print("[AutoGhoulV3] Đã unload toàn bộ script!")
@@ -329,17 +333,147 @@ local function DirectTeleport(jobId, placeId)
     pcall(function() TeleportService:TeleportToPlaceInstance(placeId or game.PlaceId, jobId, LocalPlayer) end)
 end
 
+-- ============================================================================
+-- ANTI-COLLISION ECTOPLASM (CẬP NHẬT 5S, TTL 2 PHÚT, ĐẶT TRƯỚC SERVER 1 LẦN HOP)
+-- ============================================================================
+local EctoFarmJoinEpoch = os.time()
+
+local function ReadEctoAntiRaw()
+    if not (isfile and readfile and isfile(ECTO_ANTI_FILE)) then return {}, true end
+    for _ = 1, 4 do
+        local okR, raw = pcall(readfile, ECTO_ANTI_FILE)
+        if okR and type(raw) == "string" then
+            if raw:match("^%s*$") then return {}, true end
+            local okD, data = pcall(function() return HttpService:JSONDecode(raw) end)
+            if okD and type(data) == "table" then return data, true end
+        end
+        task.wait(0.03)
+    end
+    return nil, false
+end
+
+local function CleanExpiredEctoEntries(tbl, now)
+    local cleaned = {}
+    local changed = false
+    for uid, info in pairs(tbl or {}) do
+        if type(info) == "table" then
+            local ts = tonumber(info.updatedAt) or 0
+            local ttl = (info.state == "reserved") and 25 or ECTO_ANTI_TTL
+            if ts > 0 and (now - ts) <= ttl then
+                cleaned[tostring(uid)] = info
+            else
+                changed = true
+            end
+        else
+            changed = true
+        end
+    end
+    return cleaned, changed
+end
+
+local function UpdateEctoAntiCollision(mutatorFn)
+    local raw, ok = ReadEctoAntiRaw()
+    if not ok or not raw then return nil end
+    local now = os.time()
+    local cleaned, changed = CleanExpiredEctoEntries(raw, now)
+    if mutatorFn then
+        mutatorFn(cleaned, now)
+        changed = true
+    end
+    if changed and writefile then
+        pcall(writefile, ECTO_ANTI_FILE, HttpService:JSONEncode(cleaned))
+    end
+    return cleaned
+end
+
+RemoveEctoAntiCollision = function()
+    UpdateEctoAntiCollision(function(tbl)
+        tbl[tostring(LocalPlayer.UserId)] = nil
+    end)
+end
+
+local function GetBlockedEctoJobs()
+    local blocked = {}
+    local raw, ok = ReadEctoAntiRaw()
+    if not ok or not raw then return blocked end
+    local now = os.time()
+    local cleaned, changed = CleanExpiredEctoEntries(raw, now)
+    if changed and writefile then
+        pcall(writefile, ECTO_ANTI_FILE, HttpService:JSONEncode(cleaned))
+    end
+    local myUid = tostring(LocalPlayer.UserId)
+    for uid, info in pairs(cleaned) do
+        if uid ~= myUid then
+            if info.jobId and info.jobId ~= "" then
+                blocked[tostring(info.jobId)] = info
+            end
+            if info.reservedJobId and info.reservedJobId ~= "" then
+                blocked[tostring(info.reservedJobId)] = info
+            end
+        end
+    end
+    return blocked
+end
+
+local function TryReserveEctoJob(targetJobId)
+    local myUid = tostring(LocalPlayer.UserId)
+    local myNum = tonumber(myUid) or math.huge
+    local claimed = false
+
+    UpdateEctoAntiCollision(function(tbl, now)
+        for uid, info in pairs(tbl) do
+            if uid ~= myUid and (tostring(info.jobId) == targetJobId or tostring(info.reservedJobId) == targetJobId) then
+                return
+            end
+        end
+        tbl[myUid] = {
+            userId = LocalPlayer.UserId,
+            name = LocalPlayer.Name,
+            jobId = tostring(game.JobId),
+            reservedJobId = targetJobId,
+            joinedAt = EctoFarmJoinEpoch,
+            state = "reserved",
+            updatedAt = now,
+        }
+        claimed = true
+    end)
+
+    if not claimed then return false end
+    task.wait(0.08)
+
+    local verifyRaw, ok = ReadEctoAntiRaw()
+    if ok and verifyRaw then
+        local now = os.time()
+        local cleaned = CleanExpiredEctoEntries(verifyRaw, now)
+        for uid, info in pairs(cleaned) do
+            if uid ~= myUid and (tostring(info.jobId) == targetJobId or tostring(info.reservedJobId) == targetJobId) then
+                local otherNum = tonumber(uid) or math.huge
+                if otherNum < myNum then
+                    UpdateEctoAntiCollision(function(tbl)
+                        if tbl[myUid] and tbl[myUid].reservedJobId == targetJobId then
+                            tbl[myUid].reservedJobId = ""
+                        end
+                    end)
+                    return false
+                end
+            end
+        end
+    end
+    return true
+end
+
 local HOP_CACHE_FILE = "AutoGhoulV3_HopCache.json"
 local TriedJobs = LoadJobCache(HOP_CACHE_FILE, 180)
 TriedJobs[tostring(game.JobId)] = os.time()
 
-local function HopServer(mode)
+local function HopServer(mode, isEctoHop)
     if Stopped() or getgenv()._HoppingServer then return end
     getgenv()._HoppingServer = true
     local isHigh = (mode == "high")
-    SetStatus(isHigh and "Đang tìm server đông (11/12 player)..." or "Đang tìm server low player & ping thấp để refresh...")
+    SetStatus(isEctoHop and "Hop Low (Đặt trước server trống né trùng farm Ectoplasm)..." or (isHigh and "Đang tìm server đông (11/12 player)..." or "Đang tìm server low player & ping thấp để refresh..."))
 
     while not Stopped() and task.wait(0.3) do
+        local ectoBlocked = isEctoHop and GetBlockedEctoJobs() or {}
         local list = {}
         local browser = ReplicatedStorage:FindFirstChild("__ServerBrowser")
         if browser then
@@ -353,7 +487,7 @@ local function HopServer(mode)
                         if ok and type(res) == "table" then
                             for jid, d in pairs(res) do
                                 local id = tostring(jid)
-                                if not TriedJobs[id] and not byJob[id] then
+                                if not TriedJobs[id] and not ectoBlocked[id] and not byJob[id] then
                                     local cnt = (type(d) == "table" and tonumber(d.Count)) or tonumber(d) or 1
                                     local reg = (type(d) == "table" and tostring(d.Region or "")) or ""
                                     local ping = reg:find("Sing") and 40 or reg:find("Japan") and 95 or reg:find("Germ") and 190 or (reg:find("US") or reg:find("United States")) and 230 or 140
@@ -391,7 +525,7 @@ local function HopServer(mode)
                     local id = tostring(s.id)
                     local cnt = tonumber(s.playing) or 0
                     local maxP = tonumber(s.maxPlayers) or 12
-                    if not TriedJobs[id] and cnt < maxP and ((isHigh and cnt >= 6) or (not isHigh and cnt >= 1)) then
+                    if not TriedJobs[id] and not ectoBlocked[id] and cnt < maxP and ((isHigh and cnt >= 6) or (not isHigh and cnt >= 1)) then
                         table.insert(list, { id = id, playing = cnt, ping = tonumber(s.ping) or 999 })
                     end
                 end
@@ -428,13 +562,19 @@ local function HopServer(mode)
                 end)
             end
 
-            for i = 1, math.min(#pool, 5) do
+            for i = 1, math.min(#pool, 8) do
                 if Stopped() then break end
                 local target = pool[i]
-                RecordJobCache(HOP_CACHE_FILE, TriedJobs, target.id)
-                SetStatus(("%s -> %s | Players: %d | Ping: %dms"):format(isHigh and "Hop High" or "Hop Low", target.id:sub(1, 8), target.playing, target.ping))
-                DirectTeleport(target.id, game.PlaceId)
-                if not SleepCheck(3) then break end
+                local canJoin = true
+                if isEctoHop then
+                    canJoin = TryReserveEctoJob(target.id)
+                end
+                if canJoin then
+                    RecordJobCache(HOP_CACHE_FILE, TriedJobs, target.id)
+                    SetStatus(("%s -> %s | Players: %d | Ping: %dms"):format(isEctoHop and "Hop Ecto (Đã đặt chỗ)" or (isHigh and "Hop High" or "Hop Low"), target.id:sub(1, 8), target.playing, target.ping))
+                    DirectTeleport(target.id, game.PlaceId)
+                    if not SleepCheck(3) then break end
+                end
             end
         end
         if not SleepCheck(1) then break end
@@ -442,8 +582,9 @@ local function HopServer(mode)
     getgenv()._HoppingServer = false
 end
 
-local function HopLow()  HopServer("low")  end
-local function HopHigh() HopServer("high") end
+local function HopLow()      HopServer("low", false)  end
+local function HopHigh()     HopServer("high", false) end
+local function HopEctoLow()  HopServer("low", true)   end
 
 -- ============================================================================
 -- NIGHT HUB API HOP (RÚT GỌN: DOUGH KING, RIP INDRA, CAKE PRINCE)
@@ -802,6 +943,39 @@ local function GetBeli() return tonumber(Data:WaitForChild("Beli").Value) or 0 e
 local function GetFragments() return tonumber(Data:WaitForChild("Fragments").Value) or 0 end
 local function GetSea() return SEA_PLACES[game.PlaceId] or 0 end
 
+local lastEctoInvCheck, cachedEctoCount = 0, 0
+local function GetEctoplasmCount(force)
+    local total = 0
+    for _, container in ipairs({ LocalPlayer:FindFirstChild("Backpack"), LocalPlayer.Character }) do
+        if container then
+            for _, item in ipairs(container:GetChildren()) do
+                if item.Name:lower():find("ectoplasm", 1, true) then
+                    local cntObj = item:FindFirstChild("Count") or item:FindFirstChild("Amount")
+                    local val = (cntObj and tonumber(cntObj.Value)) or tonumber(item:GetAttribute("Count")) or tonumber(item.Name:match("%d+")) or 1
+                    total = total + val
+                end
+            end
+        end
+    end
+    if total > 0 then
+        cachedEctoCount = math.max(cachedEctoCount, total)
+        return cachedEctoCount
+    end
+    if force or (os.clock() - lastEctoInvCheck) >= 3.5 then
+        lastEctoInvCheck = os.clock()
+        local ok, inv = pcall(function() return CommF:InvokeServer("getInventory") end)
+        if ok and type(inv) == "table" then
+            for _, v in pairs(inv) do
+                if type(v) == "table" and tostring(v.Name or ""):lower():find("ectoplasm", 1, true) then
+                    cachedEctoCount = tonumber(v.Count) or 1
+                    break
+                end
+            end
+        end
+    end
+    return cachedEctoCount
+end
+
 local function IsNight()
     local ct = Lighting.ClockTime
     return ct >= 18 or ct < 5
@@ -925,11 +1099,29 @@ local function AnalyzeGhoulSession(tbl)
         table.sort(hosts, function(a, b)
             if (a.isBackHelp and not b.isBackHelp) then return true end
             if (not a.isBackHelp and b.isBackHelp) then return false end
+            local ua = tonumber(a.userId) or math.huge
+            local ub = tonumber(b.userId) or math.huge
+            if ua ~= ub then return ua < ub end
             return tostring(a.userId) < tostring(b.userId)
         end)
         primaryHost = hosts[1]
     end
-    return activeList, primaryHost, clones
+
+    -- Sắp xếp các Clone up race theo UserId tăng dần -> Gán STT (1 = nhỏ nhất được kill trước, >= 2 làm helper tạm thời)
+    table.sort(clones, function(a, b)
+        local ua = tonumber(a.userId) or math.huge
+        local ub = tonumber(b.userId) or math.huge
+        if ua ~= ub then return ua < ub end
+        return tostring(a.userId) < tostring(b.userId)
+    end)
+
+    local sttMap = {}
+    for idx, c in ipairs(clones) do
+        c.stt = idx
+        sttMap[tostring(c.userId)] = idx
+    end
+
+    return activeList, primaryHost, clones, sttMap
 end
 
 local function SyncV3SessionEntry()
@@ -971,10 +1163,11 @@ local function SyncV3SessionEntry()
             updatedAt = now,
         }
     end)
-    if not cleaned then return nil, {}, nil, {} end
-    local activeList, hostEntry, cloneList = AnalyzeGhoulSession(cleaned)
+    if not cleaned then return nil, {}, nil, {}, 1, 0 end
+    local activeList, hostEntry, cloneList, sttMap = AnalyzeGhoulSession(cleaned)
     local myEntry = cleaned[MY_UID]
-    return myEntry and myEntry.role or "host", activeList, hostEntry, cloneList
+    local mySTT = sttMap[MY_UID] or 1
+    return myEntry and myEntry.role or "host", activeList, hostEntry, cloneList, mySTT, #cloneList
 end
 
 local lastBhCheck = 0
@@ -2029,7 +2222,7 @@ local function RunGhoulV3Phase()
             return
         end
 
-        local myRole, activeList, hostEntry = SyncV3SessionEntry()
+        local myRole, activeList, hostEntry, _, mySTT, totalClones = SyncV3SessionEntry()
 
         -- CO-OP MODE (>= 2 acc trong ghoulsession.txt)
         if #activeList >= 2 then
@@ -2037,23 +2230,34 @@ local function RunGhoulV3Phase()
                 RunHostModeTag = true
                 RunCoopHost(false)
             else
-                -- CLONE MODE
+                -- CLONE MODE (Có phân chia STT: STT = 1 đánh Helper, STT > 1 làm Helper tạm thời đứng cạnh Helper hiến mạng)
                 StopPvPTween()
                 if not hostEntry or hostEntry.sea ~= 2 or tostring(hostEntry.jobId or "") == "" then
-                    SetStatus("Co-op Clone: Đợi Host vào Sea 2...")
+                    SetStatus(("Co-op Clone [STT %d/%d]: Đợi Host vào Sea 2..."):format(mySTT, totalClones))
                     SleepCheck(2)
                 elseif tostring(hostEntry.jobId) ~= tostring(game.JobId) then
-                    SetStatus(("Co-op Clone -> Join server Host (%s)..."):format(tostring(hostEntry.name)))
+                    SetStatus(("Co-op Clone [STT %d/%d] -> Join server Host (%s)..."):format(mySTT, totalClones, tostring(hostEntry.name)))
                     DirectTeleport(tostring(hostEntry.jobId), tonumber(hostEntry.placeId) or game.PlaceId)
                     SleepCheck(4)
                 else
-                    -- Chung server Sea 2 với Host -> bật PvP & đánh Host đến khi lên V3
-                    EnsureTeam("Pirates")
-                    EnsureMyPvPEnabled()
-                    PrepareGhoulV3Weapons()
                     local cloneStart = os.clock()
                     local hostPlayer = nil
-                    EnsurePvPTweenLoop(function() return hostPlayer end)
+                    local currentSTT = mySTT
+                    local currentTotalClones = totalClones
+
+                    if currentSTT == 1 then
+                        EnsureTeam("Pirates")
+                    else
+                        EnsureTeam("Marines")
+                    end
+                    EnsureMyPvPEnabled()
+                    if currentSTT == 1 then
+                        PrepareGhoulV3Weapons()
+                    end
+
+                    EnsurePvPTweenLoop(function()
+                        return (currentSTT == 1) and hostPlayer or nil
+                    end)
 
                     local lastSync = 0
                     while not Stopped() do
@@ -2068,8 +2272,10 @@ local function RunGhoulV3Phase()
 
                         if (os.clock() - lastSync) >= 2 then
                             lastSync = os.clock()
-                            local r2, list2, h2 = SyncV3SessionEntry()
+                            local r2, list2, h2, _, stt2, tot2 = SyncV3SessionEntry()
                             hostEntry = h2
+                            currentSTT = stt2
+                            currentTotalClones = tot2
                             if #list2 < 2 or r2 == "host" or not h2 or h2.sea ~= 2 or tostring(h2.jobId) ~= tostring(game.JobId) then
                                 StopPvPTween()
                                 break
@@ -2078,18 +2284,66 @@ local function RunGhoulV3Phase()
 
                         local char, _, myHRP = WaitAlive()
                         if Stopped() or not char then break end
-                        if not char:FindFirstChild("HasBuso") then pcall(function() CommF:InvokeServer("Buso") end) end
-                        if not LocalPlayer.Team or LocalPlayer.Team.Name ~= "Pirates" then EnsureTeam("Pirates") end
-                        EnsureMyPvPEnabled()
-                        PrepareGhoulV3Weapons()
-
                         hostPlayer = Players:GetPlayerByUserId(tonumber(hostEntry.userId)) or Players:FindFirstChild(tostring(hostEntry.name))
-                        if hostPlayer and hostPlayer.Character and IsLockedTargetValid(hostPlayer, hostPlayer.Character) then
-                            EngageTargetStep(hostPlayer, hostPlayer.Character, myHRP, cloneStart, "Co-op Kill Host")
+
+                        if currentSTT == 1 then
+                            -- STT 1 (UserId nhỏ nhất): Được quyền kill trước, đánh cả Helper chính lẫn các Clone STT cao hơn đang đứng hiến mạng
+                            if not char:FindFirstChild("HasBuso") then pcall(function() CommF:InvokeServer("Buso") end) end
+                            if not LocalPlayer.Team or LocalPlayer.Team.Name ~= "Pirates" then EnsureTeam("Pirates") end
+                            EnsureMyPvPEnabled()
+                            PrepareGhoulV3Weapons()
+
+                            local validVictim = nil
+                            if hostPlayer and hostPlayer.Character and IsLockedTargetValid(hostPlayer, hostPlayer.Character) then
+                                validVictim = hostPlayer
+                            else
+                                -- Nếu Helper chính đang hồi sinh/trong SafeZone, đánh luôn các Clone STT > 1 đang đứng hiến mạng ở ngoài
+                                local bestSac, bestDist = nil, math.huge
+                                for _, p in ipairs(Players:GetPlayers()) do
+                                    if p ~= LocalPlayer and p.Character and IsLockedTargetValid(p, p.Character) and not IsInSafeZone(p) then
+                                        local d = GetDistanceToPlayer(p)
+                                        if d and d < bestDist then
+                                            bestSac, bestDist = p, d
+                                        end
+                                    end
+                                end
+                                validVictim = bestSac
+                            end
+
+                            if validVictim and validVictim.Character then
+                                EngageTargetStep(validVictim, validVictim.Character, myHRP, cloneStart, ("Co-op [STT 1/%d] Kill"):format(currentTotalClones))
+                            else
+                                hoverAboveMode = false
+                                SetStatus(("Co-op [STT 1/%d]: Đợi Host (%s) / Clone hiến mạng bật PvP..."):format(currentTotalClones, tostring(hostEntry.name)))
+                                SleepCheck(0.4)
+                            end
                         else
+                            -- STT > 1: Làm Helper tạm thời (vẫn giữ role uprace, tween đến vị trí Helper chính đứng hiến mạng cho STT 1 đánh, không đánh Helper)
+                            CancelActiveTween()
+                            ClearAimState()
                             hoverAboveMode = false
-                            SetStatus(("Co-op Clone: Đợi Host (%s) ra khỏi Safe Zone / bật PvP..."):format(tostring(hostEntry.name)))
-                            SleepCheck(0.4)
+                            if not LocalPlayer.Team or LocalPlayer.Team.Name ~= "Marines" then EnsureTeam("Marines") end
+                            EnsureMyPvPEnabled()
+
+                            local hostHRP = hostPlayer and hostPlayer.Character and hostPlayer.Character:FindFirstChild("HumanoidRootPart")
+                            local sacPos
+                            if hostHRP and not IsInSafeZone(hostPlayer) then
+                                sacPos = (hostHRP.CFrame * CFrame.new((currentSTT - 1) * 4, 0, 3)).Position
+                            elseif IsInSafeZone(LocalPlayer) then
+                                sacPos = FindSafeOutdoorSpot(myHRP.Position)
+                            end
+
+                            if sacPos then
+                                local dist = (sacPos - myHRP.Position).Magnitude
+                                if dist > 5 then
+                                    local tw = TweenService:Create(myHRP, TweenInfo.new(math.max(dist / TWEEN_SPEED, 0.05), Enum.EasingStyle.Linear), { CFrame = CFrame.new(sacPos) })
+                                    ActiveTween = tw
+                                    tw:Play()
+                                end
+                            end
+
+                            SetStatus(("Co-op [STT %d/%d]: Đợi STT 1 xong -> Làm Helper tạm thời hiến mạng cạnh %s..."):format(currentSTT, currentTotalClones, tostring(hostEntry.name)))
+                            SleepCheck(0.35)
                         end
                     end
                     StopPvPTween()
@@ -2207,13 +2461,96 @@ else
 end
 if Stopped() then return end
 
--- 1. CHƯA PHẢI GHOUL -> CHẠY REALKID MAIN CONFIG "auto_ghoul_v1":true Ở SEA 2
+-- 1. CHƯA PHẢI GHOUL -> CHẠY REALKID MAIN CONFIG "auto_ghoul_v1":true Ở SEA 2 (CÓ ANTI-COLLISION ECTOPLASM)
 if GetRace() ~= "Ghoul" then
     if GetSea() ~= 2 then TravelToSea(2) end
+    if Stopped() then return end
+
+    local ectoCount = GetEctoplasmCount(true)
+    if ectoCount < 100 then
+        local myUid = tostring(LocalPlayer.UserId)
+        local myNum = tonumber(myUid) or math.huge
+        local curJob = tostring(game.JobId)
+
+        -- Kiểm tra ngay khi vào server xem đã có Clone khác chiếm/đặt chỗ server này chưa
+        local blocked = GetBlockedEctoJobs()
+        local conflict = blocked[curJob]
+        if conflict then
+            local otherNum = tonumber(conflict.userId) or math.huge
+            local otherJoined = tonumber(conflict.joinedAt) or 0
+            local yieldServer = (conflict.state == "active" and otherJoined < EctoFarmJoinEpoch)
+                or (otherJoined == EctoFarmJoinEpoch and myNum > otherNum)
+                or (conflict.state == "reserved" and myNum > otherNum)
+            if yieldServer then
+                SetStatus(("Trùng server farm Ectoplasm với %s -> Hop Low đặt chỗ server mới..."):format(tostring(conflict.name or conflict.userId)))
+                HopEctoLow()
+                return
+            end
+        end
+
+        -- Ghi nhận ngay vào ghoulecto_anticollision.json (cập nhật 5s, tự xóa sau 2 phút offline)
+        UpdateEctoAntiCollision(function(tbl, now)
+            tbl[myUid] = {
+                userId = LocalPlayer.UserId,
+                name = LocalPlayer.Name,
+                jobId = curJob,
+                reservedJobId = "",
+                joinedAt = EctoFarmJoinEpoch,
+                state = "active",
+                updatedAt = now,
+            }
+        end)
+
+        -- Luồng ngầm cập nhật heartbeat mỗi 5 giây & kiểm tra va chạm real-time
+        task.spawn(function()
+            local needHopCollision = false
+            while not Stopped() and GetRace() ~= "Ghoul" and GetEctoplasmCount(false) < 100 do
+                UpdateEctoAntiCollision(function(tbl, now)
+                    for uid, info in pairs(tbl) do
+                        if uid ~= myUid and tostring(info.jobId) == curJob and info.state == "active" then
+                            local otherJoined = tonumber(info.joinedAt) or 0
+                            local otherNum = tonumber(uid) or math.huge
+                            if otherJoined < EctoFarmJoinEpoch or (otherJoined == EctoFarmJoinEpoch and myNum > otherNum) then
+                                needHopCollision = true
+                            end
+                        end
+                    end
+                    if not needHopCollision then
+                        tbl[myUid] = {
+                            userId = LocalPlayer.UserId,
+                            name = LocalPlayer.Name,
+                            jobId = curJob,
+                            reservedJobId = "",
+                            joinedAt = EctoFarmJoinEpoch,
+                            state = "active",
+                            updatedAt = now,
+                        }
+                    end
+                end)
+
+                if needHopCollision then
+                    RemoveEctoAntiCollision()
+                    SetStatus("Phát hiện Clone khác vào trùng server farm Ectoplasm -> Hop Low né!")
+                    HopEctoLow()
+                    return
+                end
+                task.wait(5)
+            end
+            RemoveEctoAntiCollision()
+        end)
+    else
+        RemoveEctoAntiCollision()
+    end
+
     if not Stopped() and LaunchRealKidMain({ auto_ghoul_v1 = true }, "Auto Ghoul V1 (Sea 2)") then
         while not Stopped() and task.wait(2) do
-            SetStatus(("Đang lấy Ghoul V1 | Race hiện tại: %s"):format(GetRace()))
+            local curEcto = GetEctoplasmCount(false)
+            SetStatus(("Đang lấy Ghoul V1 (Ecto: %d/100) | Race: %s"):format(curEcto, GetRace()))
+            if curEcto >= 100 then
+                RemoveEctoAntiCollision()
+            end
             if GetRace() == "Ghoul" then
+                RemoveEctoAntiCollision()
                 SetStatus("Đã có tộc Ghoul! Hop Low để refresh...")
                 HopLow()
                 return
@@ -2223,6 +2560,7 @@ if GetRace() ~= "Ghoul" then
     return
 end
 if Stopped() then return end
+RemoveEctoAntiCollision()
 
 -- 2. ĐÃ LÀ GHOUL -> CHECK V2, V3 & BELI, FRAGMENT
 local hasV3 = HasRaceV3()
