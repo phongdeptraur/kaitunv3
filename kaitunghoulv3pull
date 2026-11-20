@@ -346,26 +346,27 @@ TpFailedConn = TeleportService.TeleportInitFailed:Connect(function(_, result)
     end
 end)
 
-local function DirectTeleport(jobId, placeId)
-    local targetId = tostring(jobId or "")
-    if targetId == "" or targetId == tostring(game.JobId) then return false end
-    if Stopped() or isTeleportingNow then return false end
+local function DirectTeleport(jobId)
+    local JOB_ID = tostring(jobId or "")
+    if not game:IsLoaded() then
+        repeat task.wait() until game:IsLoaded() or Stopped()
+    end
+    if Stopped() or JOB_ID == "" or JOB_ID == game.JobId then return false end
+    if isTeleportingNow then return false end
     if (os.clock() - lastTeleportClock) < 5.5 then return false end
 
     isTeleportingNow = true
     lastTeleportClock = os.clock()
     lastTeleportFailedFlag = false
-    pendingTeleportJob = targetId
+    pendingTeleportJob = JOB_ID
 
-    local targetPlace = placeId or game.PlaceId
     local okTp = pcall(function()
-        TeleportService:TeleportToPlaceInstance(targetPlace, targetId, LocalPlayer)
+        game:GetService("ReplicatedStorage").__ServerBrowser:InvokeServer("teleport", JOB_ID)
     end)
     if not okTp then
-        local sb = ReplicatedStorage:FindFirstChild("__ServerBrowser")
-        if sb then
-            pcall(function() sb:InvokeServer("teleport", targetId) end)
-        end
+        isTeleportingNow = false
+        pendingTeleportJob = nil
+        return false
     end
 
     local t0 = os.clock()
@@ -2725,13 +2726,16 @@ local function RunGhoulV3Phase()
                     SleepCheck(1.0)
                 else
                     lastRoomTpClock = os.clock()
+                    lastTeleportFailedFlag = false
                     pendingTeleportJob = roomJob
                     SetStatus(("%s [OPEN]: Gọi __ServerBrowser join %s..."):format(cloneSelfTag, roomJob:sub(1, 8)))
-                    local sb = ReplicatedStorage:FindFirstChild("__ServerBrowser")
-                    if sb then
-                        pcall(function() sb:InvokeServer("teleport", roomJob) end)
-                    else
-                        DirectTeleport(roomJob, tonumber(room.placeId) or game.PlaceId)
+                    if not game:IsLoaded() then
+                        repeat task.wait() until game:IsLoaded() or Stopped()
+                    end
+                    if not Stopped() and roomJob ~= "" and roomJob ~= game.JobId then
+                        pcall(function()
+                            game:GetService("ReplicatedStorage").__ServerBrowser:InvokeServer("teleport", roomJob)
+                        end)
                     end
                     SleepCheck(3.0)
                 end
