@@ -46,8 +46,9 @@ local GHOUL_V3_TIMEOUT = 45 * 60 -- 45 phút
 local SESSION_FILE = "ghoulsession.txt"
 local SESSION_PREFIX = "ghoulsession_"
 local SESSION_INDEX_FILE = "ghoulsession_index.json"
-local SESSION_HEARTBEAT_SEC = 5 -- Cập nhật file co-op mỗi 5s
-local SESSION_TTL = 300 -- Sau 5 phút (300s) không cập nhật coi như đã offline
+local ROOM_FILE = "ghoul_room.json"
+local SESSION_TTL = 300 -- TTL 5 phút = 300s
+local BACKHELP_WAIT_SECONDS = 10 -- Chờ 10s gọi Back-Help trước khi Solo HopHigh
 local ECTO_ANTI_FILE = "ghoulecto_anticollision.json"
 local ECTO_ANTI_TTL = 120 -- Sau 2 phút (120s) không cập nhật coi như offline
 
@@ -1085,16 +1086,44 @@ local function HasRaceV2()
     return false
 end
 
+-- ============================================================================
+-- CHỌN TEAM 1 LẦN THEO TÌNH HÌNH THỰC TẾ (KHÔNG ĐỔI LẠI KHI RE-EXECUTE)
+-- ============================================================================
+local function GetCurrentTeamName()
+    local t = LocalPlayer.Team
+    if not t or t.Name == "Neutral" then return nil end
+    return t.Name
+end
+
 local function EnsureTeam(preferTeam)
     if Stopped() then return end
-    local targetTeam = preferTeam or "Marines"
-    if not LocalPlayer.Team or LocalPlayer.Team.Name == "Neutral" or (preferTeam and LocalPlayer.Team.Name ~= targetTeam) then
-        SetStatus("Đang chọn team " .. targetTeam .. "...")
-        pcall(function() CommF:InvokeServer("SetTeam", targetTeam) end)
-        SleepCheck(1.8)
+    local curTeam = GetCurrentTeamName()
+
+    -- Nếu nhiệm vụ không ép phe cụ thể và đã ở Pirates hoặc Marines -> giữ nguyên team hiện tại
+    if not preferTeam then
+        if curTeam == "Pirates" or curTeam == "Marines" then
+            WaitAlive()
+            return
+        end
+        preferTeam = "Marines"
+    end
+
+    -- Nếu đã đúng team cần thiết -> tuyệt đối không chọn lại
+    if curTeam == preferTeam then
+        WaitAlive()
+        return
+    end
+
+    SetStatus(("Đổi team 1 lần (%s -> %s)..."):format(tostring(curTeam or "Chưa có team"), preferTeam))
+    pcall(function() CommF:InvokeServer("SetTeam", preferTeam) end)
+
+    local t0 = os.clock()
+    while not Stopped() and (os.clock() - t0) < 3.0 do
+        if GetCurrentTeamName() == preferTeam then break end
+        task.wait(0.1)
     end
     WaitAlive()
-    SleepCheck(0.8)
+    SleepCheck(0.4)
 end
 
 local function TravelToSea(targetSea)
@@ -1113,13 +1142,30 @@ local function TravelToSea(targetSea)
 end
 
 -- ============================================================================
--- GHOULSESSION MANAGER (FILE RIÊNG TỪNG ACC CHỐNG GHI ĐÈ + CO-OP / BACK-HELP)
+-- 2 TẦNG DỮ LIỆU: PRESENCE CÁ NHÂN (5S HEARTBEAT) + STICKY ROOM (ghoul_room.json)
 -- ============================================================================
 local MY_UID = tostring(LocalPlayer.UserId)
 local MY_SESSION_FILE = SESSION_PREFIX .. MY_UID .. ".json"
-local isCoopSessionActive = false
+local MyV3QueueAt = os.time()
 
-local function ReadSingleSessionFile(path)
+local MyPresenceState = {
+    userId = LocalPlayer.UserId,
+    name = LocalPlayer.Name,
+    sea = GetSea(),
+    jobId = tostring(game.JobId),
+    placeId = game.PlaceId,
+    phase = "idle", -- "v3" | "backhelp" | "idle"
+    needsV3 = false,
+    needsBackHelp = false,
+    isBackHelp = false,
+    readyAtHelp = false,
+    failedJob = "",
+    v3QueueAt = MyV3QueueAt,
+    leverPulled = false,
+    updatedAt = os.time(),
+}
+
+local function ReadSingleJsonFile(path)
     if not (isfile and readfile and isfile(path)) then return nil end
     for _ = 1, 3 do
         local okR, raw = pcall(readfile, path)
@@ -1136,7 +1182,7 @@ end
 
 local function UpdateSessionIndex(uid, timestampOrNil)
     if not writefile then return end
-    local idx = ReadSingleSessionFile(SESSION_INDEX_FILE) or {}
+    local idx = ReadSingleJsonFile(SESSION_INDEX_FILE) or {}
     local now = os.time()
     local cleanedIdx = {}
     for k, ts in pairs(idx) do
@@ -1148,34 +1194,36 @@ local function UpdateSessionIndex(uid, timestampOrNil)
     pcall(writefile, SESSION_INDEX_FILE, HttpService:JSONEncode(cleanedIdx))
 end
 
-local function WriteMySessionFile(entry)
+local function FlushMyPresenceFile(removeFile)
     if not writefile then return end
-    if entry == nil then
-        isCoopSessionActive = false
+    if removeFile then
         if isfile and delfile and isfile(MY_SESSION_FILE) then
             pcall(delfile, MY_SESSION_FILE)
         end
         UpdateSessionIndex(MY_UID, nil)
         return
     end
-    isCoopSessionActive = true
-    pcall(writefile, MY_SESSION_FILE, HttpService:JSONEncode(entry))
-    UpdateSessionIndex(MY_UID, entry.updatedAt or os.time())
+    local now = os.time()
+    MyPresenceState.userId = LocalPlayer.UserId
+    MyPresenceState.name = LocalPlayer.Name
+    MyPresenceState.sea = GetSea()
+    MyPresenceState.jobId = tostring(game.JobId)
+    MyPresenceState.placeId = game.PlaceId
+    MyPresenceState.failedJob = tostring(lastFailedJoinJob or "")
+    MyPresenceState.updatedAt = now
+    pcall(writefile, MY_SESSION_FILE, HttpService:JSONEncode(MyPresenceState))
+    UpdateSessionIndex(MY_UID, now)
 end
 
--- Khôi phục nhịp cập nhật ngay lập tức nếu acc vừa hop sang server mới
-do
-    local existing = ReadSingleSessionFile(MY_SESSION_FILE)
-    if type(existing) == "table" and type(existing.updatedAt) == "number" and (os.time() - existing.updatedAt) <= SESSION_TTL then
-        existing.jobId = tostring(game.JobId)
-        existing.placeId = game.PlaceId
-        existing.playersCount = #Players:GetPlayers()
-        existing.maxPlayers = Players.MaxPlayers or 12
-        existing.isHopping = false
-        existing.updatedAt = os.time()
-        WriteMySessionFile(existing)
+-- Luồng nền Heartbeat 5 giây/lần: mỗi acc chỉ ghi duy nhất file cá nhân của chính mình
+task.spawn(function()
+    while not Stopped() do
+        if MyPresenceState.phase ~= "none" then
+            FlushMyPresenceFile(false)
+        end
+        SleepCheck(5.0)
     end
-end
+end)
 
 local function ReadAllGhoulSessions()
     local now = os.time()
@@ -1186,7 +1234,7 @@ local function ReadAllGhoulSessions()
         local norm = tostring(path):gsub("^%./", "")
         if scannedPaths[norm] then return end
         scannedPaths[norm] = true
-        local entry = ReadSingleSessionFile(norm)
+        local entry = ReadSingleJsonFile(norm)
         if type(entry) == "table" and type(entry.updatedAt) == "number" then
             if (now - entry.updatedAt) <= SESSION_TTL then
                 local uid = tostring(entry.userId or norm:match("ghoulsession_(%d+)%.json$") or "")
@@ -1199,7 +1247,7 @@ local function ReadAllGhoulSessions()
         end
     end
 
-    local idx = ReadSingleSessionFile(SESSION_INDEX_FILE)
+    local idx = ReadSingleJsonFile(SESSION_INDEX_FILE)
     if type(idx) == "table" then
         for uid, ts in pairs(idx) do
             if type(ts) == "number" and (now - ts) <= SESSION_TTL then
@@ -1222,7 +1270,9 @@ local function ReadAllGhoulSessions()
         end
     end
 
-    ingestPath(MY_SESSION_FILE)
+    if MyPresenceState.phase ~= "none" then
+        ingestPath(MY_SESSION_FILE)
+    end
     for _, plr in ipairs(Players:GetPlayers()) do
         ingestPath(SESSION_PREFIX .. tostring(plr.UserId) .. ".json")
     end
@@ -1230,53 +1280,72 @@ local function ReadAllGhoulSessions()
     return cleaned
 end
 
-local function ResolveDeterministicSessionRoles(cleaned)
-    local backHelpHostUid = nil
-    local v3Candidates = {}
-
-    for uid, e in pairs(cleaned) do
-        if e.isBackHelp == true and e.needsV3 == false then
-            if not backHelpHostUid or (tonumber(uid) or math.huge) < (tonumber(backHelpHostUid) or math.huge) then
-                backHelpHostUid = uid
-            end
-        elseif e.needsV3 ~= false then
-            table.insert(v3Candidates, { uid = uid, num = tonumber(uid) or math.huge })
-        end
+local function ReadGhoulRoom(sessions)
+    local room = ReadSingleJsonFile(ROOM_FILE)
+    if type(room) ~= "table" then return nil end
+    local now = os.time()
+    local hostUid = tostring(room.hostUid or "")
+    local updatedAt = tonumber(room.updatedAt) or 0
+    if hostUid == "" or (now - updatedAt) > SESSION_TTL then
+        return nil
     end
-
-    table.sort(v3Candidates, function(a, b)
-        if a.num ~= b.num then return a.num < b.num end
-        return a.uid < b.uid
-    end)
-
-    if backHelpHostUid then
-        for uid, e in pairs(cleaned) do
-            e.role = (uid == backHelpHostUid) and "host" or "clone"
-        end
-    else
-        for idx, item in ipairs(v3Candidates) do
-            local entry = cleaned[item.uid]
-            if entry then
-                -- Acc có UserId nhỏ nhất làm Host (tế mạng), các acc còn lại làm Clone (STT 1 đánh trước)
-                entry.role = (idx == 1) and "host" or "clone"
+    local allSessions = sessions or ReadAllGhoulSessions()
+    local hostSession = allSessions[hostUid]
+    if not hostSession or (now - (tonumber(hostSession.updatedAt) or 0)) > SESSION_TTL then
+        return nil
+    end
+    -- Nếu phòng thường nhưng Host đã xong V3 -> phòng đã kết thúc
+    if not room.isBackHelp and hostSession.needsV3 == false then
+        return nil
+    end
+    -- Nếu phòng Back-Help nhưng không còn ai cần V3 -> phòng đã kết thúc
+    if room.isBackHelp then
+        local hasAnyV3 = false
+        for uid, e in pairs(allSessions) do
+            if uid ~= hostUid and e.needsV3 == true then
+                hasAnyV3 = true
+                break
             end
         end
+        if not hasAnyV3 then return nil end
     end
+    return room
 end
 
-local function UpdateGhoulSession(mutatorFn)
-    local cleaned = ReadAllGhoulSessions()
-    local now = os.time()
-    if mutatorFn then
-        mutatorFn(cleaned, now)
+-- Chỉ duy nhất 1 acc làm Host được quyền ghi ghoul_room.json
+local function WriteGhoulRoomAsHost(stateStr, jobIdStr, isBackHelpFlag)
+    if not writefile then return end
+    local payload = {
+        hostUid = MY_UID,
+        hostName = LocalPlayer.Name,
+        jobId = tostring(jobIdStr or ""),
+        placeId = game.PlaceId,
+        sea = GetSea(),
+        state = stateStr or "PREPARING", -- "PREPARING" | "OPEN"
+        isBackHelp = (isBackHelpFlag == true),
+        updatedAt = os.time(),
+    }
+    pcall(writefile, ROOM_FILE, HttpService:JSONEncode(payload))
+    return payload
+end
+
+local function ClearGhoulRoomIfOwner()
+    local room = ReadSingleJsonFile(ROOM_FILE)
+    if type(room) == "table" and tostring(room.hostUid or "") == MY_UID then
+        if isfile and delfile and isfile(ROOM_FILE) then
+            pcall(delfile, ROOM_FILE)
+        end
     end
-    ResolveDeterministicSessionRoles(cleaned)
-    WriteMySessionFile(cleaned[MY_UID])
-    return cleaned
 end
 
 RemoveFromGhoulSession = function()
-    WriteMySessionFile(nil)
+    MyPresenceState.phase = "none"
+    MyPresenceState.needsV3 = false
+    MyPresenceState.needsBackHelp = false
+    MyPresenceState.isBackHelp = false
+    MyPresenceState.readyAtHelp = false
+    ClearGhoulRoomIfOwner()
+    FlushMyPresenceFile(true)
     if isfile and readfile and writefile and isfile(SESSION_FILE) then
         pcall(function()
             local data = HttpService:JSONDecode(readfile(SESSION_FILE))
@@ -1288,31 +1357,57 @@ RemoveFromGhoulSession = function()
     end
 end
 
-local function AnalyzeGhoulSession(tbl)
-    local activeList, hosts, clones = {}, {}, {}
-    for _, e in pairs(tbl or {}) do
-        table.insert(activeList, e)
-        if e.role == "host" then
-            table.insert(hosts, e)
-        elseif e.role == "clone" then
+-- Luật "Sticky Host" + Phân hàng đợi Clone (acc mới vào xếp cuối hàng đợi)
+local function ResolveStickyRoomTopology(sessions)
+    local activeV3List = {}
+    local activeBackHelpHost = nil
+
+    for uid, e in pairs(sessions) do
+        if e.isBackHelp == true and e.needsV3 == false then
+            if not activeBackHelpHost or (tonumber(uid) or math.huge) < (tonumber(activeBackHelpHost.userId) or math.huge) then
+                activeBackHelpHost = e
+            end
+        elseif e.needsV3 == true then
+            table.insert(activeV3List, e)
+        end
+    end
+
+    table.sort(activeV3List, function(a, b)
+        local ua = tonumber(a.userId) or math.huge
+        local ub = tonumber(b.userId) or math.huge
+        if ua ~= ub then return ua < ub end
+        return tostring(a.userId) < tostring(b.userId)
+    end)
+
+    local room = ReadGhoulRoom(sessions)
+    local hostUid = nil
+    local isBackHelpRoom = false
+
+    -- 1. Nếu đã có Sticky Room và Host vẫn còn sống -> tuyệt đối giữ nguyên Host, cấm cướp quyền
+    if room then
+        hostUid = tostring(room.hostUid)
+        isBackHelpRoom = (room.isBackHelp == true)
+    elseif activeBackHelpHost then
+        hostUid = tostring(activeBackHelpHost.userId)
+        isBackHelpRoom = true
+    elseif #activeV3List >= 2 then
+        -- Chưa có phòng hoặc Host cũ đã offline/xong -> bầu Host theo UserId nhỏ nhất
+        hostUid = tostring(activeV3List[1].userId)
+        isBackHelpRoom = false
+    end
+
+    local clones = {}
+    for _, e in ipairs(activeV3List) do
+        if tostring(e.userId) ~= hostUid then
             table.insert(clones, e)
         end
     end
-    local primaryHost = nil
-    if #hosts > 0 then
-        table.sort(hosts, function(a, b)
-            if (a.isBackHelp and not b.isBackHelp) then return true end
-            if (not a.isBackHelp and b.isBackHelp) then return false end
-            local ua = tonumber(a.userId) or math.huge
-            local ub = tonumber(b.userId) or math.huge
-            if ua ~= ub then return ua < ub end
-            return tostring(a.userId) < tostring(b.userId)
-        end)
-        primaryHost = hosts[1]
-    end
 
-    -- Sắp xếp các Clone up race theo UserId tăng dần -> Gán STT (1 = nhỏ nhất được kill trước, >= 2 làm helper tạm thời)
+    -- Acc vào trước giữ STT đầu; acc mới xong V2 gia nhập sau có v3QueueAt lớn hơn -> tự động xếp STT cuối
     table.sort(clones, function(a, b)
+        local qa = tonumber(a.v3QueueAt) or math.huge
+        local qb = tonumber(b.v3QueueAt) or math.huge
+        if qa ~= qb then return qa < qb end
         local ua = tonumber(a.userId) or math.huge
         local ub = tonumber(b.userId) or math.huge
         if ua ~= ub then return ua < ub end
@@ -1320,151 +1415,207 @@ local function AnalyzeGhoulSession(tbl)
     end)
 
     local sttMap = {}
+    local whitelistUids = {}
+    if hostUid then whitelistUids[hostUid] = true end
     for idx, c in ipairs(clones) do
         c.stt = idx
         sttMap[tostring(c.userId)] = idx
+        whitelistUids[tostring(c.userId)] = true
     end
 
-    return activeList, primaryHost, clones, sttMap
+    local myRole = "solo"
+    if hostUid then
+        if MY_UID == hostUid then
+            myRole = "host"
+        elseif sttMap[MY_UID] then
+            myRole = "clone"
+        end
+    end
+
+    return {
+        room = room,
+        hostUid = hostUid,
+        hostEntry = hostUid and sessions[hostUid] or nil,
+        isBackHelp = isBackHelpRoom,
+        activeV3List = activeV3List,
+        clones = clones,
+        sttMap = sttMap,
+        whitelistUids = whitelistUids,
+        myRole = myRole,
+        mySTT = sttMap[MY_UID] or 1,
+        totalClones = #clones,
+    }
 end
 
-local function SyncV3SessionEntry(forceHoppingFlag)
-    local cleaned = UpdateGhoulSession(function(tbl, now)
-        tbl[MY_UID] = {
-            userId = LocalPlayer.UserId,
-            name = LocalPlayer.Name,
-            role = (tbl[MY_UID] and tbl[MY_UID].role) or "host",
-            isBackHelp = false,
-            needsV3 = true,
-            isHopping = (forceHoppingFlag == true) or (getgenv()._HoppingServer == true) or isTeleportingNow,
-            failedJoinJob = lastFailedJoinJob,
-            sea = GetSea(),
-            jobId = tostring(game.JobId),
-            placeId = game.PlaceId,
-            playersCount = #Players:GetPlayers(),
-            maxPlayers = Players.MaxPlayers or 12,
-            updatedAt = now,
-        }
-    end)
-    if not cleaned then return nil, {}, nil, {}, 1, 0 end
-    local activeList, hostEntry, cloneList, sttMap = AnalyzeGhoulSession(cleaned)
-    local myEntry = cleaned[MY_UID]
-    local mySTT = sttMap[MY_UID] or 1
-    return myEntry and myEntry.role or "host", activeList, hostEntry, cloneList, mySTT, #cloneList
+local function SyncV3SessionEntry(opts)
+    opts = opts or {}
+    MyPresenceState.phase = "v3"
+    MyPresenceState.needsV3 = true
+    MyPresenceState.isBackHelp = false
+    if opts.needsBackHelp ~= nil then MyPresenceState.needsBackHelp = opts.needsBackHelp end
+    if opts.readyAtHelp ~= nil then MyPresenceState.readyAtHelp = opts.readyAtHelp end
+    MyPresenceState.v3QueueAt = MyV3QueueAt
+    FlushMyPresenceFile(false)
+
+    local sessions = ReadAllGhoulSessions()
+    sessions[MY_UID] = MyPresenceState
+    return ResolveStickyRoomTopology(sessions), sessions
 end
 
+-- Quy trình Back-Help 1-kèm-1 không xung đột (ưu tiên acc xong Pull Lever + UserId nhỏ nhất, xác nhận 0.3s)
 local lastBhCheck = 0
 local function CheckAndClaimBackHelp()
     local nowClock = os.clock()
-    if (nowClock - lastBhCheck) < 2.2 then return false end
+    if (nowClock - lastBhCheck) < 2.0 then return false end
     lastBhCheck = nowClock
 
-    local claimed = false
-    UpdateGhoulSession(function(tbl, now)
-        local me = tbl[MY_UID]
-        if me and me.isBackHelp then
-            local hasClone = false
-            for uid, e in pairs(tbl) do
-                if uid ~= MY_UID and e.needsV3 ~= false then hasClone = true; break end
-            end
-            if hasClone then
-                claimed = true
-                me.sea = GetSea()
-                me.jobId = tostring(game.JobId)
-                me.placeId = game.PlaceId
-                me.playersCount = #Players:GetPlayers()
-                me.maxPlayers = Players.MaxPlayers or 12
-                me.updatedAt = now
-            else
-                tbl[MY_UID] = nil
-            end
-            return
-        end
+    local sessions = ReadAllGhoulSessions()
+    local room = ReadGhoulRoom(sessions)
+    if room and room.isBackHelp then
+        return tostring(room.hostUid) == MY_UID
+    end
 
-        -- Kiểm tra có đúng 1 acc đang cần V3 lẻ loi (chưa có Back-Help) không
-        local count, loneUid, loneEntry = 0, nil, nil
-        for uid, e in pairs(tbl) do
-            count = count + 1
-            loneUid, loneEntry = uid, e
-        end
-        if count == 1 and loneUid ~= MY_UID and loneEntry and not loneEntry.isBackHelp and loneEntry.needsV3 ~= false then
-            loneEntry.role = "clone"
-            tbl[MY_UID] = {
-                userId = LocalPlayer.UserId,
-                name = LocalPlayer.Name,
-                role = "host",
-                isBackHelp = true,
-                needsV3 = false,
-                helpingTarget = loneUid,
-                sea = GetSea(),
-                jobId = tostring(game.JobId),
-                placeId = game.PlaceId,
-                playersCount = #Players:GetPlayers(),
-                maxPlayers = Players.MaxPlayers or 12,
-                updatedAt = now,
-            }
-            claimed = true
-        end
-    end)
-    return claimed
-end
+    local existingBhUid = nil
+    local loneV3Entry = nil
+    local v3Count = 0
+    local idleSea3Candidates = {}
 
-local function SyncBackHelpHost(forceHoppingFlag)
-    local stillNeeded = false
-    local cleaned = UpdateGhoulSession(function(tbl, now)
-        local hasClone = false
-        for uid, e in pairs(tbl) do
-            if uid ~= MY_UID and e.needsV3 ~= false then
-                e.role = "clone" -- đảm bảo các acc cần V3 khác đều theo clone nếu còn lại host back-help
-                hasClone = true
+    for uid, e in pairs(sessions) do
+        if e.isBackHelp == true and e.needsV3 == false then
+            if not existingBhUid or (tonumber(uid) or math.huge) < (tonumber(existingBhUid) or math.huge) then
+                existingBhUid = uid
             end
-        end
-        if hasClone then
-            stillNeeded = true
-            tbl[MY_UID] = {
-                userId = LocalPlayer.UserId,
-                name = LocalPlayer.Name,
-                role = "host",
-                isBackHelp = true,
-                needsV3 = false,
-                isHopping = (forceHoppingFlag == true) or (getgenv()._HoppingServer == true) or isTeleportingNow,
-                failedJoinJob = lastFailedJoinJob,
-                sea = GetSea(),
-                jobId = tostring(game.JobId),
-                placeId = game.PlaceId,
-                playersCount = #Players:GetPlayers(),
-                maxPlayers = Players.MaxPlayers or 12,
-                updatedAt = now,
-            }
-        else
-            tbl[MY_UID] = nil
-        end
-    end)
-    local activeList, _, cloneList = AnalyzeGhoulSession(cleaned or {})
-    return stillNeeded, activeList, cloneList
-end
-
--- Luồng nền cập nhật file Co-op mỗi 5s (giữ trạng thái online kể cả khi đang Hop/Teleport)
-task.spawn(function()
-    while not Stopped() do
-        task.wait(SESSION_HEARTBEAT_SEC)
-        if Stopped() then break end
-        if isCoopSessionActive then
-            local curEntry = ReadSingleSessionFile(MY_SESSION_FILE)
-            if type(curEntry) == "table" then
-                curEntry.sea = GetSea()
-                curEntry.jobId = tostring(game.JobId)
-                curEntry.placeId = game.PlaceId
-                curEntry.playersCount = #Players:GetPlayers()
-                curEntry.maxPlayers = Players.MaxPlayers or 12
-                curEntry.isHopping = (getgenv()._HoppingServer == true) or isTeleportingNow
-                curEntry.failedJoinJob = lastFailedJoinJob
-                curEntry.updatedAt = os.time()
-                WriteMySessionFile(curEntry)
-            end
+        elseif e.needsV3 == true then
+            v3Count = v3Count + 1
+            loneV3Entry = e
+        elseif uid ~= MY_UID and e.needsV3 == false and e.sea == 3 and e.phase == "idle" then
+            table.insert(idleSea3Candidates, {
+                uid = uid,
+                num = tonumber(uid) or math.huge,
+                leverPulled = (e.leverPulled == true),
+            })
         end
     end
-end)
+
+    if existingBhUid then
+        return existingBhUid == MY_UID
+    end
+
+    if v3Count ~= 1 or not loneV3Entry or loneV3Entry.needsBackHelp ~= true then
+        return false
+    end
+
+    if GetSea() ~= 3 then return false end
+
+    table.insert(idleSea3Candidates, {
+        uid = MY_UID,
+        num = tonumber(MY_UID) or math.huge,
+        leverPulled = IsLeverPulled(),
+    })
+
+    table.sort(idleSea3Candidates, function(a, b)
+        if a.leverPulled ~= b.leverPulled then return a.leverPulled end
+        if a.num ~= b.num then return a.num < b.num end
+        return a.uid < b.uid
+    end)
+
+    if not idleSea3Candidates[1] or idleSea3Candidates[1].uid ~= MY_UID then
+        return false
+    end
+
+    -- Ghi file cá nhân isBackHelp = true -> đợi 0.3s đọc lại để xác nhận là backHelpUid duy nhất
+    MyPresenceState.phase = "backhelp"
+    MyPresenceState.needsV3 = false
+    MyPresenceState.needsBackHelp = false
+    MyPresenceState.isBackHelp = true
+    MyPresenceState.readyAtHelp = false
+    FlushMyPresenceFile(false)
+
+    task.wait(0.3)
+    if Stopped() then return false end
+
+    local verifySessions = ReadAllGhoulSessions()
+    local winners = {}
+    for uid, e in pairs(verifySessions) do
+        if e.isBackHelp == true and e.needsV3 == false then
+            table.insert(winners, {
+                uid = uid,
+                num = tonumber(uid) or math.huge,
+                leverPulled = (e.leverPulled == true),
+            })
+        end
+    end
+    table.sort(winners, function(a, b)
+        if a.leverPulled ~= b.leverPulled then return a.leverPulled end
+        if a.num ~= b.num then return a.num < b.num end
+        return a.uid < b.uid
+    end)
+
+    if winners[1] and winners[1].uid == MY_UID then
+        return true
+    end
+
+    -- Nếu có acc ưu tiên hơn cùng nhận -> tự rút lui
+    MyPresenceState.phase = "idle"
+    MyPresenceState.isBackHelp = false
+    FlushMyPresenceFile(false)
+    return false
+end
+
+local function SyncBackHelpHost(readyAtHelpFlag)
+    MyPresenceState.phase = "backhelp"
+    MyPresenceState.needsV3 = false
+    MyPresenceState.needsBackHelp = false
+    MyPresenceState.isBackHelp = true
+    if readyAtHelpFlag ~= nil then MyPresenceState.readyAtHelp = readyAtHelpFlag end
+    FlushMyPresenceFile(false)
+
+    local sessions = ReadAllGhoulSessions()
+    sessions[MY_UID] = MyPresenceState
+    local topo = ResolveStickyRoomTopology(sessions)
+    local stillNeeded = (#topo.activeV3List >= 1) and (topo.hostUid == MY_UID)
+    if not stillNeeded then
+        MyPresenceState.phase = "idle"
+        MyPresenceState.isBackHelp = false
+        MyPresenceState.readyAtHelp = false
+        ClearGhoulRoomIfOwner()
+        FlushMyPresenceFile(false)
+    end
+    return stillNeeded, topo
+end
+
+-- Phân tích tình hình (team hiện tại + nhiệm vụ cần team gì) trước khi execute
+local function AnalyzeRequiredTeam()
+    if HasRaceV3() then
+        local sessions = ReadAllGhoulSessions()
+        local room = ReadGhoulRoom(sessions)
+        if (room and room.isBackHelp and tostring(room.hostUid) == MY_UID) or MyPresenceState.isBackHelp then
+            return "Marines"
+        end
+        return nil
+    end
+
+    if GetRace() == "Ghoul" and HasRaceV2() then
+        local sessions = ReadAllGhoulSessions()
+        sessions[MY_UID] = {
+            userId = LocalPlayer.UserId,
+            name = LocalPlayer.Name,
+            needsV3 = true,
+            v3QueueAt = MyV3QueueAt,
+            updatedAt = os.time(),
+        }
+        local topo = ResolveStickyRoomTopology(sessions)
+        if topo.myRole == "host" then
+            return "Marines"
+        elseif topo.myRole == "clone" then
+            return (topo.mySTT == 1) and "Pirates" or "Marines"
+        else
+            return "Pirates"
+        end
+    end
+
+    return nil
+end
 
 -- ============================================================================
 -- CHECK SAFE ZONE, PVP, STAT SWORD 2800, HỒI CHIÊU, SILENT AIM & TWEEN 0.1S
@@ -2119,117 +2270,146 @@ local function EnsurePvPTweenLoop(getTargetFn)
 end
 
 -- ============================================================================
--- CO-OP HOST TẾ MẠNG (RA KHỎI SAFE ZONE, BẬT PVP CHO CLONE ĐÁNH)
+-- STICKY HOST: CHỐT SERVER 2 PHA (PREPARING -> OPEN) & HỘI TỤ ĐIỂM HELP
 -- ============================================================================
-local function FindSafeOutdoorSpot(myPos)
-    local z = GetEnclosingSafeZone(myPos, 4)
-    if z then
-        local half = z.Size / 2
-        local dirs = {
-            z.CFrame.LookVector * (half.Z + 35),
-            -z.CFrame.LookVector * (half.Z + 35),
-            z.CFrame.RightVector * (half.X + 35),
-            -z.CFrame.RightVector * (half.X + 35),
-        }
-        local bestPos, bestDist = nil, math.huge
-        for _, off in ipairs(dirs) do
-            local cand = Vector3.new(z.Position.X + off.X, math.max(myPos.Y, z.Position.Y) + 18, z.Position.Z + off.Z)
-            if not GetEnclosingSafeZone(cand, 4) then
-                local d = (cand - myPos).Magnitude
-                if d < bestDist then
-                    bestPos, bestDist = cand, d
-                end
-            end
-        end
-        if bestPos then return bestPos end
-    end
-    return Vector3.new(-380, 95, 300)
+local function IsCoopServerQualified(missingClones)
+    if GetSea() ~= 2 then return false end
+    local curPlayers = #Players:GetPlayers()
+    if curPlayers > 7 then return false end
+    if (12 - curPlayers) < (missingClones + 1) then return false end
+    return true
 end
 
 local function RunCoopHost(isBackHelp)
     StopPvPTween()
     if GetSea() ~= 2 then
+        WriteGhoulRoomAsHost("PREPARING", "", isBackHelp)
         TravelToSea(2)
         return
     end
     if getgenv()._RealKidMainRunning or getgenv()._RealKidHopRunning then
-        if isBackHelp then SyncBackHelpHost(true) else SyncV3SessionEntry(true) end
+        WriteGhoulRoomAsHost("PREPARING", "", isBackHelp)
         HopCoopLow(2)
         return
     end
 
-    -- Chọn team Marines để không bị trùng Crew Pirate chặn sát thương với clone
     EnsureTeam("Marines")
     if Stopped() then return end
 
-    local fullWaitSince = 0
+    local roomState = "PREPARING"
+    local stableSince = 0
+    local lastFailScan = 0
+
+    WriteGhoulRoomAsHost("PREPARING", "", isBackHelp)
+
     while not Stopped() do
-        local keepGoing, clones
+        local topo
         if isBackHelp then
-            local okNeed, _, cl = SyncBackHelpHost(false)
-            keepGoing, clones = okNeed, cl
-            if not keepGoing then
+            local stillNeeded, t = SyncBackHelpHost(nil)
+            topo = t
+            if not stillNeeded then
                 CleanupMovement()
                 SetStatus(("Back-Help [%s | STT 0/0]: Hoàn tất! Quay lại Sea 3..."):format(LocalPlayer.Name))
                 TravelToSea(3)
                 return
             end
         else
-            local myRole, activeList, _, cl = SyncV3SessionEntry(false)
-            clones = cl
+            topo = SyncV3SessionEntry({ needsBackHelp = false })
             if HasRaceV3() then
                 CleanupMovement()
+                ClearGhoulRoomIfOwner()
                 return
             end
-            if myRole ~= "host" or #activeList < 2 then
+            -- Nếu tất cả Clone đã xong V3 và chỉ còn lại mình Host cần V3 -> chuyển sang gọi Back-Help
+            if #topo.activeV3List <= 1 then
+                CleanupMovement()
+                ClearGhoulRoomIfOwner()
+                MyPresenceState.needsBackHelp = true
+                MyPresenceState.readyAtHelp = false
+                FlushMyPresenceFile(false)
+                SetStatus(("Host [%s]: Chỉ còn 1 mình cần V3 -> Chuyển sang gọi Back-Help..."):format(LocalPlayer.Name))
+                return
+            end
+            if topo.myRole ~= "host" then
                 CleanupMovement()
                 return
             end
         end
 
-        local totalClones = #(clones or {})
+        local clones = topo.clones or {}
+        local totalClones = #clones
         local helperTag = ("%s [%s | STT 0/%d]"):format(isBackHelp and "Back-Help" or "Helper", LocalPlayer.Name, totalClones)
 
-        -- Kiểm tra slot server hoặc Clone báo lỗi join vào server hiện tại -> Hop server trống hơn
         local missingClones = 0
         local cloneReportedFail = false
-        for _, c in ipairs(clones or {}) do
-            if tostring(c.jobId) ~= tostring(game.JobId) then
+        local curJob = tostring(game.JobId)
+        for _, c in ipairs(clones) do
+            if tostring(c.jobId) ~= curJob then
                 missingClones = missingClones + 1
             end
-            if tostring(c.failedJoinJob or "") == tostring(game.JobId) then
+            if tostring(c.failedJob or "") == curJob then
                 cloneReportedFail = true
             end
         end
 
-        local maxP = Players.MaxPlayers or 12
-        local freeSlots = maxP - #Players:GetPlayers()
-        if cloneReportedFail or (missingClones > 0 and freeSlots < missingClones) then
+        -- Sau mỗi 3s kiểm tra xem có Clone nào báo TeleportInitFailed với server hiện tại không
+        if cloneReportedFail and (os.clock() - lastFailScan) >= 3.0 then
+            lastFailScan = os.clock()
             CleanupMovement()
-            if isBackHelp then SyncBackHelpHost(true) else SyncV3SessionEntry(true) end
-            SetStatus(("%s: Server đầy/lỗi join (%d/%d, thiếu %d Clone) -> Hop server trống!"):format(helperTag, #Players:GetPlayers(), maxP, missingClones))
+            roomState = "PREPARING"
+            stableSince = 0
+            WriteGhoulRoomAsHost("PREPARING", "", isBackHelp)
+            SetStatus(("%s: Clone báo lỗi join server -> Đổi sang PREPARING & Hop server mới!"):format(helperTag))
             HopCoopLow(math.max(missingClones, 1))
             return
-        elseif missingClones > 0 and #Players:GetPlayers() >= (maxP - 1) then
-            if fullWaitSince == 0 then fullWaitSince = os.clock() end
-            if (os.clock() - fullWaitSince) >= 18 then
+        end
+
+        -- PHA 1: PREPARING (Kiểm tra curPlayers <= 7 và 12 - curPlayers >= missingClones + 1, ổn định 3s)
+        if roomState == "PREPARING" then
+            if not IsCoopServerQualified(missingClones) then
                 CleanupMovement()
-                if isBackHelp then SyncBackHelpHost(true) else SyncV3SessionEntry(true) end
-                SetStatus(("%s: Server quá đông, Clone chưa vào kịp -> Hop server trống!"):format(helperTag))
+                WriteGhoulRoomAsHost("PREPARING", "", isBackHelp)
+                SetStatus(("%s [PREPARING]: Server %d/12 (thiếu %d Clone) chưa đạt chuẩn -> Hop server vắng..."):format(helperTag, #Players:GetPlayers(), missingClones))
                 HopCoopLow(math.max(missingClones, 1))
                 return
             end
+
+            if stableSince == 0 then
+                stableSince = os.clock()
+                WriteGhoulRoomAsHost("PREPARING", "", isBackHelp)
+            end
+
+            local waited = os.clock() - stableSince
+            if waited < 3.0 then
+                SetStatus(("%s [PREPARING]: Đã đáp server đạt chuẩn (%d/12), ổn định %.1f/3.0s..."):format(helperTag, #Players:GetPlayers(), waited))
+                SleepCheck(0.5)
+                continue
+            end
+
+            -- Đủ 3s ổn định -> Chốt PHA 2: OPEN
+            roomState = "OPEN"
+            WriteGhoulRoomAsHost("OPEN", curJob, isBackHelp)
+            SetStatus(("%s [OPEN]: Đã mở phòng %s cho %d Clone hội quân!"):format(helperTag, curJob:sub(1, 8), totalClones))
         else
-            fullWaitSince = 0
+            -- Đang ở PHA OPEN: nếu server bị người lạ tràn vào khiến thiếu slot cho Clone chưa vào -> quay về PREPARING
+            if missingClones > 0 and (12 - #Players:GetPlayers()) < missingClones then
+                CleanupMovement()
+                roomState = "PREPARING"
+                stableSince = 0
+                WriteGhoulRoomAsHost("PREPARING", "", isBackHelp)
+                SetStatus(("%s [OPEN -> PREPARING]: Server đầy (%d/12) trong lúc Clone chưa vào -> Hop mới!"):format(helperTag, #Players:GetPlayers()))
+                HopCoopLow(math.max(missingClones, 1))
+                return
+            end
+            WriteGhoulRoomAsHost("OPEN", curJob, isBackHelp)
         end
 
         local char, _, myHRP = WaitAlive()
         if Stopped() or not char then break end
-        if not LocalPlayer.Team or LocalPlayer.Team.Name ~= "Marines" then
+        if GetCurrentTeamName() ~= "Marines" then
             EnsureTeam("Marines")
         end
 
-        -- Giữ Anti-Gravity + Noclip liên tục để bay thẳng tới POS_COOP_HELP (-499.64, 50.30, -42.73)
         if not ActiveNoclip then
             ActiveNoclip = RunService.Stepped:Connect(function()
                 if Stopped() then return end
@@ -2252,7 +2432,8 @@ local function RunCoopHost(isBackHelp)
 
         local distToHelp = (POS_COOP_HELP - myHRP.Position).Magnitude
         if distToHelp > 5 then
-            SetStatus(("%s: Đang bay tới điểm Help (%.0f stud)..."):format(helperTag, distToHelp))
+            MyPresenceState.readyAtHelp = false
+            SetStatus(("%s [OPEN]: Đang bay tới điểm Help (%.0f stud)..."):format(helperTag, distToHelp))
             if not ActiveTween or ActiveTween.PlaybackState ~= Enum.PlaybackState.Playing then
                 CancelActiveTween()
                 ActiveTween = TweenService:Create(myHRP, TweenInfo.new(math.max(distToHelp / TWEEN_SPEED, 0.05), Enum.EasingStyle.Linear), { CFrame = CFrame.new(POS_COOP_HELP) })
@@ -2263,7 +2444,8 @@ local function RunCoopHost(isBackHelp)
             CancelActiveTween()
             myHRP.CFrame = CFrame.new(POS_COOP_HELP)
             EnsureMyPvPEnabled()
-            SetStatus(("%s: Đứng tại điểm Help (PvP ON) | Clones: %d"):format(helperTag, totalClones))
+            MyPresenceState.readyAtHelp = true
+            SetStatus(("%s [OPEN]: Sẵn sàng tại điểm Help (PvP ON) | Clones: %d"):format(helperTag, totalClones))
             SleepCheck(0.8)
         end
     end
@@ -2370,8 +2552,43 @@ local function RunSea3BossTarget(destination, preTweenPos, waitMsgFn, doneCheckF
 end
 
 -- ============================================================================
--- CHẾ ĐỘ GHOUL V3 CHÍNH (SOLO 3M/SAFEZONE + CO-OP CLONE + CO-OP HOST)
+-- CHẾ ĐỘ GHOUL V3 CHÍNH (STICKY ROOM CO-OP + WHITELIST 100 STUD + BACK-HELP 10S)
 -- ============================================================================
+local function GetCoopWhitelistTarget(whitelistUids)
+    local myHRP = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myHRP then return nil end
+    local bestTarget, bestDist = nil, math.huge
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and whitelistUids[tostring(p.UserId)] == true then
+            local ch = p.Character
+            local tHRP = ch and ch:FindFirstChild("HumanoidRootPart")
+            if tHRP and (tHRP.Position - POS_COOP_HELP).Magnitude <= 100 then
+                if IsLockedTargetValid(p, ch) and not IsInSafeZone(p) then
+                    local d = (tHRP.Position - myHRP.Position).Magnitude
+                    if d < bestDist then
+                        bestTarget, bestDist = p, d
+                    end
+                end
+            end
+        end
+    end
+    return bestTarget
+end
+
+local function FinishGhoulV3ToSea3()
+    StopPvPTween()
+    ClearGhoulRoomIfOwner()
+    MyPresenceState.phase = "idle"
+    MyPresenceState.needsV3 = false
+    MyPresenceState.needsBackHelp = false
+    MyPresenceState.isBackHelp = false
+    MyPresenceState.readyAtHelp = false
+    MyPresenceState.leverPulled = IsLeverPulled()
+    FlushMyPresenceFile(false)
+    SetStatus("Đã xong Ghoul V3! Đang TP sang Sea 3...")
+    TravelToSea(3)
+end
+
 local function RunGhoulV3Phase()
     if GetSea() ~= 2 then TravelToSea(2) end
     if Stopped() then return end
@@ -2379,6 +2596,7 @@ local function RunGhoulV3Phase()
     local chosenSword = nil
     local statsChecked = false
     local deprioritized = {}
+    local lastRoomTpClock = 0
 
     local function CheckWenlock()
         local ok, rs = pcall(function() return CommF:InvokeServer("Wenlocktoad", "1") end)
@@ -2464,162 +2682,176 @@ local function RunGhoulV3Phase()
     while not Stopped() do
         local stW = CheckWenlock()
         if HasRaceV3() or stW == -2 then
-            StopPvPTween()
-            RemoveFromGhoulSession()
-            SetStatus("Đã xong Ghoul V3! Đang TP sang Sea 3...")
-            TravelToSea(3)
+            FinishGhoulV3ToSea3()
             return
         end
 
-        local myRole, activeList, hostEntry, _, mySTT, totalClones = SyncV3SessionEntry()
-        if #activeList < 2 and not didInitialSessionSync then
+        local topo = SyncV3SessionEntry({ readyAtHelp = false })
+        if topo.myRole == "solo" and not didInitialSessionSync then
             didInitialSessionSync = true
-            SetStatus("Đang quét đồng đội Co-op Ghoul V3...")
+            SetStatus("Đang quét đồng đội Co-op & Back-Help...")
             if not SleepCheck(1.5) then return end
-            myRole, activeList, hostEntry, _, mySTT, totalClones = SyncV3SessionEntry()
+            topo = SyncV3SessionEntry({ readyAtHelp = false })
         end
 
-        -- CO-OP MODE (>= 2 acc trong ghoulsession)
-        if #activeList >= 2 then
-            if myRole == "host" then
-                RunCoopHost(false)
-            else
-                -- CLONE MODE (Có phân chia STT: STT = 1 đánh Helper, STT > 1 làm Helper tạm thời đứng tại điểm Help hiến mạng)
-                StopPvPTween()
-                local hostJob = tostring(hostEntry and hostEntry.jobId or "")
-                local hostFreeSlots = hostEntry and ((tonumber(hostEntry.maxPlayers) or 12) - (tonumber(hostEntry.playersCount) or 0)) or 0
-                local cloneSelfTag = ("Co-op Clone [%s | STT %d/%d]"):format(LocalPlayer.Name, mySTT, totalClones)
+        -- CO-OP MODE (Có Sticky Room / Back-Help Host / >= 2 acc V3)
+        if topo.myRole == "host" then
+            RunCoopHost(false)
+        elseif topo.myRole == "clone" then
+            StopPvPTween()
+            local room = topo.room
+            local hostEntry = topo.hostEntry
+            local hostName = tostring((room and room.hostName) or (hostEntry and hostEntry.name) or "?")
+            local roomState = room and tostring(room.state or "PREPARING") or "PREPARING"
+            local roomJob = room and tostring(room.jobId or "") or ""
+            local cloneSelfTag = ("Co-op Clone [%s | STT %d/%d]"):format(LocalPlayer.Name, topo.mySTT, topo.totalClones)
 
-                if not hostEntry or hostEntry.sea ~= 2 or hostJob == "" then
-                    SetStatus(("%s: Đợi Host (%s) vào Sea 2..."):format(cloneSelfTag, tostring(hostEntry and hostEntry.name or "?")))
+            -- Luật cứng: Khi room.state ~= "OPEN" hoặc room.jobId == "" -> đứng yên chờ ở Sea 2, cấm teleport
+            if GetSea() ~= 2 then
+                TravelToSea(2)
+            elseif roomState ~= "OPEN" or roomJob == "" then
+                MyPresenceState.readyAtHelp = false
+                SetStatus(("%s: Đứng yên chờ Host (%s) chốt phòng [State: %s]..."):format(cloneSelfTag, hostName, roomState))
+                SleepCheck(1.5)
+            elseif roomJob ~= tostring(game.JobId) then
+                MyPresenceState.readyAtHelp = false
+                if lastFailedJoinJob == roomJob then
+                    SyncV3SessionEntry({ readyAtHelp = false })
+                    SetStatus(("%s: Lỗi join %s -> Đã báo Host (%s) đổi server..."):format(cloneSelfTag, roomJob:sub(1, 8), hostName))
                     SleepCheck(1.5)
-                elseif hostEntry.isHopping == true then
-                    SetStatus(("%s: Host (%s) đang hop server mới, đang chờ..."):format(cloneSelfTag, tostring(hostEntry.name)))
-                    SleepCheck(1.5)
-                elseif hostJob ~= tostring(game.JobId) then
-                    if hostFreeSlots <= 0 then
-                        SetStatus(("%s: Server Host (%s) đã đầy (12/12), chờ Host đổi server..."):format(cloneSelfTag, tostring(hostEntry.name)))
-                        SleepCheck(1.5)
-                    elseif lastFailedJoinJob == hostJob then
-                        SyncV3SessionEntry(false)
-                        SetStatus(("%s: Lỗi join server Host (%s), chờ Host đổi server..."):format(cloneSelfTag, tostring(hostEntry.name)))
-                        SleepCheck(1.5)
-                    else
-                        SetStatus(("%s -> Join server Host (%s)..."):format(cloneSelfTag, tostring(hostEntry.name)))
-                        DirectTeleport(hostJob, tonumber(hostEntry.placeId) or game.PlaceId)
-                        SleepCheck(3.5)
-                    end
+                elseif (os.clock() - lastRoomTpClock) < 10.0 then
+                    local waitCd = math.max(0, 10.0 - (os.clock() - lastRoomTpClock))
+                    SetStatus(("%s: Cooldown join server Host (%s) %.1fs..."):format(cloneSelfTag, hostName, waitCd))
+                    SleepCheck(1.0)
                 else
-                    local cloneStart = os.clock()
-                    local currentSTT = mySTT
-                    local currentTotalClones = totalClones
-                    local currentMoveTarget = POS_COOP_HELP
-
-                    if currentSTT == 1 then
-                        EnsureTeam("Pirates")
+                    lastRoomTpClock = os.clock()
+                    pendingTeleportJob = roomJob
+                    SetStatus(("%s [OPEN]: Gọi __ServerBrowser join %s..."):format(cloneSelfTag, roomJob:sub(1, 8)))
+                    local sb = ReplicatedStorage:FindFirstChild("__ServerBrowser")
+                    if sb then
+                        pcall(function() sb:InvokeServer("teleport", roomJob) end)
                     else
-                        EnsureTeam("Marines")
+                        DirectTeleport(roomJob, tonumber(room.placeId) or game.PlaceId)
                     end
-                    EnsureMyPvPEnabled()
-                    if currentSTT == 1 then
-                        PrepareGhoulV3Weapons()
+                    SleepCheck(3.0)
+                end
+            else
+                -- Đã hội quân cùng server với Host ở Sea 2
+                local cloneStart = os.clock()
+                local currentSTT = topo.mySTT
+                local currentTotalClones = topo.totalClones
+                local currentWhitelist = topo.whitelistUids
+                local currentMoveTarget = POS_COOP_HELP
+
+                EnsureTeam(currentSTT == 1 and "Pirates" or "Marines")
+                EnsureMyPvPEnabled()
+                if currentSTT == 1 then
+                    PrepareGhoulV3Weapons()
+                end
+
+                EnsurePvPTweenLoop(function()
+                    return currentMoveTarget
+                end)
+
+                local lastSync = 0
+                while not Stopped() do
+                    local curW = CheckWenlock()
+                    if HasRaceV3() or curW == -2 then
+                        FinishGhoulV3ToSea3()
+                        return
                     end
 
-                    EnsurePvPTweenLoop(function()
-                        return currentMoveTarget
-                    end)
-
-                    local lastSync = 0
-                    while not Stopped() do
-                        local curW = CheckWenlock()
-                        if HasRaceV3() or curW == -2 then
+                    if (os.clock() - lastSync) >= 2.0 then
+                        lastSync = os.clock()
+                        local t2 = SyncV3SessionEntry(nil)
+                        currentSTT = t2.mySTT
+                        currentTotalClones = t2.totalClones
+                        currentWhitelist = t2.whitelistUids
+                        local r2 = t2.room
+                        if t2.myRole ~= "clone" or not r2 or r2.state ~= "OPEN" or tostring(r2.jobId) ~= tostring(game.JobId) then
+                            MyPresenceState.readyAtHelp = false
                             StopPvPTween()
-                            RemoveFromGhoulSession()
-                            SetStatus(("Co-op Clone [%s]: Đã xong Ghoul V3! Đang sang Sea 3..."):format(LocalPlayer.Name))
-                            TravelToSea(3)
-                            return
+                            break
                         end
+                    end
 
-                        if (os.clock() - lastSync) >= 2 then
-                            lastSync = os.clock()
-                            local r2, list2, h2, _, stt2, tot2 = SyncV3SessionEntry(false)
-                            hostEntry = h2
-                            currentSTT = stt2
-                            currentTotalClones = tot2
-                            if #list2 < 2 or r2 == "host" or not h2 or h2.sea ~= 2 or tostring(h2.jobId) ~= tostring(game.JobId) then
-                                StopPvPTween()
-                                break
-                            end
-                        end
+                    local char, _, myHRP = WaitAlive()
+                    if Stopped() or not char then break end
 
-                        local char, _, myHRP = WaitAlive()
-                        if Stopped() or not char then break end
-                        local hostPlayer = Players:GetPlayerByUserId(tonumber(hostEntry.userId)) or Players:FindFirstChild(tostring(hostEntry.name))
+                    if currentSTT == 1 then
+                        -- STT 1 (Pirates): Bay thẳng điểm Help, chỉ tấn công whitelist Co-op trong 100 studs quanh POS_COOP_HELP
+                        if not char:FindFirstChild("HasBuso") then pcall(function() CommF:InvokeServer("Buso") end) end
+                        if GetCurrentTeamName() ~= "Pirates" then EnsureTeam("Pirates") end
+                        EnsureMyPvPEnabled()
+                        PrepareGhoulV3Weapons()
 
-                        if currentSTT == 1 then
-                            -- STT 1 (UserId nhỏ nhất): Được quyền kill trước, bay thẳng tới điểm Help / khóa mục tiêu
-                            if not char:FindFirstChild("HasBuso") then pcall(function() CommF:InvokeServer("Buso") end) end
-                            if not LocalPlayer.Team or LocalPlayer.Team.Name ~= "Pirates" then EnsureTeam("Pirates") end
-                            EnsureMyPvPEnabled()
-                            PrepareGhoulV3Weapons()
+                        local distToHelp = (POS_COOP_HELP - myHRP.Position).Magnitude
+                        MyPresenceState.readyAtHelp = (distToHelp <= 15)
 
-                            local validVictim = nil
-                            if hostPlayer and hostPlayer.Character and IsLockedTargetValid(hostPlayer, hostPlayer.Character) then
-                                validVictim = hostPlayer
-                            else
-                                local bestSac, bestDist = nil, math.huge
-                                for _, p in ipairs(Players:GetPlayers()) do
-                                    if p ~= LocalPlayer and p.Character and IsLockedTargetValid(p, p.Character) and not IsInSafeZone(p) then
-                                        local d = GetDistanceToPlayer(p)
-                                        if d and d < bestDist then
-                                            bestSac, bestDist = p, d
-                                        end
-                                    end
-                                end
-                                validVictim = bestSac
-                            end
-
-                            if validVictim and validVictim.Character then
-                                currentMoveTarget = validVictim
-                                EngageTargetStep(validVictim, validVictim.Character, myHRP, cloneStart, ("Co-op [%s | STT 1/%d] Kill"):format(LocalPlayer.Name, currentTotalClones))
-                            else
-                                hoverAboveMode = false
-                                currentMoveTarget = POS_COOP_HELP
-                                local distToHelp = (POS_COOP_HELP - myHRP.Position).Magnitude
-                                SetStatus(("Co-op [%s | STT 1/%d]: Bay tới điểm Help (%.0f stud) chờ %s..."):format(LocalPlayer.Name, currentTotalClones, distToHelp, tostring(hostEntry.name)))
-                                SleepCheck(0.35)
-                            end
+                        local validVictim = GetCoopWhitelistTarget(currentWhitelist)
+                        if validVictim and validVictim.Character then
+                            currentMoveTarget = validVictim
+                            EngageTargetStep(validVictim, validVictim.Character, myHRP, cloneStart, ("Co-op [%s | STT 1/%d] Kill"):format(LocalPlayer.Name, currentTotalClones))
                         else
-                            -- STT > 1: Làm Helper tạm thời đứng tại điểm Help (-499.64, 50.30, -42.73) hiến mạng cho STT 1
-                            ClearAimState()
                             hoverAboveMode = false
-                            if not LocalPlayer.Team or LocalPlayer.Team.Name ~= "Marines" then EnsureTeam("Marines") end
-                            EnsureMyPvPEnabled()
-
-                            local sacPos = POS_COOP_HELP + Vector3.new((currentSTT - 1) * 4, 0, 2)
-                            currentMoveTarget = sacPos
-                            local distToSac = (sacPos - myHRP.Position).Magnitude
-                            local tempHelperTag = ("Helper Tạm [%s | STT %d/%d]"):format(LocalPlayer.Name, currentSTT, currentTotalClones)
-
-                            if distToSac > 5 then
-                                SetStatus(("%s: Đang bay tới điểm Help (%.0f stud) hiến mạng cho STT 1..."):format(tempHelperTag, distToSac))
-                            else
-                                SetStatus(("%s: Đứng tại điểm Help (PvP ON) hiến mạng cạnh %s..."):format(tempHelperTag, tostring(hostEntry.name)))
-                            end
+                            currentMoveTarget = POS_COOP_HELP
+                            SetStatus(("Co-op [%s | STT 1/%d]: Giữ vị trí tại điểm Help (%.0f stud) chờ mục tiêu..."):format(LocalPlayer.Name, currentTotalClones, distToHelp))
                             SleepCheck(0.35)
                         end
+                    else
+                        -- STT >= 2 (Marines): Đứng giãn cách 3 studs quanh tâm POS_COOP_HELP, bật PvP liên tục
+                        ClearAimState()
+                        hoverAboveMode = false
+                        if GetCurrentTeamName() ~= "Marines" then EnsureTeam("Marines") end
+                        EnsureMyPvPEnabled()
+
+                        local angle = (currentSTT - 2) * (math.pi / 3)
+                        local sacPos = POS_COOP_HELP + Vector3.new(math.cos(angle) * 3, 0, math.sin(angle) * 3)
+                        currentMoveTarget = sacPos
+                        local distToSac = (sacPos - myHRP.Position).Magnitude
+                        MyPresenceState.readyAtHelp = (distToSac <= 15)
+                        local tempHelperTag = ("Helper Tạm [%s | STT %d/%d]"):format(LocalPlayer.Name, currentSTT, currentTotalClones)
+
+                        if distToSac > 5 then
+                            SetStatus(("%s: Đang bay tới điểm Help (%.0f stud)..."):format(tempHelperTag, distToSac))
+                        else
+                            SetStatus(("%s: Đứng giãn cách 3 studs tại điểm Help (PvP ON)..."):format(tempHelperTag))
+                        end
+                        SleepCheck(0.35)
                     end
-                    StopPvPTween()
                 end
+                StopPvPTween()
             end
         else
-            -- SOLO MODE (< 2 acc trong ghoulsession.txt)
+            -- SOLO MODE (activeV3Count == 1): Bật needsBackHelp = true chờ 10s gọi Back-Help trước khi HopHigh
+            MyPresenceState.needsBackHelp = true
+            MyPresenceState.readyAtHelp = false
+            FlushMyPresenceFile(false)
+
+            local bhWaitStart = os.clock()
+            local gotBackHelp = false
+            while not Stopped() and (os.clock() - bhWaitStart) < BACKHELP_WAIT_SECONDS do
+                local tCheck = SyncV3SessionEntry({ needsBackHelp = true, readyAtHelp = false })
+                if tCheck.myRole ~= "solo" then
+                    gotBackHelp = true
+                    break
+                end
+                local rem = math.max(0, BACKHELP_WAIT_SECONDS - (os.clock() - bhWaitStart))
+                SetStatus(("Solo lẻ loi: Bật needsBackHelp = true, chờ acc Sea 3 nhận kèo (%.1fs)..."):format(rem))
+                SleepCheck(0.5)
+            end
+
+            if Stopped() then return end
+            if gotBackHelp then
+                continue
+            end
+
             EnsureTeam("Pirates")
             EnsureMyPvPEnabled()
             if Stopped() then break end
 
             if CountPvPPlayers() < 3 then
-                SetStatus(("Solo Ghoul V3: Chỉ có %d/3 player PvP ON -> Hop High (11/12)..."):format(CountPvPPlayers()))
+                SetStatus(("Solo Ghoul V3: Không có Back-Help & chỉ có %d/3 player PvP ON -> Hop High (11/12)..."):format(CountPvPPlayers()))
                 HopHigh()
                 return
             end
@@ -2642,17 +2874,14 @@ local function RunGhoulV3Phase()
 
                 local curStat = CheckWenlock()
                 if HasRaceV3() or curStat == -2 then
-                    StopPvPTween()
-                    RemoveFromGhoulSession()
-                    SetStatus("Đã hoàn thành Ghoul V3! Đang TP sang Sea 3...")
-                    TravelToSea(3)
+                    FinishGhoulV3ToSea3()
                     return
                 end
 
                 if (os.clock() - lastSync) >= 2 then
                     lastSync = os.clock()
-                    local r2, list2 = SyncV3SessionEntry()
-                    if #list2 >= 2 or r2 == "clone" then
+                    local t2 = SyncV3SessionEntry({ needsBackHelp = true, readyAtHelp = false })
+                    if t2.myRole ~= "solo" then
                         StopPvPTween()
                         SetStatus("Phát hiện Co-op / Back-Help -> Chuyển sang chế độ Co-op!")
                         break
@@ -2662,11 +2891,10 @@ local function RunGhoulV3Phase()
                 local char, _, myHRP = WaitAlive()
                 if Stopped() or not char then break end
                 if not char:FindFirstChild("HasBuso") then pcall(function() CommF:InvokeServer("Buso") end) end
-                if not LocalPlayer.Team or LocalPlayer.Team.Name ~= "Pirates" then EnsureTeam("Pirates") end
+                if GetCurrentTeamName() ~= "Pirates" then EnsureTeam("Pirates") end
                 EnsureMyPvPEnabled()
                 PrepareGhoulV3Weapons()
 
-                -- Kiểm tra hết hạn lock 3 phút hoặc mục tiêu chết / PvP OFF thật / out game
                 if currentTarget then
                     if not IsLockedTargetValid(currentTarget, lockedChar) then
                         local deadOrRespawn = (not currentTarget.Parent) or (currentTarget.Character ~= lockedChar)
@@ -2699,7 +2927,7 @@ local function RunGhoulV3Phase()
                     end
                 else
                     hoverAboveMode = false
-                    SetStatus(("Chờ player PvP ON (<= 50k stud)... | %.0fm/45m"):format((os.clock() - v3Start) / 60))
+                    SetStatus(("Solo Lock: Chờ player PvP ON (<= 50k stud)... | %.0fm/45m"):format((os.clock() - v3Start) / 60))
                     SleepCheck(0.4)
                 end
             end
@@ -2709,20 +2937,16 @@ local function RunGhoulV3Phase()
 end
 
 -- ============================================================================
--- LUỒNG CHÍNH (STATE MACHINE)
+-- LUỒNG CHÍNH (STATE MACHINE - PHÂN TÍCH TÌNH HÌNH TRƯỚC KHI CHỌN TEAM)
 -- ============================================================================
--- 0. CHECK NẾU MÌNH ĐANG LÀM BACK-HELP HOST TRONG GHOULSESSION.TXT
+EnsureTeam(AnalyzeRequiredTeam())
+if Stopped() then return end
+
+-- 0. CHECK NẾU ĐÃ CÓ V3 VÀ NHẬN KÈO BACK-HELP 1-KÈM-1
 if HasRaceV3() and CheckAndClaimBackHelp() then
     RunCoopHost(true)
     return
 end
-
-if GetRace() == "Ghoul" and HasRaceV2() and not HasRaceV3() then
-    EnsureTeam("Pirates")
-else
-    EnsureTeam(nil)
-end
-if Stopped() then return end
 
 -- 1. CHƯA PHẢI GHOUL -> CHẠY REALKID MAIN CONFIG "auto_ghoul_v1":true Ở SEA 2 (CÓ ANTI-COLLISION ECTOPLASM)
 if GetRace() ~= "Ghoul" then
@@ -2735,7 +2959,6 @@ if GetRace() ~= "Ghoul" then
         local myNum = tonumber(myUid) or math.huge
         local curJob = tostring(game.JobId)
 
-        -- Kiểm tra ngay khi vào server xem đã có Clone khác chiếm/đặt chỗ server này chưa
         local blocked = GetBlockedEctoJobs()
         local conflict = blocked[curJob]
         if conflict then
@@ -2751,7 +2974,6 @@ if GetRace() ~= "Ghoul" then
             end
         end
 
-        -- Ghi nhận ngay vào ghoulecto_anticollision.json (cập nhật 5s, tự xóa sau 2 phút offline)
         UpdateEctoAntiCollision(function(tbl, now)
             tbl[myUid] = {
                 userId = LocalPlayer.UserId,
@@ -2764,7 +2986,6 @@ if GetRace() ~= "Ghoul" then
             }
         end)
 
-        -- Luồng ngầm cập nhật heartbeat mỗi 5 giây & kiểm tra va chạm real-time
         task.spawn(function()
             local needHopCollision = false
             while not Stopped() and GetRace() ~= "Ghoul" and GetEctoplasmCount(false) < 100 do
@@ -2884,17 +3105,19 @@ if not hasV3 then
         if LaunchRealKidMain({ AutoUpgradeRaceV3 = true }, "Auto Ghoul V2 (Sea 2)") then
             while not Stopped() and task.wait(2) do
                 if HasRaceV2() then
+                    MyV3QueueAt = os.time()
                     local sessions = ReadAllGhoulSessions()
+                    local room = ReadGhoulRoom(sessions)
                     local otherActive = 0
-                    for uid in pairs(sessions) do
-                        if uid ~= MY_UID then otherActive = otherActive + 1 end
+                    for uid, e in pairs(sessions) do
+                        if uid ~= MY_UID and e.needsV3 == true then otherActive = otherActive + 1 end
                     end
-                    if otherActive > 0 then
-                        SetStatus(("Đã xong Ghoul V2! Phát hiện %d acc Co-op -> Chuyển thẳng sang Co-op V3..."):format(otherActive))
+                    if otherActive > 0 or room ~= nil then
+                        SetStatus(("Đã xong Ghoul V2! Vào cuối hàng đợi Co-op V3..."):format())
                         RunGhoulV3Phase()
                     else
-                        SetStatus("Đã xong Ghoul V2! Hop High (11/12) để tự up Ghoul V3...")
-                        HopHigh()
+                        SetStatus("Đã xong Ghoul V2! Chuyển sang pha V3...")
+                        RunGhoulV3Phase()
                     end
                     return
                 end
@@ -2909,13 +3132,21 @@ if not hasV3 then
         return
     end
 
-    -- 2B. ĐÃ XONG GHOUL V2 -> UP GHOUL V3 (SOLO + CO-OP)
+    -- 2B. ĐÃ XONG GHOUL V2 -> UP GHOUL V3 (STICKY ROOM CO-OP + SOLO)
     RunGhoulV3Phase()
     return
 end
 if Stopped() then return end
 
-RemoveFromGhoulSession()
+-- Cập nhật trạng thái idle ở Sea 3 để sẵn sàng nhận kèo Back-Help 1-kèm-1
+ClearGhoulRoomIfOwner()
+MyPresenceState.phase = "idle"
+MyPresenceState.needsV3 = false
+MyPresenceState.needsBackHelp = false
+MyPresenceState.isBackHelp = false
+MyPresenceState.readyAtHelp = false
+MyPresenceState.leverPulled = IsLeverPulled()
+FlushMyPresenceFile(false)
 
 -- 3. ĐÃ ĐỦ GHOUL V3 -> ĐẢM BẢO ĐỦ 10K FRAGMENT TRƯỚC KHI CHECK INVENTORY (THEO DÕI BACK-HELP)
 if GetFragments() < 10000 then
@@ -2986,12 +3217,18 @@ if not IsLeverPulled() then
         while not Stopped() and task.wait(2) do
             if CheckAndClaimBackHelp() then CleanupMovement(); TravelToSea(2); return end
             SetStatus("Đang chạy Auto Pull Lever...")
-            if IsLeverPulled() then break end
+            if IsLeverPulled() then
+                MyPresenceState.leverPulled = true
+                FlushMyPresenceFile(false)
+                break
+            end
         end
     end
 end
 
 if Stopped() then return end
+MyPresenceState.leverPulled = true
+FlushMyPresenceFile(false)
 SetStatus("CHÚC MỪNG! Đã hoàn thành Ghoul V3 + Pull Lever! (Đang trực Back-Help)")
 while not Stopped() and task.wait(2.5) do
     if CheckAndClaimBackHelp() then
