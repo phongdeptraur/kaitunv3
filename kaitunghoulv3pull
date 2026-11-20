@@ -2781,7 +2781,7 @@ local function RunGhoulV3Phase()
         statsChecked = true
     end
 
-    local function EngageTargetStep(targetPlayer, tChar, myHRP, startTick, labelPrefix)
+    local function EngageTargetStep(targetPlayer, tChar, myHRP, startTick, labelPrefix, isCoop)
         local tHRP = tChar:FindFirstChild("HumanoidRootPart")
         local tHum = tChar:FindFirstChildOfClass("Humanoid")
         if not (tHRP and tHum and tHum.Health > 0) then return false end
@@ -2826,8 +2826,13 @@ local function RunGhoulV3Phase()
                 SleepCheck(0.1)
             end
         else
-            hoverAboveMode = true
-            SetStatus(("%s: %s [%.0f stud] | Hồi chiêu (+60 stud) | %.0fm"):format(labelPrefix, targetPlayer.DisplayName, realDist, elapsedMin))
+            if isCoop then
+                hoverAboveMode = false
+                SetStatus(("%s: %s [%.0f stud] | Đang hồi chiêu... | %.0fm"):format(labelPrefix, targetPlayer.DisplayName, realDist, elapsedMin))
+            else
+                hoverAboveMode = true
+                SetStatus(("%s: %s [%.0f stud] | Hồi chiêu (+60 stud) | %.0fm"):format(labelPrefix, targetPlayer.DisplayName, realDist, elapsedMin))
+            end
             SleepCheck(0.15)
         end
         return true
@@ -2955,7 +2960,7 @@ local function RunGhoulV3Phase()
                         local validVictim = GetCoopWhitelistTarget(currentWhitelist)
                         if validVictim and validVictim.Character then
                             currentMoveTarget = validVictim
-                            EngageTargetStep(validVictim, validVictim.Character, myHRP, cloneStart, ("Co-op [%s | STT 1/%d] Kill"):format(LocalPlayer.Name, currentTotalClones))
+                            EngageTargetStep(validVictim, validVictim.Character, myHRP, cloneStart, ("Co-op [%s | STT 1/%d] Kill"):format(LocalPlayer.Name, currentTotalClones), true)
                         else
                             hoverAboveMode = false
                             currentMoveTarget = POS_COOP_HELP
