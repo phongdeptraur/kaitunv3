@@ -945,33 +945,45 @@ local function GetSea() return SEA_PLACES[game.PlaceId] or 0 end
 
 local lastEctoInvCheck, cachedEctoCount = 0, 0
 local function GetEctoplasmCount(force)
-    local total = 0
-    for _, container in ipairs({ LocalPlayer:FindFirstChild("Backpack"), LocalPlayer.Character }) do
-        if container then
-            for _, item in ipairs(container:GetChildren()) do
-                if item.Name:lower():find("ectoplasm", 1, true) then
-                    local cntObj = item:FindFirstChild("Count") or item:FindFirstChild("Amount")
-                    local val = (cntObj and tonumber(cntObj.Value)) or tonumber(item:GetAttribute("Count")) or tonumber(item.Name:match("%d+")) or 1
-                    total = total + val
-                end
-            end
-        end
-    end
-    if total > 0 then
-        cachedEctoCount = math.max(cachedEctoCount, total)
+    if not force and (os.clock() - lastEctoInvCheck) < 2.5 then
         return cachedEctoCount
     end
-    if force or (os.clock() - lastEctoInvCheck) >= 3.5 then
-        lastEctoInvCheck = os.clock()
-        local ok, inv = pcall(function() return CommF:InvokeServer("getInventory") end)
-        if ok and type(inv) == "table" then
-            for _, v in pairs(inv) do
-                if type(v) == "table" and tostring(v.Name or ""):lower():find("ectoplasm", 1, true) then
-                    cachedEctoCount = tonumber(v.Count) or 1
-                    break
-                end
+    lastEctoInvCheck = os.clock()
+
+    local ecto = nil
+    pcall(function()
+        local IR = require(ReplicatedStorage:WaitForChild("ItemReplicationService", 2))
+        local KEYS = require(ReplicatedStorage.ItemReplicationService:WaitForChild("KEYS", 2))
+        local ItemId = require(ReplicatedStorage:WaitForChild("Economy", 2):WaitForChild("ItemId", 2))
+        local t0 = os.clock()
+        while not IR.IsInitialized and (os.clock() - t0 < 2) do task.wait(0.1) end
+        ecto = 0
+        for _, item in pairs(IR:GetItems(KEYS.QUANTITY)) do
+            local ok, data = pcall(function() return ItemId.getDataFromId(item.ItemId):unwrap() end)
+            if ok and data and tostring(data.StorageKey or data.DisplayName or data.Name or ""):lower():find("ectoplasm") then
+                ecto = item.Value or 0
+                break
             end
         end
+    end)
+
+    if ecto == nil then
+        pcall(function()
+            local inv = CommF:InvokeServer("getInventory")
+            if type(inv) == "table" then
+                ecto = 0
+                for _, v in pairs(inv) do
+                    if type(v) == "table" and tostring(v.Name or ""):lower():find("ectoplasm") then
+                        ecto = v.Count or 0
+                        break
+                    end
+                end
+            end
+        end)
+    end
+
+    if ecto ~= nil then
+        cachedEctoCount = tonumber(ecto) or 0
     end
     return cachedEctoCount
 end
