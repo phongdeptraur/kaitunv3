@@ -2468,8 +2468,8 @@ end
 local function IsCoopServerQualified(missingClones)
     if GetSea() ~= 2 then return false end
     local curPlayers = #Players:GetPlayers()
-    if curPlayers > 7 then return false end
-    if (12 - curPlayers) < (missingClones + 1) then return false end
+    if curPlayers > 6 then return false end
+    if (12 - curPlayers) < missingClones then return false end
     return true
 end
 
@@ -2491,6 +2491,7 @@ local function RunCoopHost(isBackHelp)
     SetHoppingState(false)
 
     local roomState = "PREPARING"
+    local initialPlayerChecked = false
     local stableSince = 0
     local lastFailScan = 0
 
@@ -2544,13 +2545,14 @@ local function RunCoopHost(isBackHelp)
         local cloneReportedFail = false
         local curJob = tostring(game.JobId)
         for _, c in ipairs(clones) do
-            if tostring(c.jobId) ~= curJob then
+            local cloneInGame = Players:GetPlayerByUserId(tonumber(c.userId) or 0) ~= nil
+            if not cloneInGame and tostring(c.jobId) ~= curJob then
                 missingClones = missingClones + 1
             end
             if c.isHopping == true then
                 hoppingClones = hoppingClones + 1
             end
-            if tostring(c.failedJob or "") == curJob and c.isHopping ~= true then
+            if not cloneInGame and tostring(c.failedJob or "") == curJob and c.isHopping ~= true then
                 cloneReportedFail = true
             end
         end
@@ -2565,6 +2567,7 @@ local function RunCoopHost(isBackHelp)
             lastFailScan = os.clock()
             CleanupMovement()
             roomState = "PREPARING"
+            initialPlayerChecked = false
             stableSince = 0
             WriteGhoulRoomAsHost("PREPARING", "", isBackHelp)
             SetStatus(("%s: Clone báo lỗi join server -> Đổi sang PREPARING & Hop server mới!"):format(helperTag))
@@ -2572,14 +2575,17 @@ local function RunCoopHost(isBackHelp)
             return
         end
 
-        -- PHA 1: PREPARING (Kiểm tra curPlayers <= 7 và 12 - curPlayers >= missingClones + 1, ổn định 3s)
+        -- PHA 1: PREPARING (Chỉ check <= 6 player đúng 1 lần đầu tiên; sau đó dù tăng > 6 player cũng KHÔNG hop tìm server ít người nữa)
         if roomState == "PREPARING" then
-            if not IsCoopServerQualified(missingClones) then
-                CleanupMovement()
-                WriteGhoulRoomAsHost("PREPARING", "", isBackHelp)
-                SetStatus(("%s [PREPARING]: Server %d/12 (thiếu %d Clone) chưa đạt chuẩn -> Hop server vắng..."):format(helperTag, #Players:GetPlayers(), missingClones))
-                HopCoopLow(math.max(missingClones, 1))
-                return
+            if not initialPlayerChecked then
+                initialPlayerChecked = true
+                if not IsCoopServerQualified(missingClones) then
+                    CleanupMovement()
+                    WriteGhoulRoomAsHost("PREPARING", "", isBackHelp)
+                    SetStatus(("%s [PREPARING]: Server %d/12 (> 6 player) ngay lần check đầu -> Hop server vắng..."):format(helperTag, #Players:GetPlayers()))
+                    HopCoopLow(math.max(missingClones, 1))
+                    return
+                end
             end
 
             if stableSince == 0 then
@@ -2589,26 +2595,16 @@ local function RunCoopHost(isBackHelp)
 
             local waited = os.clock() - stableSince
             if waited < 3.0 then
-                SetStatus(("%s [PREPARING]: Đã đáp server đạt chuẩn (%d/12), ổn định %.1f/3.0s..."):format(helperTag, #Players:GetPlayers(), waited))
+                SetStatus(("%s [PREPARING]: Đã qua check đầu (%d/12), ổn định %.1f/3.0s..."):format(helperTag, #Players:GetPlayers(), waited))
                 SleepCheck(0.5)
                 continue
             end
 
-            -- Đủ 3s ổn định -> Chốt PHA 2: OPEN
+            -- Đủ 3s ổn định -> Chốt PHA 2: OPEN (Khóa server này, không bao giờ hop vì số player > 6 nữa)
             roomState = "OPEN"
             WriteGhoulRoomAsHost("OPEN", curJob, isBackHelp)
             SetStatus(("%s [OPEN]: Đã mở phòng %s cho %d Clone hội quân!"):format(helperTag, curJob:sub(1, 8), totalClones))
         else
-            -- Đang ở PHA OPEN: nếu server bị người lạ tràn vào khiến thiếu slot cho Clone chưa vào -> quay về PREPARING
-            if missingClones > 0 and (12 - #Players:GetPlayers()) < missingClones then
-                CleanupMovement()
-                roomState = "PREPARING"
-                stableSince = 0
-                WriteGhoulRoomAsHost("PREPARING", "", isBackHelp)
-                SetStatus(("%s [OPEN -> PREPARING]: Server đầy (%d/12) trong lúc Clone chưa vào -> Hop mới!"):format(helperTag, #Players:GetPlayers()))
-                HopCoopLow(math.max(missingClones, 1))
-                return
-            end
             WriteGhoulRoomAsHost("OPEN", curJob, isBackHelp)
         end
 
