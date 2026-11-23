@@ -603,9 +603,11 @@ local function HopServer(mode, isEctoHop, maxPlayersLimit)
         local list = {}
         local browser = ReplicatedStorage:FindFirstChild("__ServerBrowser")
         if browser then
+            local maxPages = 60
             local done, byJob = 0, {}
-            for page = 1, 150 do
+            for page = 1, maxPages do
                 if Stopped() then break end
+                if page % 15 == 0 then task.wait() end
                 task.spawn(function()
                     for _ = 1, 2 do
                         if Stopped() then break end
@@ -624,13 +626,13 @@ local function HopServer(mode, isEctoHop, maxPlayersLimit)
                             end
                             break
                         end
-                        task.wait(0.04)
+                        task.wait(0.05)
                     end
                     done = done + 1
                 end)
             end
             local t0 = os.clock()
-            repeat task.wait(0.05) until Stopped() or done >= 150 or (os.clock() - t0) >= 3.5
+            repeat task.wait(0.1) until Stopped() or done >= maxPages or (os.clock() - t0) >= 3.0
             for _, s in pairs(byJob) do table.insert(list, s) end
         end
 
@@ -1859,25 +1861,12 @@ local function GetEnclosingSafeZone(pos, margin)
     return nil
 end
 
-local lastLocalUiSzCheck, cachedLocalUiSz = 0, false
 local function IsInSafeZone(player)
     if player == LocalPlayer then
         local pgui = LocalPlayer:FindFirstChild("PlayerGui")
         local main = pgui and pgui:FindFirstChild("Main")
         local sz = main and main:FindFirstChild("SafeZone")
         if sz and sz.Visible then return true end
-        if pgui and (os.clock() - lastLocalUiSzCheck) >= 0.5 then
-            lastLocalUiSzCheck = os.clock()
-            local found = false
-            for _, d in ipairs(pgui:GetDescendants()) do
-                if d:IsA("TextLabel") and d.Visible and d.Text:lower():find("safe zone") then
-                    found = true
-                    break
-                end
-            end
-            cachedLocalUiSz = found
-        end
-        if cachedLocalUiSz then return true end
     end
 
     local char = player.Character
@@ -1885,18 +1874,10 @@ local function IsInSafeZone(player)
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if hrp and GetEnclosingSafeZone(hrp.Position, 0) then return true end
     if char:FindFirstChild("SafeZone") or char:FindFirstChild("InSafeZone") then return true end
-    for k, v in pairs(char:GetAttributes()) do
-        if k:lower():find("safezone") and (v == true or (type(v) == "number" and v > 0)) then return true end
-    end
+    if char:GetAttribute("SafeZone") or player:GetAttribute("SafeZone") then return true end
     local pData = player:FindFirstChild("Data")
-    if pData then
-        for _, v in ipairs(pData:GetChildren()) do
-            if v.Name:lower():find("safezone") and (v.Value == true or (type(v.Value) == "number" and v.Value > 0)) then return true end
-        end
-    end
-    for k, v in pairs(player:GetAttributes()) do
-        if k:lower():find("safezone") and (v == true or (type(v) == "number" and v > 0)) then return true end
-    end
+    local dSz = pData and pData:FindFirstChild("SafeZone")
+    if dSz and (dSz.Value == true or (type(dSz.Value) == "number" and dSz.Value > 0)) then return true end
     return false
 end
 
@@ -1906,14 +1887,6 @@ local function HasTruePvPDisabled(player)
         local main = pgui and pgui:FindFirstChild("Main")
         local pd = main and main:FindFirstChild("PvpDisabled")
         if pd and pd.Visible then return true end
-        if pgui then
-            for _, d in ipairs(pgui:GetDescendants()) do
-                if d:IsA("TextLabel") and d.Visible then
-                    local t = d.Text:lower()
-                    if t:find("pvp disabled") or t:find("died recently") then return true end
-                end
-            end
-        end
     end
 
     local char = player.Character
@@ -2262,8 +2235,10 @@ local function SetupSilentAimHooks()
     end)
 end
 
+local CachedSkillSlots = {}
 local function IsSkillReady(key)
-    local main = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("Main")
+    local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+    local main = pgui and pgui:FindFirstChild("Main")
     local skills = main and main:FindFirstChild("Skills")
     local box = skills or main
     if not box or (skills and not skills.Visible) then return false end
@@ -2276,32 +2251,26 @@ local function IsSkillReady(key)
         return true
     end
 
-    local slot = box:FindFirstChild(key, true) or box:FindFirstChild("[" .. key .. "]", true) or box:FindFirstChild(key:lower(), true)
-    if not (slot and slot:IsA("GuiObject") and visibleChain(slot)) then
-        slot = nil
-        for _, d in ipairs(box:GetDescendants()) do
-            if (d:IsA("TextLabel") or d:IsA("TextButton")) and visibleChain(d) then
-                local c = d.Text:gsub("%s+", ""):upper()
-                if (c == "[" .. key .. "]" or c == key) and d.Parent and d.Parent:IsA("GuiObject") then
-                    slot = d.Parent; break
+    local slot = CachedSkillSlots[key]
+    if not (slot and slot.Parent and slot:IsDescendantOf(box) and visibleChain(slot)) then
+        slot = box:FindFirstChild(key, true) or box:FindFirstChild("[" .. key .. "]", true) or box:FindFirstChild(key:lower(), true)
+        if not (slot and slot:IsA("GuiObject") and visibleChain(slot)) then
+            slot = nil
+            for _, d in ipairs(box:GetDescendants()) do
+                if (d:IsA("TextLabel") or d:IsA("TextButton")) and visibleChain(d) then
+                    local c = d.Text:gsub("%s+", ""):upper()
+                    if (c == "[" .. key .. "]" or c == key) and d.Parent and d.Parent:IsA("GuiObject") then
+                        slot = d.Parent; break
+                    end
                 end
             end
         end
+        CachedSkillSlots[key] = slot
     end
     if not slot then return false end
 
     local titleObj = slot:FindFirstChild("Title") or slot:FindFirstChild("SkillTitle") or slot:FindFirstChild("Name")
     local title = (titleObj and titleObj:IsA("TextLabel") and titleObj.Text) or ""
-    if title == "" then
-        for _, lbl in ipairs(slot:GetDescendants()) do
-            if lbl:IsA("TextLabel") and lbl.Visible and #lbl.Text > 0 then
-                local tl = lbl.Text:lower()
-                if not (tl:find("%[" .. key:lower() .. "%]") or tl == key:lower() or tl:find("thông thạo") or tl:find("mastery") or tl:find("tối đa") or tl:find("/")) then
-                    title = lbl.Text; break
-                end
-            end
-        end
-    end
     local tl = title:lower()
     if tl:find("locked") or tl:find("chưa mở") then return false end
 
