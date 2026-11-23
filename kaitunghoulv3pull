@@ -2532,7 +2532,12 @@ local function RunCoopHost(isBackHelp)
 
         local clones = topo.clones or {}
         local totalClones = #clones
-        local helperTag = ("%s [%s | STT 0/%d]"):format(isBackHelp and "Back-Help" or "Helper", LocalPlayer.Name, totalClones)
+        local cloneNames = {}
+        for _, c in ipairs(clones) do
+            table.insert(cloneNames, tostring(c.name or c.userId))
+        end
+        local targetsStr = (#cloneNames > 0) and (" -> Hỗ trợ: " .. table.concat(cloneNames, ", ")) or ""
+        local helperTag = ("%s: %s%s [STT 0/%d]"):format(isBackHelp and "Back-Help" or "Helper", LocalPlayer.Name, targetsStr, totalClones)
 
         local missingClones = 0
         local hoppingClones = 0
@@ -2899,9 +2904,10 @@ local function RunGhoulV3Phase()
             local room = topo.room
             local hostEntry = topo.hostEntry
             local hostName = tostring((room and room.hostName) or (hostEntry and hostEntry.name) or "?")
+            local hostRoleLabel = topo.isBackHelp and "Back-Help" or "Host/Helper"
             local roomState = room and tostring(room.state or "PREPARING") or "PREPARING"
             local roomJob = room and tostring(room.jobId or "") or ""
-            local cloneSelfTag = ("Co-op Clone [%s | STT %d/%d]"):format(LocalPlayer.Name, topo.mySTT, topo.totalClones)
+            local coopTag = ("Co-op [%s: %s | STT %d/%d]"):format(hostRoleLabel, hostName, topo.mySTT, topo.totalClones)
 
             -- Luật cứng: Khi room.state ~= "OPEN" hoặc room.jobId == "" -> đứng yên chờ ở Sea 2, cấm teleport
             if GetSea() ~= 2 then
@@ -2909,25 +2915,25 @@ local function RunGhoulV3Phase()
             elseif roomState ~= "OPEN" or roomJob == "" then
                 MyPresenceState.readyAtHelp = false
                 SetHoppingState(false)
-                SetStatus(("%s: Đứng yên chờ Host (%s) chốt phòng [State: %s]..."):format(cloneSelfTag, hostName, roomState))
+                SetStatus(("%s: Đứng yên chờ %s (%s) chốt phòng [State: %s]..."):format(coopTag, hostRoleLabel, hostName, roomState))
                 SleepCheck(1.5)
             elseif roomJob ~= tostring(game.JobId) then
                 MyPresenceState.readyAtHelp = false
                 if lastFailedJoinJob == roomJob then
                     SetHoppingState(false)
                     SyncV3SessionEntry({ readyAtHelp = false })
-                    SetStatus(("%s: Lỗi join %s -> Đã báo Host (%s) đổi server..."):format(cloneSelfTag, roomJob:sub(1, 8), hostName))
+                    SetStatus(("%s: Lỗi join %s -> Đã báo %s (%s) đổi server..."):format(coopTag, roomJob:sub(1, 8), hostRoleLabel, hostName))
                     SleepCheck(1.5)
                 elseif (os.clock() - lastRoomTpClock) < 10.0 then
                     local waitCd = math.max(0, 10.0 - (os.clock() - lastRoomTpClock))
-                    SetStatus(("%s: Cooldown join server Host (%s) %.1fs..."):format(cloneSelfTag, hostName, waitCd))
+                    SetStatus(("%s: Cooldown join server %s (%s) %.1fs..."):format(coopTag, hostRoleLabel, hostName, waitCd))
                     SleepCheck(1.0)
                 else
                     lastRoomTpClock = os.clock()
                     lastTeleportFailedFlag = false
                     pendingTeleportJob = roomJob
                     SetHoppingState(true)
-                    SetStatus(("%s [OPEN]: Gọi __ServerBrowser join %s..."):format(cloneSelfTag, roomJob:sub(1, 8)))
+                    SetStatus(("%s [OPEN]: Gọi __ServerBrowser join %s..."):format(coopTag, roomJob:sub(1, 8)))
                     if not game:IsLoaded() then
                         repeat task.wait() until game:IsLoaded() or Stopped()
                     end
@@ -2945,6 +2951,8 @@ local function RunGhoulV3Phase()
                 local currentSTT = topo.mySTT
                 local currentTotalClones = topo.totalClones
                 local currentWhitelist = topo.whitelistUids
+                local currentHostName = hostName
+                local currentHostLabel = hostRoleLabel
                 local currentMoveTarget = POS_COOP_HELP
 
                 EnsureTeam(currentSTT == 1 and "Pirates" or "Marines")
@@ -2972,6 +2980,8 @@ local function RunGhoulV3Phase()
                         currentTotalClones = t2.totalClones
                         currentWhitelist = t2.whitelistUids
                         local r2 = t2.room
+                        currentHostName = tostring((r2 and r2.hostName) or (t2.hostEntry and t2.hostEntry.name) or currentHostName)
+                        currentHostLabel = t2.isBackHelp and "Back-Help" or "Host/Helper"
                         if t2.myRole ~= "clone" or not r2 or r2.state ~= "OPEN" or tostring(r2.jobId) ~= tostring(game.JobId) then
                             MyPresenceState.readyAtHelp = false
                             StopPvPTween()
@@ -3001,11 +3011,11 @@ local function RunGhoulV3Phase()
                         local validVictim = GetCoopWhitelistTarget(currentWhitelist)
                         if validVictim and validVictim.Character then
                             currentMoveTarget = validVictim
-                            EngageTargetStep(validVictim, validVictim.Character, myHRP, cloneStart, ("Co-op [%s | STT 1/%d] Kill"):format(LocalPlayer.Name, currentTotalClones), true)
+                            EngageTargetStep(validVictim, validVictim.Character, myHRP, cloneStart, ("Co-op [%s: %s | STT 1/%d] Kill"):format(currentHostLabel, currentHostName, currentTotalClones), true)
                         else
                             hoverAboveMode = false
                             currentMoveTarget = POS_COOP_HELP
-                            SetStatus(("Co-op [%s | STT 1/%d]: Giữ vị trí tại điểm Help (%.0f stud) chờ mục tiêu..."):format(LocalPlayer.Name, currentTotalClones, distToHelp))
+                            SetStatus(("Co-op [%s: %s | STT 1/%d]: Giữ vị trí tại điểm Help (%.0f stud) chờ mục tiêu..."):format(currentHostLabel, currentHostName, currentTotalClones, distToHelp))
                             SleepCheck(0.35)
                         end
                     else
@@ -3020,12 +3030,12 @@ local function RunGhoulV3Phase()
                         currentMoveTarget = sacPos
                         local distToSac = (sacPos - myHRP.Position).Magnitude
                         MyPresenceState.readyAtHelp = (distToSac <= 15)
-                        local tempHelperTag = ("Helper Tạm [%s | STT %d/%d]"):format(LocalPlayer.Name, currentSTT, currentTotalClones)
+                        local helperTag = ("Co-op [%s: %s | Helper STT %d/%d]"):format(currentHostLabel, currentHostName, currentSTT, currentTotalClones)
 
                         if distToSac > 5 then
-                            SetStatus(("%s: Đang bay tới điểm Help (%.0f stud)..."):format(tempHelperTag, distToSac))
+                            SetStatus(("%s: Đang bay tới điểm Help (%.0f stud)..."):format(helperTag, distToSac))
                         else
-                            SetStatus(("%s: Đứng giãn cách 3 studs tại điểm Help (PvP ON)..."):format(tempHelperTag))
+                            SetStatus(("%s: Đứng giãn cách 3 studs tại điểm Help (PvP ON)..."):format(helperTag))
                         end
                         SleepCheck(0.35)
                     end
