@@ -52,7 +52,7 @@ local COOP_LAW_TTL         = 25
 local HOP_CACHE_FILE       = LOG_FOLDER .. "/AutoCyborgV3_HopCache.json"
 local NH_VISITED_FILE      = LOG_FOLDER .. "/Axiom_VisitedServers.json"
 
-local DEFAULT_REALKID_KEY = "TRAU_PREMIUM_306B4DB2D52F3D14BAB7247D2CC4B53D8E3C8EC77B572154"
+local DEFAULT_REALKID_KEY = "TRAU_PREMIUM_8DDCDEF3424E2B1A4DDDD95A56E7FE720D3ACBEF1C0197E6"
 local function ResolveRealKidKey()
     return (type(getgenv) == "function" and ((type(getgenv().RealKidKey) == "string" and getgenv().RealKidKey ~= "" and getgenv().RealKidKey) or (type(getgenv().Key) == "string" and getgenv().Key ~= "" and getgenv().Key))) or DEFAULT_REALKID_KEY
 end
@@ -1249,22 +1249,10 @@ local function HasRaceV3()
     return false
 end
 
-local V2_CACHE_FILE = LOG_FOLDER .. "/v2_" .. LocalPlayer.Name .. ".txt"
-
 local function HasRaceV2()
-    if HasRaceV3() then
-        if writefile then pcall(writefile, V2_CACHE_FILE, "1") end
-        return true
-    end
-    if IsCyborg() and isfile and isfile(V2_CACHE_FILE) then
-        return true
-    end
-    local ok, st = pcall(function() return CommF:InvokeServer("Alchemist", "1") end)
-    if ok and tonumber(st) == -2 then
-        if IsCyborg() and writefile then pcall(writefile, V2_CACHE_FILE, "1") end
-        return true
-    end
-    return false
+    if HasRaceV3() then return true end
+    local ok, res = pcall(function() return CommF:InvokeServer("Alchemist", "1") end)
+    return ok and (res == -2)
 end
 
 -- Nhận diện & tự động Store toàn bộ Fruit trong túi đồ trước khi sang Sea 3
@@ -2688,25 +2676,16 @@ if not hasV3 then
         return
     end
 
-    -- Nếu đang ở Sea 3 mà chưa xác nhận được V2 (do Alchemist ở Sea 2) nhưng đã có >= 2M Beli -> Sang Sea 2 check V2/mua V3 luôn
-    if GetSea() ~= 2 and not hasV2 and GetBeli() >= 2000000 then
-        SetStatus(("Đang ở Sea %d với %d Beli -> Sang Sea 2 kiểm tra V2 & nâng cấp V3..."):format(GetSea(), GetBeli()))
-        TravelToSea(2)
-        if Stopped() then return end
-        hasV2 = HasRaceV2()
-        hasV3 = HasRaceV3()
-        if hasV3 then
-            EnsureNoFruitInInventory()
-            TravelToSea(3)
-            return
-        end
-    end
-
     local reqBeli = hasV2 and 2000000 or 2500000 -- 500k cho V2 (nếu chưa V2) + 2M cho V3
     local needBeliForV3 = GetBeli() < reqBeli
 
     if needBeliForV3 then
-        if GetSea() ~= 3 then TravelToSea(3) end
+        if GetSea() ~= 3 then
+            SetStatus(("Thiếu Beli nâng cấp Cyborg %s (%d / %d Beli) -> Sang Sea 3 farm Chest..."):format(
+                hasV2 and "V3" or "V2+V3", GetBeli(), reqBeli
+            ))
+            TravelToSea(3)
+        end
         if Stopped() then return end
 
         local chestOverrides = {
